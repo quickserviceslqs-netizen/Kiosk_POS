@@ -1,0 +1,14 @@
+{
+  "enabled": false,
+  "smtp_server": "cj",
+  "smtp_port": 587,
+  "smtp_username": "kj",
+  "smtp_password": "jlk",
+  "from_email": "jkl",
+  "to_emails": [
+    "jnl"
+  ],
+  "daily_report_enabled": false,
+  "low_stock_alerts_enabled": true,
+  "low_stock_threshold": 10
+}
