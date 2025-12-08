@@ -1,8 +1,11 @@
-"""Inventory management UI."""
 from __future__ import annotations
+from utils.security import get_currency_code
+"""Inventory management UI."""
 
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
+import shutil
+import os
 
 from modules import items
 from modules import vat_rates
@@ -41,14 +44,21 @@ class InventoryFrame(ttk.Frame):
         ttk.Button(btn_row, text="Delete Item", command=self._delete_selected_checked).pack(side=tk.LEFT, padx=2)
         ttk.Button(btn_row, text="Export CSV", command=self._export_csv).pack(side=tk.LEFT, padx=2)
         ttk.Button(btn_row, text="Import CSV", command=self._import_csv_checked).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_row, text="Export Template", command=self._export_template).pack(side=tk.LEFT, padx=2)
 
-        columns = ("name", "category", "cost_price", "selling_price", "quantity", "barcode")
+        columns = ("name", "category", "currency", "cost_price", "selling_price", "quantity", "barcode")
         tree = ttk.Treeview(self, columns=columns, show="headings", height=12)
         tree.grid(row=2, column=0, sticky=tk.NSEW, pady=8)
+
+        # Add horizontal scrollbar
+        xscrollbar = ttk.Scrollbar(self, orient=tk.HORIZONTAL, command=tree.xview)
+        tree.configure(xscroll=xscrollbar.set)
+        xscrollbar.grid(row=3, column=0, sticky=tk.EW)
 
         headings = {
             "name": "Name",
             "category": "Category",
+            "currency": "Currency",
             "cost_price": "Cost",
             "selling_price": "Price",
             "quantity": "Qty",
@@ -59,6 +69,7 @@ class InventoryFrame(ttk.Frame):
             tree.column(col, width=90, anchor=tk.W)
         tree.column("name", width=140)
         tree.column("category", width=120)
+        tree.column("currency", width=80)
         tree.column("barcode", width=120)
 
         scrollbar = ttk.Scrollbar(self, orient=tk.VERTICAL, command=tree.yview)
@@ -87,15 +98,19 @@ class InventoryFrame(ttk.Frame):
             self.tree.delete(row)
         rows = items.list_items(search=search if search else None)
         self.count_var.set(f"Items: {len(rows)}")
+        from utils.security import get_currency_code
+        global_currency = get_currency_code()
         for row in rows:
             tags = []
             if row["quantity"] <= self.LOW_STOCK_THRESHOLD:
                 tags.append("low")
+            cost = row["cost_price"] if isinstance(row["cost_price"], (int, float)) else 0.0
+            price = row["selling_price"] if isinstance(row["selling_price"], (int, float)) else 0.0
             self.tree.insert(
                 "",
                 tk.END,
                 iid=str(row["item_id"]),
-                values=(row["name"], row.get("category", ""), row["cost_price"], row["selling_price"], row["quantity"], row.get("barcode", "")),
+                values=(row["name"], row.get("category", ""), global_currency, f"{cost:.2f}", f"{price:.2f}", row["quantity"], row.get("barcode", "")),
                 tags=tuple(tags),
             )
         self.tree.tag_configure("low", foreground="red")
@@ -168,6 +183,30 @@ class InventoryFrame(ttk.Frame):
     def _open_item_dialog(self, *, title: str, existing: dict | None) -> None:
         dialog = tk.Toplevel(self)
         dialog.title(title)
+        # Set the app's custom icon for the dialog (supports PyInstaller and source). If ICO doesn't work, use logo.png via iconphoto.
+        try:
+            import sys
+            if hasattr(sys, "_MEIPASS"):
+                icon_path = os.path.join(sys._MEIPASS, "assets", "app_icon.ico")
+            else:
+                icon_path = os.path.join(os.path.dirname(__file__), '../assets', 'app_icon.ico')
+                icon_path = os.path.abspath(icon_path)
+            if os.path.exists(icon_path):
+                try:
+                    dialog.iconbitmap(icon_path)
+                except Exception:
+                    pass
+            # fallback to logo.png using iconphoto (works well on modern Windows)
+            png_path = os.path.join(os.path.dirname(__file__), '../assets/logo.png')
+            png_path = os.path.abspath(png_path)
+            if os.path.exists(png_path):
+                try:
+                    img = tk.PhotoImage(file=png_path)
+                    dialog.iconphoto(True, img)
+                except Exception:
+                    pass
+        except Exception:
+            pass
         dialog.transient(self.winfo_toplevel())
         dialog.grab_set()
 
@@ -309,3 +348,22 @@ class InventoryFrame(ttk.Frame):
             self.refresh()
         except Exception as exc:
             messagebox.showerror("Import Error", str(exc))
+
+    def _export_template(self):
+        import tkinter.filedialog as fd
+        import shutil
+        import os
+        template_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'assets', 'inventory_import_template.csv'))
+        dest_path = fd.asksaveasfilename(
+            title="Save Import Template",
+            defaultextension=".csv",
+            filetypes=[("CSV Files", "*.csv")],
+            initialfile="inventory_import_template.csv"
+        )
+        if not dest_path:
+            return
+        try:
+            shutil.copyfile(template_path, dest_path)
+            messagebox.showinfo("Template Exported", f"Template saved to {dest_path}")
+        except Exception as e:
+            messagebox.showerror("Export Failed", f"Could not export template: {e}")
