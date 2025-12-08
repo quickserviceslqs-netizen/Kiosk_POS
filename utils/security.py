@@ -1,6 +1,14 @@
-"""Password hashing utilities using PBKDF2-HMAC (SHA-256)."""
 from __future__ import annotations
+"""Password hashing utilities using PBKDF2-HMAC (SHA-256)."""
 
+def get_currency_code():
+    """Return the configured ISO 4217 currency code (e.g., 'USD', 'KES')."""
+    from database.init_db import get_connection
+    with get_connection() as conn:
+        cursor = conn.execute("SELECT value FROM settings WHERE key = 'currency'")
+        row = cursor.fetchone()
+        return row[0] if row else "USD"
+ 
 import hashlib
 import hmac
 import os

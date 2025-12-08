@@ -6,6 +6,7 @@ from tkinter import ttk
 from datetime import datetime
 
 from modules import dashboard
+from utils.security import get_currency_code
 
 
 class DashboardFrame(ttk.Frame):
@@ -141,9 +142,10 @@ class DashboardFrame(ttk.Frame):
     def _create_summary_card(self, parent: tk.Widget, title: str, icon: str) -> ttk.Frame:
         """Create a summary statistics card."""
         card = ttk.LabelFrame(parent, text=f"{icon} {title}", padding=12)
+        currency = get_currency_code()
         
         # Revenue label
-        revenue_label = ttk.Label(card, text="KSH 0.00", font=("Segoe UI", 18, "bold"), foreground="#2E7D32")
+        revenue_label = ttk.Label(card, text=f"{currency} 0.00", font=("Segoe UI", 18, "bold"), foreground="#2E7D32")
         revenue_label.pack()
         
         # Transactions label
@@ -158,17 +160,19 @@ class DashboardFrame(ttk.Frame):
 
     def _refresh_data(self) -> None:
         """Refresh all dashboard data."""
+        currency = get_currency_code()
+        
         # Update summary cards
         today = dashboard.get_today_summary()
-        self.today_card.revenue_label.config(text=f"KSH {today['revenue']:.2f}")
+        self.today_card.revenue_label.config(text=f"{currency} {today['revenue']:.2f}")
         self.today_card.trans_label.config(text=f"{today['transactions']} transactions | {today['items_sold']} items sold")
         
         week = dashboard.get_week_summary()
-        self.week_card.revenue_label.config(text=f"KSH {week['revenue']:.2f}")
+        self.week_card.revenue_label.config(text=f"{currency} {week['revenue']:.2f}")
         self.week_card.trans_label.config(text=f"{week['transactions']} transactions")
         
         month = dashboard.get_month_summary()
-        self.month_card.revenue_label.config(text=f"KSH {month['revenue']:.2f}")
+        self.month_card.revenue_label.config(text=f"{currency} {month['revenue']:.2f}")
         self.month_card.trans_label.config(text=f"{month['transactions']} transactions")
         
         # Update top products
@@ -177,7 +181,7 @@ class DashboardFrame(ttk.Frame):
             self.top_products_tree.insert("", tk.END, values=(
                 product["name"],
                 product["quantity_sold"],
-                f"KSH {product['revenue']:.2f}"
+                f"{currency} {product['revenue']:.2f}"
             ))
         
         # Update low stock alerts

@@ -4,12 +4,12 @@
 
 
 [Setup]
-AppName=Kiosk POS v1.000
-AppVersion=1.000
+AppName=Kiosk POS v1.001
+AppVersion=1.001
 DefaultDirName={commonpf}\KioskPOS
-DefaultGroupName=Kiosk POS v1.000
+DefaultGroupName=Kiosk POS v1.001
 OutputDir=dist
-OutputBaseFilename=KioskPOS_Installer_v1.000
+OutputBaseFilename=KioskPOS_Installer_v1.001
 Compression=lzma
 SolidCompression=yes
 PrivilegesRequired=none
@@ -17,16 +17,25 @@ SetupIconFile=assets\app_icon.ico
 
 [Files]
 Source: "dist\main.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "assets\app_icon.ico"; DestDir: "{app}\assets"; Flags: ignoreversion
+Source: "assets\logo.png"; DestDir: "{app}\assets"; Flags: ignoreversion
 Source: "assets\*"; DestDir: "{app}\assets"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "database\init_db.py"; DestDir: "{app}\database"; Flags: ignoreversion
 Source: "database\__init__.py"; DestDir: "{app}\database"; Flags: ignoreversion
 Source: "email_config.json"; DestDir: "{app}"; Flags: ignoreversion
+; Don't copy Python source files from `ui` or `utils` - the bundled EXE contains the UI and code.
+; Source: "ui\settings.py"; DestDir: "{app}\ui"; Flags: ignoreversion
+; Source: "ui\pos.py"; DestDir: "{app}\ui"; Flags: ignoreversion
+; Source: "ui\reports.py"; DestDir: "{app}\ui"; Flags: ignoreversion
+; Source: "ui\expenses.py"; DestDir: "{app}\ui"; Flags: ignoreversion
+; Source: "ui\inventory.py"; DestDir: "{app}\ui"; Flags: ignoreversion
+; Source: "utils\security.py"; DestDir: "{app}\utils"; Flags: ignoreversion
 
 
 [Icons]
-Name: "{group}\Kiosk POS v1.000"; Filename: "{app}\main.exe"; IconFilename: "{app}\assets\app_icon.ico"
-Name: "{group}\Uninstall Kiosk POS v1.000"; Filename: "{uninstallexe}"
-Name: "{commondesktop}\Kiosk POS v1.000"; Filename: "{app}\main.exe"; IconFilename: "{app}\assets\app_icon.ico"
+Name: "{group}\Kiosk POS v1.001"; Filename: "{app}\main.exe"; IconFilename: "{app}\assets\app_icon.ico"
+Name: "{group}\Uninstall Kiosk POS v1.001"; Filename: "{uninstallexe}"
+Name: "{commondesktop}\Kiosk POS v1.001"; Filename: "{app}\main.exe"; IconFilename: "{app}\assets\app_icon.ico"
 
 [Run]
 Filename: "{app}\main.exe"; Description: "Launch Kiosk POS"; Flags: nowait postinstall skipifsilent

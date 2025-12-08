@@ -1,5 +1,6 @@
-"""Sales reporting UI."""
 from __future__ import annotations
+from utils.security import get_currency_code
+"""Sales reporting UI."""
 
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -106,22 +107,24 @@ class ReportsFrame(ttk.Frame):
     def _show_daily_report(self, date: str) -> None:
         sales = reports.get_daily_sales(date)
         summary = reports.get_sales_summary(date, date)
-        
+        currency_code = get_currency_code()
+
         output = f"DAILY SALES REPORT - {date}\n"
         output += "=" * 60 + "\n\n"
         output += f"Total Transactions: {summary.get('total_transactions', 0) or 0}\n"
-        output += f"Total Sales: {summary.get('total_sales', 0) or 0:.2f}\n"
+        output += f"Total Sales: {currency_code} {summary.get('total_sales', 0) or 0:.2f}\n"
         output += f"Average Transaction: {summary.get('avg_transaction', 0) or 0:.2f}\n"
         output += "\n" + "-" * 60 + "\n"
-        output += f"{'Time':<12} {'Sale ID':<10} {'Items':<8} {'Total':<12}\n"
+        output += f"{'Time':<12} {'Sale ID':<10} {'Items':<8} {'Total':<12}".replace('Total', f'Total ({currency_code})') + "\n"
         output += "-" * 60 + "\n"
         
         for sale in sales:
-            output += f"{sale['time']:<12} #{sale['sale_id']:<9} {sale['item_count']:<8} {sale['total']:<12.2f}\n"
+            output += f"{sale['time']:<12} #{sale['sale_id']:<9} {sale['item_count']:<8} {currency_code} {sale['total']:<12.2f}\n"
         
         self.report_text.insert("1.0", output)
 
     def _show_range_report(self, start: str, end: str) -> None:
+        currency_code = get_currency_code()
         daily_sales = reports.get_date_range_sales(start, end)
         summary = reports.get_sales_summary(start, end)
         
@@ -129,18 +132,19 @@ class ReportsFrame(ttk.Frame):
         output += f"Period: {start} to {end}\n"
         output += "=" * 60 + "\n\n"
         output += f"Total Transactions: {summary.get('total_transactions', 0) or 0}\n"
-        output += f"Total Sales: {summary.get('total_sales', 0) or 0:.2f}\n"
+        output += f"Total Sales: {currency_code} {summary.get('total_sales', 0) or 0:.2f}\n"
         output += f"Average Transaction: {summary.get('avg_transaction', 0) or 0:.2f}\n"
         output += "\n" + "-" * 60 + "\n"
-        output += f"{'Date':<12} {'Trans.':<10} {'Total Sales':<15} {'Avg Sale':<12}\n"
+        output += f"{'Date':<12} {'Trans.':<10} {'Total Sales':<15} {'Avg Sale':<12}".replace('Total Sales', f'Total Sales ({currency_code})').replace('Avg Sale', f'Avg Sale ({currency_code})') + "\n"
         output += "-" * 60 + "\n"
         
         for day in daily_sales:
-            output += f"{day['date']:<12} {day['transactions']:<10} {day['total_sales']:<15.2f} {day['avg_sale']:<12.2f}\n"
+            output += f"{day['date']:<12} {day['transactions']:<10} {currency_code} {day['total_sales']:<15.2f} {currency_code} {day['avg_sale']:<12.2f}\n"
         
         self.report_text.insert("1.0", output)
 
     def _show_bestsellers_report(self, start: str, end: str) -> None:
+        currency_code = get_currency_code()
         items = reports.get_best_selling_items(start, end, limit=20)
         
         output = f"BEST-SELLING ITEMS REPORT\n"
@@ -151,28 +155,30 @@ class ReportsFrame(ttk.Frame):
         
         for idx, item in enumerate(items, 1):
             cat = item.get('category') or 'N/A'
-            output += f"{idx:<6} {item['name']:<25} {cat:<15} {item['total_sold']:<10} {item['revenue']:<12.2f} {item.get('profit', 0) or 0:<12.2f}\n"
+            output += f"{idx:<6} {item['name']:<25} {cat:<15} {item['total_sold']:<10} {currency_code} {item['revenue']:<12.2f} {currency_code} {item.get('profit', 0) or 0:<12.2f}\n"
         
         self.report_text.insert("1.0", output)
 
     def _show_profit_report(self, start: str, end: str) -> None:
+        currency_code = get_currency_code()
         analysis = reports.get_profit_analysis(start, end)
         
         output = f"PROFIT & LOSS ANALYSIS\n"
         output += f"Period: {start} to {end}\n"
         output += "=" * 60 + "\n\n"
-        output += f"Total Revenue:        {analysis.get('total_revenue', 0) or 0:>15.2f}\n"
-        output += f"Cost of Goods Sold:   {analysis.get('total_cost', 0) or 0:>15.2f}\n"
-        output += f"                      {'─' * 15}\n"
-        output += f"Gross Profit:         {analysis.get('gross_profit', 0) or 0:>15.2f}\n\n"
-        output += f"Total Expenses:       {analysis.get('total_expenses', 0) or 0:>15.2f}\n"
-        output += f"                      {'─' * 15}\n"
-        output += f"Net Profit:           {analysis.get('net_profit', 0) or 0:>15.2f}\n\n"
+        output += f"Total Revenue:        {currency_code} {analysis.get('total_revenue', 0) or 0:>15.2f}\n"
+        output += f"Cost of Goods Sold:   {currency_code} {analysis.get('total_cost', 0) or 0:>15.2f}\n"
+        output += "\n"
+        output += f"Gross Profit:         {currency_code} {analysis.get('gross_profit', 0) or 0:>15.2f}\n\n"
+        output += f"Total Expenses:       {currency_code} {analysis.get('total_expenses', 0) or 0:>15.2f}\n"
+        output += "\n"
+        output += f"Net Profit:           {currency_code} {analysis.get('net_profit', 0) or 0:>15.2f}\n\n"
         output += f"Profit Margin:        {analysis.get('profit_margin', 0) or 0:>14.2f}%\n"
         
         self.report_text.insert("1.0", output)
 
     def _show_category_report(self, start: str, end: str) -> None:
+        currency_code = get_currency_code()
         categories = reports.get_category_sales(start, end)
         
         output = f"SALES BY CATEGORY REPORT\n"
@@ -182,6 +188,26 @@ class ReportsFrame(ttk.Frame):
         output += "-" * 70 + "\n"
         
         for cat in categories:
-            output += f"{cat['category']:<20} {cat['total_quantity']:<12} {cat['total_revenue']:<15.2f} {cat['transactions']:<12}\n"
+            output += f"{cat['category']:<20} {cat['total_quantity']:<12} {currency_code} {cat['total_revenue']:<15.2f} {cat['transactions']:<12}\n"
         
         self.report_text.insert("1.0", output)
+
+    def refresh(self) -> None:
+        currency_code = get_currency_code()
+        report_type = self.report_type.get()
+        start = self.start_date.get()
+        end = self.end_date.get()
+
+        try:
+            if report_type == "daily":
+                self._show_daily_report(start)
+            elif report_type == "range":
+                self._show_range_report(start, end)
+            elif report_type == "bestsellers":
+                self._show_bestsellers_report(start, end)
+            elif report_type == "profit":
+                self._show_profit_report(start, end)
+            elif report_type == "category":
+                self._show_category_report(start, end)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to generate report: {e}")

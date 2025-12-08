@@ -1,0 +1,10 @@
+# Inventory Import Template (CSV)
+# Please use this format for importing items into the POS system.
+# Do not include a header row with '#' at the start.
+
+name,category,cost_price,selling_price,quantity,barcode,vat_rate,low_stock_threshold
+Coca Cola 500ml,Beverages,25.00,50.00,100,12345001,16.0,10
+Pepsi 500ml,Beverages,24.00,48.00,80,12345002,16.0,10
+Biscuits Pack,Snacks,35.00,70.00,90,12345008,16.0,10
+Bleach 500ml,Household,50.00,90.00,60,12345023,16.0,10
+Broom,Household,120.00,220.00,30,12345024,16.0,10

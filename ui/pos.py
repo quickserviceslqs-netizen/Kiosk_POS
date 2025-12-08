@@ -6,6 +6,7 @@ from tkinter import ttk, messagebox
 
 from modules import items
 from ui.checkout import CheckoutDialog
+from utils.security import get_currency_code
 
 
 class PosFrame(ttk.Frame):
@@ -24,6 +25,7 @@ class PosFrame(ttk.Frame):
         self.total_var = tk.StringVar(value="0.00")
         self.subtotal_var = tk.StringVar(value="0.00")
         self.change_var = tk.StringVar(value="0.00")
+        self.currency_symbol = get_currency_code()
         self._build_ui()
         self._refresh_items()
 
@@ -119,6 +121,7 @@ class PosFrame(ttk.Frame):
         self.resume_btn = ttk.Button(btn_frame, text="Resume Cart", command=self._resume_cart)
         self.resume_btn.pack(side=tk.LEFT, padx=2)
         self._update_resume_btn()
+
     def _update_resume_btn(self):
         if self.suspended_carts:
             self.resume_btn.state(["!disabled"])
@@ -132,7 +135,7 @@ class PosFrame(ttk.Frame):
             self.items_list.delete(row)
         rows = items.list_items(search=search if search else None)
         for row in rows:
-            self.items_list.insert("", tk.END, iid=str(row["item_id"]), values=(row["name"], row["selling_price"], row["quantity"]))
+            self.items_list.insert("", tk.END, iid=str(row["item_id"]), values=(row["name"], f"{self.currency_symbol} {row['selling_price']:.2f}", row["quantity"]))
 
     def _add_selected_item(self) -> None:
         sel = self.items_list.selection()
@@ -183,7 +186,7 @@ class PosFrame(ttk.Frame):
                 "",
                 tk.END,
                 iid=str(entry["item_id"]),
-                values=(entry["name"], f"{entry['price']:.2f}", entry["quantity"], f"{line_total:.2f}"),
+                values=(entry["name"], f"{self.currency_symbol} {entry['price']:.2f}", entry["quantity"], f"{self.currency_symbol} {line_total:.2f}"),
             )
         
         # Compute VAT based on each item's VAT rate and discount
@@ -205,11 +208,11 @@ class PosFrame(ttk.Frame):
             item_vat_rate = entry.get("vat_rate", 16.0) / 100.0
             vat_amt += item_vat_base * item_vat_rate
         
-        total = vat_base + vat_amt
+        total = vat_base + vat_amt  # Ensure subtotal already includes the discount adjustment
         
-        self.subtotal_var.set(f"{subtotal:.2f}")
-        self.vat_var.set(f"{vat_amt:.2f}")
-        self.total_var.set(f"{total:.2f}")
+        self.subtotal_var.set(f"{self.currency_symbol} {subtotal:.2f}")
+        self.vat_var.set(f"{self.currency_symbol} {vat_amt:.2f}")
+        self.total_var.set(f"{self.currency_symbol} {total:.2f}")
         self._update_change()
 
     def _selected_cart_item(self):
@@ -285,9 +288,30 @@ class PosFrame(ttk.Frame):
             messagebox.showinfo("Checkout", "Cart is empty")
             return
 
-        subtotal = float(self.subtotal_var.get())
-        vat_amt = float(self.vat_var.get())
-        total = float(self.total_var.get())
+        subtotal_str = self.subtotal_var.get()
+        try:
+            subtotal = float(subtotal_str.replace(self.currency_symbol, '').strip())
+        except ValueError:
+            messagebox.showerror("Checkout Error", f"Invalid subtotal value: {subtotal_str}")
+            return
+
+        discount_str = self.discount_var.get()
+        try:
+            discount_pct = float(discount_str.strip() or 0) / 100.0
+        except ValueError:
+            messagebox.showerror("Checkout Error", f"Invalid discount value: {discount_str}")
+            return
+        discount_amt = subtotal * discount_pct
+        subtotal -= discount_amt
+
+        vat_str = self.vat_var.get()
+        try:
+            vat_amt = float(vat_str.replace(self.currency_symbol, '').strip())
+        except ValueError:
+            messagebox.showerror("Checkout Error", f"Invalid VAT value: {vat_str}")
+            return
+
+        total = subtotal + vat_amt  # Ensure subtotal already includes the discount adjustment
 
         dialog = CheckoutDialog(
             self.winfo_toplevel(),
@@ -295,9 +319,19 @@ class PosFrame(ttk.Frame):
             subtotal=subtotal,
             vat_amount=vat_amt,
             total=total,
-            payment_method=self.payment_method_var.get(),
+            discount=discount_amt,
+            payment_method="",  # Provide a default or actual payment method here
         )
 
         if dialog.result:
             self._clear_cart()
             self._refresh_items()
+
+    def refresh(self) -> None:
+        currency = get_currency_code()
+        # Update currency symbol in case it has changed
+        self.currency_symbol = currency
+        self.total_var.set(f"{currency} {float(self.total_var.get()):.2f}")
+        self.subtotal_var.set(f"{currency} {float(self.subtotal_var.get()):.2f}")
+        self.vat_var.set(f"{currency} {float(self.vat_var.get()):.2f}")
+        self.change_var.set(f"{currency} {float(self.change_var.get()):.2f}")

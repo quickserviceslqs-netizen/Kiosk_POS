@@ -83,8 +83,22 @@ def _show_settings_menu(root: tk.Tk, user: dict) -> None:
     ttk.Button(btns, text="📊 VAT Settings", width=24, command=lambda: show_vat_settings(root)).grid(row=0, column=1, padx=8, pady=6)
     ttk.Button(btns, text="📧 Email Notifications", width=24, command=lambda: show_email_settings(root)).grid(row=1, column=0, padx=8, pady=6)
     ttk.Button(btns, text="🔑 Change Password", width=24, command=lambda: show_change_password(root, user)).grid(row=1, column=1, padx=8, pady=6)
-    
-    ttk.Button(root, text="← Back to Dashboard", command=lambda: show_home(root, user)).pack(pady=(24, 0))
+    from ui.settings import CurrencySettingsFrame
+    ttk.Button(btns, text="💱 Currency Settings", width=24, command=lambda: show_currency_settings(root)).grid(row=2, column=0, padx=8, pady=6)
+
+    # Add Home button to main settings page (not sub-settings)
+    ttk.Button(root, text="← Home", command=lambda: show_home(root, user)).pack(pady=(8, 0))
+
+
+def show_currency_settings(root: tk.Tk) -> None:
+    for child in root.winfo_children():
+        child.destroy()
+    nav = ttk.Frame(root)
+    nav.pack(fill=tk.X, pady=(4, 2))
+    ttk.Button(nav, text="← Settings", command=lambda: _show_settings_menu(root, getattr(root, "current_user", {}))).pack(side=tk.LEFT, padx=6)
+    from ui.settings import CurrencySettingsFrame
+    frame = CurrencySettingsFrame(root)
+    frame.pack(fill=tk.BOTH, expand=True)
 
 
 def show_inventory(root: tk.Tk) -> None:

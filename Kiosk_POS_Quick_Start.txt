@@ -1,0 +1,48 @@
+Kiosk POS Quick Start Guide
+============================
+
+Welcome to Kiosk POS! This guide will help you get started quickly.
+
+1. Installation
+----------------
+- Download the installer (.exe) from your purchase link.
+- Double-click the installer and follow the prompts.
+- After installation, launch Kiosk POS from your desktop shortcut.
+
+2. First-Time Setup
+-------------------
+- On first launch, you will be prompted to create an admin account.
+- Enter your desired admin username and password.
+- Click "Create Admin Account" to proceed.
+
+3. Main Features
+----------------
+- **Login:** Secure login for admin and cashier roles.
+- **Inventory:** Add, edit, and manage your products.
+- **Sales/POS:** Process sales and print receipts.
+- **Expenses:** Track business expenses.
+- **Reports:** View and export sales and inventory reports.
+- **Backup:** Create and restore database backups.
+- **Email:** Configure email for notifications and reports.
+
+4. Tips
+-------
+- Use the backup feature regularly to protect your data.
+- Only admins can access settings and user management.
+- For help, contact: quickserviceslqs@gmail.com
+
+Thank you for choosing Kiosk POS!
+
+Build Instructions (For Maintainers)
+-----------------------------------
+- Rebuild the executable using PyInstaller (ensure `pyinstaller` is installed):
+	- `pyinstaller --clean --noconfirm main.spec`
+	- After building, `dist\main.exe` (or `dist\main\main.exe` depending on options) will be generated.
+- Build the Windows installer with Inno Setup (ISCC):
+	- `"C:\Program Files (x86)\Inno Setup 6\ISCC.exe" KioskPOS_Installer.iss`
+	- This will create the installer in the `dist` folder and include the `assets` folder and `app_icon.ico`.
+
+Troubleshooting
+---------------
+- If dialog icons still show the default icon after packaging, confirm `assets\app_icon.ico` exists and is included in the `dist` installer.
+- If using onefile builds, verify the `main.spec` includes the `assets` datas and the icon path for proper sys._MEIPASS extraction.

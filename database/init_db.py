@@ -2,7 +2,7 @@
 from pathlib import Path
 import sqlite3
 
-DB_PATH = Path(__file__).with_name("pos.db")
+DB_PATH = Path(__file__).parent / "pos.db"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -67,6 +67,11 @@ CREATE TABLE IF NOT EXISTS vat_rates (
     active INTEGER NOT NULL DEFAULT 1,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 """
 
 
@@ -79,6 +84,8 @@ def _ensure_expense_columns(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE expenses ADD COLUMN username TEXT")
     if "created_at" not in existing_columns:
         conn.execute("ALTER TABLE expenses ADD COLUMN created_at TEXT")
+    if "currency_code" not in existing_columns:
+        conn.execute("ALTER TABLE expenses ADD COLUMN currency_code TEXT DEFAULT NULL")
 
 
 def _ensure_user_columns(conn: sqlite3.Connection) -> None:
@@ -95,7 +102,11 @@ def _ensure_item_columns(conn: sqlite3.Connection) -> None:
     # Add low_stock_threshold if missing
     if "low_stock_threshold" not in existing_columns:
         conn.execute("ALTER TABLE items ADD COLUMN low_stock_threshold INTEGER NOT NULL DEFAULT 10")
-    
+
+    # Add currency_code if missing
+    if "currency_code" not in existing_columns:
+        conn.execute("ALTER TABLE items ADD COLUMN currency_code TEXT DEFAULT NULL")
+
     # Migrate exempt_vat to vat_rate if needed
     if "exempt_vat" in existing_columns and "vat_rate" not in existing_columns:
         # Add vat_rate column
@@ -127,6 +138,7 @@ def _seed_default_vat_rates(conn: sqlite3.Connection) -> None:
 def get_connection(db_path: Path | None = None) -> sqlite3.Connection:
     """Return a SQLite connection with foreign keys enabled."""
     resolved = Path(db_path) if db_path else DB_PATH
+    print(f"[DEBUG] Connecting to database at: {resolved.resolve()}")
     resolved.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(resolved)
     conn.execute("PRAGMA foreign_keys = ON;")
@@ -142,4 +154,9 @@ def initialize_database(db_path: Path | None = None) -> Path:
         _ensure_item_columns(conn)
         _ensure_expense_columns(conn)
         _seed_default_vat_rates(conn)
+        print(f"Database initialized at {resolved.resolve()}")
     return resolved.resolve()
+
+
+if __name__ == "__main__":
+    initialize_database()

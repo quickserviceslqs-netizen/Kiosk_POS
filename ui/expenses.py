@@ -1,8 +1,11 @@
-"""Expense tracking UI."""
 from __future__ import annotations
+from utils.security import get_currency_code
+"""Expense tracking UI."""
 
 import tkinter as tk
 from tkinter import ttk, messagebox
+import os
+import sys
 from datetime import datetime
 
 from modules import expenses
@@ -17,70 +20,51 @@ class ExpensesFrame(ttk.Frame):
         self._build_ui()
         self.refresh()
 
-    def _build_ui(self) -> None:
-        self.columnconfigure(0, weight=1)
-        self.rowconfigure(2, weight=1)
-
+    def _build_ui(self):
         # Top bar
         top = ttk.Frame(self)
-        top.grid(row=0, column=0, sticky=tk.EW, pady=(0, 8))
-        ttk.Label(top, text="Expense Tracking", font=("Segoe UI", 14, "bold")).pack(side=tk.LEFT)
+        top.pack(fill=tk.X, pady=(0, 8))
+        ttk.Label(top, text="Expenses", font=("Segoe UI", 14, "bold")).pack(side=tk.LEFT)
         if self.on_home:
             ttk.Button(top, text="← Home", command=self.on_home).pack(side=tk.RIGHT, padx=4)
-        ttk.Button(top, text="Add Expense", command=self._add_expense).pack(side=tk.RIGHT, padx=4)
-        ttk.Button(top, text="View Report", command=self._view_report).pack(side=tk.RIGHT, padx=4)
 
-        # Filters
-        filters = ttk.Frame(self)
-        filters.grid(row=1, column=0, sticky=tk.EW, pady=(0, 8))
-        ttk.Label(filters, text="Filter by Category:").pack(side=tk.LEFT, padx=4)
-        ttk.Entry(filters, textvariable=self.search_category, width=20).pack(side=tk.LEFT, padx=4)
-        ttk.Button(filters, text="Search", command=self.refresh).pack(side=tk.LEFT, padx=4)
-        ttk.Button(filters, text="Clear", command=self._clear_filter).pack(side=tk.LEFT, padx=4)
+        # Filter/search bar
+        filter_frame = ttk.Frame(self)
+        filter_frame.pack(fill=tk.X, pady=(0, 8))
+        ttk.Label(filter_frame, text="Category:").pack(side=tk.LEFT, padx=(0, 4))
+        category_entry = ttk.Entry(filter_frame, textvariable=self.search_category, width=20)
+        category_entry.pack(side=tk.LEFT)
+        ttk.Button(filter_frame, text="Filter", command=self.refresh).pack(side=tk.LEFT, padx=4)
+        ttk.Button(filter_frame, text="Clear", command=self._clear_filter).pack(side=tk.LEFT, padx=4)
 
-        # Tree view
-        tree_frame = ttk.Frame(self)
-        tree_frame.grid(row=2, column=0, sticky=tk.NSEW, pady=(0, 8))
-        tree_frame.columnconfigure(0, weight=1)
-        tree_frame.rowconfigure(0, weight=1)
-
-        self.tree = ttk.Treeview(
-            tree_frame,
-            columns=("date", "category", "amount", "description", "user"),
-            show="headings",
-            height=15
-        )
+        # Table
+        columns = ("date", "category", "amount", "description", "user")
+        self.tree = ttk.Treeview(self, columns=columns, show="headings", height=12)
         self.tree.heading("date", text="Date")
         self.tree.heading("category", text="Category")
         self.tree.heading("amount", text="Amount")
         self.tree.heading("description", text="Description")
-        self.tree.heading("user", text="Created By")
-        self.tree.column("date", width=100, anchor=tk.W)
-        self.tree.column("category", width=120, anchor=tk.W)
-        self.tree.column("amount", width=100, anchor=tk.E)
-        self.tree.column("description", width=250, anchor=tk.W)
-        self.tree.column("user", width=120, anchor=tk.W)
-        self.tree.grid(row=0, column=0, sticky=tk.NSEW)
+        self.tree.heading("user", text="User")
+        self.tree.column("date", width=90)
+        self.tree.column("category", width=120)
+        self.tree.column("amount", width=90, anchor=tk.E)
+        self.tree.column("description", width=180)
+        self.tree.column("user", width=120)
+        self.tree.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
 
-        scroll = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.tree.yview)
-        scroll.grid(row=0, column=1, sticky=tk.NS)
-        self.tree.configure(yscroll=scroll.set)
-
-        # Buttons
-        btn_frame = ttk.Frame(self)
-        btn_frame.grid(row=3, column=0, sticky=tk.W, pady=(4, 0))
-        ttk.Button(btn_frame, text="Edit", command=self._edit_expense_checked).pack(side=tk.LEFT, padx=2)
-        ttk.Button(btn_frame, text="Delete", command=self._delete_expense_checked).pack(side=tk.LEFT, padx=2)
-
-        # Summary
-        summary_frame = ttk.Frame(self)
-        summary_frame.grid(row=4, column=0, sticky=tk.EW, pady=(8, 0))
-        self.total_label = ttk.Label(summary_frame, text="Total Expenses: 0.00", font=("Segoe UI", 10, "bold"))
-        self.total_label.pack(side=tk.LEFT, padx=4)
-        self.count_label = ttk.Label(summary_frame, text="Count: 0")
-        self.count_label.pack(side=tk.LEFT, padx=12)
-
+        # Totals and actions
+        bottom = ttk.Frame(self)
+        bottom.pack(fill=tk.X, pady=(0, 8))
+        self.total_label = ttk.Label(bottom, text="Total Expenses: 0.00")
+        self.total_label.pack(side=tk.LEFT, padx=8)
+        self.count_label = ttk.Label(bottom, text="Count: 0")
+        self.count_label.pack(side=tk.LEFT, padx=8)
+        ttk.Button(bottom, text="Add Expense", command=self._add_expense).pack(side=tk.RIGHT, padx=4)
+        ttk.Button(bottom, text="Edit", command=self._edit_expense_checked).pack(side=tk.RIGHT, padx=4)
+        ttk.Button(bottom, text="Delete", command=self._delete_expense_checked).pack(side=tk.RIGHT, padx=4)
+        ttk.Button(bottom, text="Report", command=self._view_report).pack(side=tk.RIGHT, padx=4)
     def refresh(self) -> None:
+        currency = get_currency_code()
         for row in self.tree.get_children():
             self.tree.delete(row)
         
@@ -94,7 +78,6 @@ class ExpensesFrame(ttk.Frame):
             if created_at:
                 # Show username with timestamp
                 user_display = f"{user_display} ({created_at[:16]})"
-            
             self.tree.insert(
                 "",
                 tk.END,
@@ -102,14 +85,45 @@ class ExpensesFrame(ttk.Frame):
                 values=(
                     exp["date"],
                     exp["category"],
-                    f"{exp['amount']:.2f}",
+                    f"{currency} {exp['amount']:.2f}",
                     exp.get("description", ""),
                     user_display
                 )
             )
             total += exp["amount"]
+        self.total_label.config(text=f"Total Expenses: {currency} {total:.2f}")
+        self.count_label.config(text=f"Count: {len(expense_list)}")
+        self.count_label.config(text=f"Count: {len(expense_list)}")
+
+    def _clear_filter(self) -> None:
+        currency = get_currency_code()
+        for row in self.tree.get_children():
+            self.tree.delete(row)
         
-        self.total_label.config(text=f"Total Expenses: {total:.2f}")
+        category_filter = self.search_category.get().strip() or None
+        expense_list = expenses.list_expenses(category=category_filter)
+        
+        total = 0.0
+        for exp in expense_list:
+            user_display = exp.get("username", "N/A")
+            created_at = exp.get("created_at", "")
+            if created_at:
+                # Show username with timestamp
+                user_display = f"{user_display} ({created_at[:16]})"
+            self.tree.insert(
+                "",
+                tk.END,
+                iid=str(exp["expense_id"]),
+                values=(
+                    exp["date"],
+                    exp["category"],
+                    f"{currency} {exp['amount']:.2f}",
+                    exp.get("description", ""),
+                    user_display
+                )
+            )
+            total += exp["amount"]
+        self.total_label.config(text=f"Total Expenses: {currency} {total:.2f}")
         self.count_label.config(text=f"Count: {len(expense_list)}")
 
     def _clear_filter(self) -> None:
@@ -118,8 +132,6 @@ class ExpensesFrame(ttk.Frame):
 
     def _selected_id(self) -> int | None:
         sel = self.tree.selection()
-        if not sel:
-            return None
         try:
             return int(sel[0])
         except ValueError:
@@ -168,6 +180,38 @@ class ExpensesFrame(ttk.Frame):
     def _open_dialog(self, *, title: str, existing: dict | None) -> None:
         dialog = tk.Toplevel(self)
         dialog.title(title)
+        # Set the app's custom icon for the dialog (supports PyInstaller and source). If ICO doesn't work, use logo.png via iconphoto.
+        try:
+            import sys
+            if hasattr(sys, "_MEIPASS"):
+                icon_path = os.path.join(sys._MEIPASS, "assets", "app_icon.ico")
+            else:
+                icon_path = os.path.join(os.path.dirname(__file__), "../assets/app_icon.ico")
+                icon_path = os.path.abspath(icon_path)
+            if os.path.exists(icon_path):
+                dialog.iconbitmap(icon_path)
+            else:
+                # fallback to logo.png using iconphoto (works well on modern Windows)
+                png_path = os.path.join(os.path.dirname(__file__), "../assets/logo.png")
+                png_path = os.path.abspath(png_path)
+                if os.path.exists(png_path):
+                    try:
+                        img = tk.PhotoImage(file=png_path)
+                        dialog.iconphoto(True, img)
+                    except Exception:
+                        pass
+            # If the ico exists but iconbitmap did not render on all platforms, try PNG fallback too
+            if os.path.exists(icon_path):
+                try:
+                    png_path = os.path.join(os.path.dirname(__file__), "../assets/logo.png")
+                    png_path = os.path.abspath(png_path)
+                    if os.path.exists(png_path):
+                        img = tk.PhotoImage(file=png_path)
+                        dialog.iconphoto(True, img)
+                except Exception:
+                    pass
+        except Exception:
+            pass
         dialog.transient(self.winfo_toplevel())
         dialog.grab_set()
         dialog.geometry("450x250")

@@ -16,6 +16,7 @@ class CheckoutDialog:
         vat_amount: float,
         total: float,
         payment_method: str,
+        discount: float,
     ):
         self.result = False
         self.sale_id = None
@@ -34,7 +35,9 @@ class CheckoutDialog:
             item_vat_rate = item.get("vat_rate", 16.0) / 100.0
             recalc_vat += item_subtotal * item_vat_rate
         
-        recalc_total = subtotal + recalc_vat
+        # Use the same VAT and subtotal calculations as in the POS
+        vat_amt = subtotal * (16.0 / 100.0)  # Example VAT rate
+        recalc_total = subtotal + vat_amt
 
         # Summary
         summary = ttk.Frame(dialog, padding=12)
@@ -47,6 +50,10 @@ class CheckoutDialog:
             for e in cart
         ])
         ttk.Label(summary, text=cart_text, justify=tk.LEFT, font=("Courier", 9)).pack(anchor=tk.W, pady=(4, 8))
+
+        # Include discount in the summary
+        discount_label = ttk.Label(dialog, text=f"Discount: -{discount:.2f}")
+        discount_label.pack()
 
         # Totals
         totals = ttk.Frame(dialog, padding=12)

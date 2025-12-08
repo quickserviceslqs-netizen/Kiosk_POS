@@ -18,7 +18,6 @@ def list_expenses(start_date: str = None, end_date: str = None, category: str = 
         conn.row_factory = sqlite3.Row
         query = "SELECT * FROM expenses WHERE 1=1"
         params = []
-        
         if start_date:
             query += " AND date >= ?"
             params.append(start_date)
@@ -28,7 +27,6 @@ def list_expenses(start_date: str = None, end_date: str = None, category: str = 
         if category:
             query += " AND category = ?"
             params.append(category)
-        
         query += " ORDER BY date DESC, expense_id DESC"
         rows = conn.execute(query, params).fetchall()
     return [_row_to_dict(r) for r in rows]
@@ -45,10 +43,12 @@ def get_expense(expense_id: int) -> Optional[dict]:
 def create_expense(*, date: str, category: str, amount: float, description: str = "", user_id: int = None, username: str = None) -> dict:
     """Create a new expense record with user tracking."""
     created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    from utils.security import get_currency_code
+    currency_code = get_currency_code()
     with get_connection() as conn:
         conn.execute(
-            "INSERT INTO expenses (date, category, amount, description, user_id, username, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (date, category, amount, description, user_id, username, created_at)
+            "INSERT INTO expenses (date, category, amount, description, user_id, username, created_at, currency_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (date, category, amount, description, user_id, username, created_at, currency_code)
         )
         conn.commit()
         conn.row_factory = sqlite3.Row
@@ -61,7 +61,7 @@ def update_expense(expense_id: int, **fields) -> Optional[dict]:
     if not fields:
         return get_expense(expense_id)
     
-    allowed = {"date", "category", "amount", "description"}
+    allowed = {"date", "category", "amount", "description", "currency_code"}
     updates = {k: v for k, v in fields.items() if k in allowed}
     if not updates:
         return get_expense(expense_id)

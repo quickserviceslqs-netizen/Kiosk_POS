@@ -16,6 +16,7 @@ def get_sales_summary(start_date: str, end_date: str) -> dict:
     """Get sales summary for a date range."""
     with get_connection() as conn:
         conn.row_factory = sqlite3.Row
+        # No currency_code in sales table, so just return as is
         row = conn.execute(
             """
             SELECT 

@@ -141,15 +141,25 @@ class LoginFrame(ttk.Frame):
     def submit(self) -> None:
         username = self.username_var.get().strip()
         password = self.password_var.get()
+        print(f"[DEBUG] Attempting login for user: {username}")
         if not username or not password:
             self.status_var.set("Enter username and password")
+            print("[DEBUG] Username or password missing.")
             return
 
-        user = validate_credentials(username, password)
+        try:
+            user = validate_credentials(username, password)
+            print(f"[DEBUG] validate_credentials returned: {user}")
+        except Exception as e:
+            self.status_var.set("Error accessing database.")
+            print(f"[ERROR] Exception during validate_credentials: {e}")
+            return
+
         if not user:
             self.status_var.set("Invalid credentials or inactive user")
+            print("[DEBUG] Invalid credentials or inactive user.")
             return
 
         self.status_var.set("")
-        # Skip blocking messagebox to avoid post-login pause
+        print("[DEBUG] Login successful, calling on_success.")
         self.on_success(user)
