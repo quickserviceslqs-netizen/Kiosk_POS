@@ -1,8 +1,14 @@
 ; Kiosk POS Inno Setup Script
 ; Version 1.003 - Production Build
 ;
-; IMPORTANT: Run this script from the project root directory containing dist/, assets/, etc.
-; Command: ISCC KioskPOS_Installer.iss
+; CRITICAL: This script MUST be run from the project root directory
+; that contains the dist/, assets/, and email_config.json files.
+;
+; Correct usage:
+;   cd C:\path\to\Kiosk_POS
+;   ISCC KioskPOS_Installer.iss
+;
+; Or use the provided build_installer.bat file
 
 ; #define SourceDir "."  ; Removed - using direct relative paths
 
