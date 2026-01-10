@@ -4,7 +4,7 @@
 ; IMPORTANT: Run this script from the project root directory containing dist/, assets/, etc.
 ; Command: ISCC KioskPOS_Installer.iss
 
-#define SourceDir "."
+; #define SourceDir "."  ; Removed - using direct relative paths
 
 [Setup]
 AppName=Kiosk POS
@@ -13,7 +13,7 @@ AppPublisher=Kiosk POS
 AppPublisherURL=https://kioskpos.com
 DefaultDirName={autopf}\KioskPOS
 DefaultGroupName=Kiosk POS
-OutputDir={#SourceDir}\dist
+OutputDir=dist
 OutputBaseFilename=KioskPOS_Installer_v1.004
 Compression=lzma2
 SolidCompression=yes
@@ -35,13 +35,13 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
  [Files]
 ; Main executable (contains all bundled code)
-Source: "{#SourceDir}\dist\main.exe"; DestDir: "{app}"; Flags: ignoreversion restartreplace
+Source: "dist/main.exe"; DestDir: "{app}"; Flags: ignoreversion restartreplace
 
 ; Assets folder
-Source: "{#SourceDir}\assets\*"; DestDir: "{app}\assets"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "assets/*"; DestDir: "{app}\assets"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; Email config template
-Source: "{#SourceDir}\email_config.json"; DestDir: "{app}"; Flags: ignoreversion onlyifdoesntexist
+Source: "email_config.json"; DestDir: "{app}"; Flags: ignoreversion onlyifdoesntexist
 
 [Code]
 var
