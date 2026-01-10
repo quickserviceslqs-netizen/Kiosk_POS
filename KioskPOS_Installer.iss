@@ -13,8 +13,8 @@ OutputBaseFilename=KioskPOS_Installer_v1.004
 Compression=lzma2
 SolidCompression=yes
 PrivilegesRequired=lowest
-SetupIconFile=assets\app_icon.ico
-UninstallDisplayIcon={app}\assets\app_icon.ico
+SetupIconFile=dist\main.exe
+UninstallDisplayIcon={app}\main.exe
 WizardStyle=modern
 DisableProgramGroupPage=yes
 
@@ -95,9 +95,9 @@ begin
 end;
 
 [Icons]
-Name: "{group}\Kiosk POS"; Filename: "{app}\main.exe"; IconFilename: "{app}\assets\app_icon.ico"
+Name: "{group}\Kiosk POS"; Filename: "{app}\main.exe"; IconFilename: "{app}\main.exe"
 Name: "{group}\{cm:UninstallProgram,Kiosk POS}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\Kiosk POS"; Filename: "{app}\main.exe"; IconFilename: "{app}\assets\app_icon.ico"; Tasks: desktopicon
+Name: "{autodesktop}\Kiosk POS"; Filename: "{app}\main.exe"; IconFilename: "{app}\main.exe"; Tasks: desktopicon
 
 [Run]
 
