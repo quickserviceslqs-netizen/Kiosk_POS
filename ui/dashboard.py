@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import tkinter as tk
 from tkinter import ttk
-from datetime import datetime
+from datetime import datetime, timedelta
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 from modules import dashboard
 from utils.security import get_currency_code
@@ -52,18 +54,27 @@ class DashboardFrame(ttk.Frame):
         left_column.columnconfigure(0, weight=1)
         left_column.rowconfigure(0, weight=1)
         left_column.rowconfigure(1, weight=1)
+        left_column.rowconfigure(2, weight=1)
         
         # Sales Trend Chart
         trend_frame = ttk.LabelFrame(left_column, text="📈 7-Day Sales Trend", padding=8)
-        trend_frame.grid(row=0, column=0, sticky=tk.NSEW, pady=(0, 12))
-        self.trend_canvas = tk.Canvas(trend_frame, bg="#FAFAFA", highlightthickness=1, highlightbackground="#E0E0E0")
-        self.trend_canvas.pack(fill=tk.BOTH, expand=True)
-        # Redraw chart when the canvas is resized to avoid disappearing bars
-        self.trend_canvas.bind("<Configure>", lambda _e: self._draw_trend_chart())
+        trend_frame.grid(row=0, column=0, sticky=tk.NSEW, pady=(0, 6))
+        self.trend_figure = plt.Figure(figsize=(5, 3), dpi=100)
+        self.trend_ax = self.trend_figure.add_subplot(111)
+        self.trend_canvas = FigureCanvasTkAgg(self.trend_figure, master=trend_frame)
+        self.trend_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        
+        # Hourly Sales Chart
+        hourly_frame = ttk.LabelFrame(left_column, text="🕒 Today's Hourly Sales", padding=8)
+        hourly_frame.grid(row=1, column=0, sticky=tk.NSEW, pady=(0, 6))
+        self.hourly_figure = plt.Figure(figsize=(5, 3), dpi=100)
+        self.hourly_ax = self.hourly_figure.add_subplot(111)
+        self.hourly_canvas = FigureCanvasTkAgg(self.hourly_figure, master=hourly_frame)
+        self.hourly_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         
         # Top Products
         top_products_frame = ttk.LabelFrame(left_column, text="🏆 Top Products Today", padding=8)
-        top_products_frame.grid(row=1, column=0, sticky=tk.NSEW)
+        top_products_frame.grid(row=2, column=0, sticky=tk.NSEW)
         top_products_frame.rowconfigure(0, weight=1)
         top_products_frame.columnconfigure(0, weight=1)
         top_products_frame.columnconfigure(1, weight=0)
@@ -298,76 +309,51 @@ class DashboardFrame(ttk.Frame):
         
         # Update trend chart
         self._draw_trend_chart()
+        self._draw_hourly_chart()
 
     def _draw_trend_chart(self) -> None:
-        """Draw a simple bar chart for sales trend."""
-        self.trend_canvas.delete("all")
-        
+        """Draw a bar chart for sales trend using Matplotlib."""
         data = dashboard.get_sales_trend_data(7)
         if not data:
-            # Draw "No data" message
-            width = self.trend_canvas.winfo_width()
-            height = self.trend_canvas.winfo_height()
-            if width < 20 or height < 20:
-                self.after(120, self._draw_trend_chart)
-                return
-            self.trend_canvas.create_text(width // 2, height // 2, text="No sales data yet", font=("Segoe UI", 12), fill="gray")
+            self.trend_ax.clear()
+            self.trend_ax.text(0.5, 0.5, "No sales data yet", ha='center', va='center', fontsize=12, color='gray')
+            self.trend_ax.set_xlim(0, 1)
+            self.trend_ax.set_ylim(0, 1)
+            self.trend_ax.axis('off')
+            self.trend_canvas.draw()
             return
         
-        width = self.trend_canvas.winfo_width()
-        height = self.trend_canvas.winfo_height()
-        # If canvas not laid out yet, retry shortly so the chart appears on first load
-        if width < 20 or height < 20:
-            self.after(120, self._draw_trend_chart)
+        dates = [datetime.strptime(d["date"], "%Y-%m-%d").strftime("%m/%d") for d in data]
+        revenues = [d["revenue"] for d in data]
+        
+        self.trend_ax.clear()
+        self.trend_ax.bar(dates, revenues, color='#4CAF50', edgecolor='#2E7D32')
+        self.trend_ax.set_title("7-Day Sales Trend", fontsize=10)
+        self.trend_ax.set_ylabel("Revenue", fontsize=8)
+        self.trend_ax.tick_params(axis='both', which='major', labelsize=8)
+        self.trend_figure.tight_layout()
+        self.trend_canvas.draw()
+
+    def _draw_hourly_chart(self) -> None:
+        """Draw a bar chart for today's hourly sales using Matplotlib."""
+        today = datetime.now().strftime("%Y-%m-%d")
+        data = dashboard.get_hourly_sales_data(today)
+        if not data:
+            self.hourly_ax.clear()
+            self.hourly_ax.text(0.5, 0.5, "No sales data today", ha='center', va='center', fontsize=12, color='gray')
+            self.hourly_ax.set_xlim(0, 1)
+            self.hourly_ax.set_ylim(0, 1)
+            self.hourly_ax.axis('off')
+            self.hourly_canvas.draw()
             return
-
-        # padding proportional to width so chart looks good on wide screens
-        padding = max(24, int(width * 0.06))
         
-        max_revenue = max([d["revenue"] for d in data]) or 1
-        bar_width = max(18, (width - 2 * padding) / max(1, len(data)))
+        hours = [f"{d['hour']:02d}:00" for d in data]
+        revenues = [d["revenue"] for d in data]
         
-        # Draw bars
-        for i, day in enumerate(data):
-            x1 = padding + i * bar_width
-            bar_height = (day["revenue"] / max_revenue) * (height - 2 * padding) if max_revenue > 0 else 0
-            y1 = height - padding - bar_height
-            x2 = x1 + bar_width - 6
-            y2 = height - padding
-            
-            # Bar with gradient effect
-            color = "#4CAF50" if day["revenue"] > 0 else "#E0E0E0"
-            self.trend_canvas.create_rectangle(x1, y1, x2, y2, fill=color, outline="#2E7D32", width=1)
-            
-            # Date label
-            date_label = datetime.strptime(day["date"], "%Y-%m-%d").strftime("%m/%d")
-            self.trend_canvas.create_text(
-                x1 + bar_width/2,
-                height - padding + 12,
-                text=date_label,
-                font=("Segoe UI", 8)
-            )
-            
-            # Revenue label on bar
-            if day["revenue"] > 0 and (y2 - y1) > 16:
-                self.trend_canvas.create_text(
-                    x1 + bar_width/2,
-                    y1 - 8,
-                    text=f"{day['revenue']:.0f}",
-                    font=("Segoe UI", 8, "bold"),
-                    fill="#2E7D32"
-                )
-
-        # Add grid lines
-        grid_color = "#E0E0E0"
-        # Horizontal grid lines
-        for i in range(1, 5):
-            y = height - padding - (i * (height - 2 * padding) / 4)
-            self.trend_canvas.create_line(padding, y, width - padding, y, fill=grid_color, width=1, dash=(2, 2))
-            # Value labels
-            value = max_revenue * i / 4 if max_revenue > 0 else 0
-            self.trend_canvas.create_text(padding - 5, y, text=f"{value:.0f}", anchor=tk.E, font=("Segoe UI", 7), fill="gray")
-
-        # If all values are zero, show placeholder text
-        if all(d["revenue"] == 0 for d in data):
-            self.trend_canvas.create_text(width//2, height//2, text="No sales data to display", font=("Segoe UI", 10), fill="gray")
+        self.hourly_ax.clear()
+        self.hourly_ax.bar(hours, revenues, color='#2196F3', edgecolor='#0D47A1')
+        self.hourly_ax.set_title("Today's Hourly Sales", fontsize=10)
+        self.hourly_ax.set_ylabel("Revenue", fontsize=8)
+        self.hourly_ax.tick_params(axis='both', which='major', labelsize=8)
+        self.hourly_figure.tight_layout()
+        self.hourly_canvas.draw()

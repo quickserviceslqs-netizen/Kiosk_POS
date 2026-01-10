@@ -410,3 +410,46 @@ def get_category_breakdown() -> list[dict]:
         ).fetchall()
         
         return [dict(r) for r in rows]
+
+
+def get_hourly_sales_data(date: str) -> list[dict]:
+    """Get sales data grouped by hour for a specific date."""
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT 
+                substr(time, 1, 2) as hour,
+                COUNT(*) as transactions,
+                COALESCE(SUM(total), 0) as revenue
+            FROM sales
+            WHERE date = ?
+            GROUP BY hour
+            ORDER BY hour
+            """,
+            (date,)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_sales_trend_data(days: int = 7) -> list[dict]:
+    """Get sales data for the last N days."""
+    today = datetime.now()
+    dates = [(today - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(days - 1, -1, -1)]
+    
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        results = []
+        for date in dates:
+            row = conn.execute(
+                """
+                SELECT 
+                    ? as date,
+                    COALESCE(SUM(total), 0) as revenue
+                FROM sales
+                WHERE date = ?
+                """,
+                (date, date)
+            ).fetchone()
+            results.append(dict(row))
+        return results

@@ -2,10 +2,46 @@
 from __future__ import annotations
 
 import sqlite3
+import time
 from datetime import datetime, timedelta
 from typing import Optional
 
 from database.init_db import get_connection
+
+# Simple in-memory cache with TTL
+_cache = {}
+_CACHE_TTL = 300  # 5 minutes
+
+
+def _get_cached(key: str, func, *args, **kwargs):
+    """Get from cache or compute and cache."""
+    now = time.time()
+    if key in _cache:
+        data, timestamp = _cache[key]
+        if now - timestamp < _CACHE_TTL:
+            return data
+    data = func(*args, **kwargs)
+    _cache[key] = (data, now)
+    return data
+
+
+def _convert_quantity_to_display(qty_raw: float, is_special: bool, unit_multiplier: float, unit_of_measure: str) -> tuple[float, str]:
+    """Convert raw quantity to display quantity and unit label."""
+    if is_special:
+        multiplier = float(unit_multiplier or 1000)
+        qty_base = qty_raw / multiplier
+        unit = unit_of_measure.lower() if unit_of_measure else ""
+        if unit in ("litre", "liter", "liters", "litres", "l"):
+            unit_label = "L"
+        elif unit in ("kilogram", "kilograms", "kg", "kgs"):
+            unit_label = "kg"
+        elif unit in ("meter", "meters", "metre", "metres", "m"):
+            unit_label = "m"
+        else:
+            unit_label = unit_of_measure or "unit"
+        return qty_base, unit_label
+    else:
+        return qty_raw, ""
 
 
 def _row_to_dict(row: sqlite3.Row) -> dict:
@@ -14,6 +50,11 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
 
 def get_sales_summary(start_date: str, end_date: str) -> dict:
     """Get sales summary for a date range."""
+    key = f"sales_summary_{start_date}_{end_date}"
+    return _get_cached(key, _get_sales_summary_uncached, start_date, end_date)
+
+
+def _get_sales_summary_uncached(start_date: str, end_date: str) -> dict:
     with get_connection() as conn:
         conn.row_factory = sqlite3.Row
         # No currency_code in sales table, so just return as is
@@ -74,6 +115,11 @@ def get_date_range_sales(start_date: str, end_date: str) -> list[dict]:
 def get_best_selling_items(start_date: str, end_date: str, limit: int = 10) -> list[dict]:
     """Get best-selling items for a date range (excludes refunded sales).
     For fractional items, quantities are converted to base units (L/kg/m)."""
+    key = f"best_selling_{start_date}_{end_date}_{limit}"
+    return _get_cached(key, _get_best_selling_items_uncached, start_date, end_date, limit)
+
+
+def _get_best_selling_items_uncached(start_date: str, end_date: str, limit: int = 10) -> list[dict]:
     with get_connection() as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
@@ -110,24 +156,14 @@ def get_best_selling_items(start_date: str, end_date: str, limit: int = 10) -> l
         qty_raw = row_dict.get("total_sold_raw", 0) or 0
         
         # Convert fractional items from small units to base units
-        if row_dict.get("is_special_volume"):
-            multiplier = float(row_dict.get("unit_multiplier") or 1000)
-            qty_base = qty_raw / multiplier  # e.g., 5000ml / 1000 = 5 L
-            unit = row_dict.get("unit_of_measure", "L")
-            unit_lower = (unit or "").lower()
-            if unit_lower in ("litre", "liter", "liters", "litres", "l"):
-                unit_label = "L"
-            elif unit_lower in ("kilogram", "kilograms", "kg", "kgs"):
-                unit_label = "kg"
-            elif unit_lower in ("meter", "meters", "metre", "metres", "m"):
-                unit_label = "m"
-            else:
-                unit_label = unit
-            row_dict["total_sold"] = qty_base
-            row_dict["qty_display"] = f"{qty_base:.2f} {unit_label}"
-        else:
-            row_dict["total_sold"] = qty_raw
-            row_dict["qty_display"] = f"{int(qty_raw)}"
+        qty_base, unit_label = _convert_quantity_to_display(
+            qty_raw, 
+            row_dict.get("is_special_volume"), 
+            row_dict.get("unit_multiplier"), 
+            row_dict.get("unit_of_measure")
+        )
+        row_dict["total_sold"] = qty_base
+        row_dict["qty_display"] = f"{qty_base:.2f} {unit_label}" if unit_label else f"{int(qty_base)}"
         
         results.append(row_dict)
     

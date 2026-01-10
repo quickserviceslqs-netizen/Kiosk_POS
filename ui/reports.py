@@ -257,25 +257,65 @@ class ReportsFrame(ttk.Frame):
             messagebox.showerror("Error", f"Failed to generate report: {e}")
 
     def _download_report(self) -> None:
-        """Download the current report as a text file."""
+        """Download the current report as a text or CSV file."""
         content = self.report_text.get("1.0", tk.END).strip()
         if not content:
             messagebox.showwarning("No Report", "Please generate a report first")
             return
         
+        # Determine if it's a tabular report (has headers like "Rank" or "Date")
+        is_tabular = "Rank" in content or "Date" in content or "Item Name" in content
+        
+        filetypes = [("Text files", "*.txt")]
+        defaultextension = ".txt"
+        if is_tabular:
+            filetypes.insert(0, ("CSV files", "*.csv"))
+            defaultextension = ".csv"
+        filetypes.append(("All files", "*.*"))
+        
         filename = filedialog.asksaveasfilename(
             title="Download Report",
-            defaultextension=".txt",
-            filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
+            defaultextension=defaultextension,
+            filetypes=filetypes,
         )
         if not filename:
             return
+        
         try:
-            with open(filename, 'w') as f:
-                f.write(content)
+            if filename.endswith(".csv") and is_tabular:
+                # Convert text report to CSV
+                csv_content = self._convert_to_csv(content)
+                with open(filename, 'w', newline='') as f:
+                    f.write(csv_content)
+            else:
+                with open(filename, 'w') as f:
+                    f.write(content)
             messagebox.showinfo("Download", f"Report downloaded to {filename}")
         except Exception as exc:
             messagebox.showerror("Download Error", str(exc))
+
+    def _convert_to_csv(self, text_content: str) -> str:
+        """Convert text report to CSV format."""
+        lines = text_content.split('\n')
+        csv_lines = []
+        in_table = False
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith('=') or line.startswith('-'):
+                continue
+            if '|' in line or '\t' in line:
+                # Assume table row
+                parts = [p.strip() for p in line.replace('|', '\t').split('\t') if p.strip()]
+                csv_lines.append(','.join(f'"{p}"' for p in parts))
+                in_table = True
+            elif in_table and line:
+                # Header or data
+                parts = line.split()
+                if len(parts) > 1:
+                    csv_lines.append(','.join(f'"{p}"' for p in parts))
+        return '\n'.join(csv_lines)
 
     def _pick_start_date(self) -> None:
         """Open calendar picker for start date."""
