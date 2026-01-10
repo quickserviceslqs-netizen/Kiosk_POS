@@ -1,5 +1,6 @@
 import sys
-sys.path.insert(0, r'c:\Users\ADMIN\Kiosk_Pos')
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from modules import items, pos, receipts
 
 # Create item with package size 4 (bulk price 40 -> per-unit 10)

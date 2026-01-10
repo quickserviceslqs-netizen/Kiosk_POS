@@ -3,8 +3,28 @@ from __future__ import annotations
 
 import sqlite3
 from typing import Iterable, List, Optional
+from functools import lru_cache
 
 from database.init_db import get_connection
+
+
+# Cache for unit conversions to improve performance
+@lru_cache(maxsize=128)
+def _get_cached_unit_multiplier(unit_of_measure: str) -> float:
+    """Cached version of unit multiplier lookup."""
+    return _get_unit_multiplier(unit_of_measure)
+
+
+@lru_cache(maxsize=128) 
+def _get_cached_default_unit_size(unit_of_measure: str) -> int:
+    """Cached version of default unit size lookup."""
+    unit_lower = unit_of_measure.lower()
+    if unit_lower in ("liters", "litre", "liter", "litres", "l", "kilograms", "kilogram", "kg", "kgs"):
+        return 1000
+    elif unit_lower in ("meters", "meter", "metre", "metres", "m"):
+        return 100
+    else:
+        return 1
 
 
 def _row_to_dict(row: sqlite3.Row) -> dict:
@@ -40,6 +60,36 @@ def _get_unit_multiplier(unit_of_measure: str) -> float:
         return unit_multipliers.get(unit, 1)
 
 
+def _normalize_prices(cost_price: float, selling_price: float, unit_size: int, multiplier: float) -> dict:
+    """Normalize and calculate all price fields from bulk prices.
+    
+    Returns a dict with all price fields calculated consistently.
+    """
+    total_units = unit_size * multiplier
+    
+    if total_units <= 0:
+        return {
+            "cost_price": cost_price,
+            "selling_price": selling_price,
+            "cost_price_per_unit": None,
+            "selling_price_per_unit": None,
+            "price_per_ml": None,
+            "unit_multiplier": multiplier,
+        }
+    
+    cost_price_per_unit = cost_price / total_units
+    selling_price_per_unit = selling_price / total_units
+    
+    return {
+        "cost_price": cost_price,
+        "selling_price": selling_price,
+        "cost_price_per_unit": cost_price_per_unit,
+        "selling_price_per_unit": selling_price_per_unit,
+        "price_per_ml": selling_price_per_unit,  # For backward compatibility
+        "unit_multiplier": multiplier,
+    }
+
+
 def create_item(
     *,
     name: str,
@@ -59,45 +109,83 @@ def create_item(
     # Validation
     if not name or not name.strip():
         raise ValueError("Item name is required")
+    if len(name.strip()) > 100:
+        raise ValueError("Item name cannot exceed 100 characters")
+    
+    if category and len(category.strip()) > 50:
+        raise ValueError("Category name cannot exceed 50 characters")
+    
     if cost_price < 0 or selling_price < 0:
         raise ValueError("Prices cannot be negative")
     if selling_price < cost_price:
         raise ValueError("Selling price cannot be less than cost price")
+    if cost_price > 0 and selling_price > cost_price * 10:  # Reasonable markup check only when cost_price > 0
+        raise ValueError("Selling price cannot be more than 10x cost price")
+    
     if quantity < 0:
         raise ValueError("Quantity cannot be negative")
+    if quantity > 999999:  # Reasonable upper limit
+        raise ValueError("Quantity cannot exceed 999,999")
+    
+    if barcode and len(barcode.strip()) > 50:
+        raise ValueError("Barcode cannot exceed 50 characters")
     if barcode and len(barcode.strip()) > 0:
         # Check unique barcode
         with get_connection() as conn:
             existing = conn.execute("SELECT item_id FROM items WHERE barcode = ?", (barcode.strip(),)).fetchone()
             if existing:
                 raise ValueError("Barcode already exists")
+    
     if vat_rate < 0 or vat_rate > 100:
         raise ValueError("VAT rate must be between 0 and 100")
     
+    if low_stock_threshold < 0 or low_stock_threshold > 10000:
+        raise ValueError("Low stock threshold must be between 0 and 10,000")
+    
+    if unit_of_measure and len(unit_of_measure.strip()) > 20:
+        raise ValueError("Unit of measure name cannot exceed 20 characters")
+    
+    if unit_size_ml is not None and (unit_size_ml <= 0 or unit_size_ml > 1000000):
+        raise ValueError("Unit size must be between 1 and 1,000,000")
+    
+    if image_path and len(image_path.strip()) > 255:
+        raise ValueError("Image path cannot exceed 255 characters")
+    
     with get_connection() as conn:
-        if category:
-            conn.execute("INSERT OR IGNORE INTO inventory_categories (name) VALUES (?)", (category,))
-        
-        # Default to 1 for non-volume items unless explicitly provided
-        unit_size = unit_size_ml or 1
-        multiplier = _get_unit_multiplier(unit_of_measure)
-        
-        # Calculate per-unit prices (for fractional sales)
-        total_units = unit_size * multiplier
-        selling_price_per_unit = selling_price / total_units if total_units > 0 else None
-        cost_price_per_unit = cost_price / total_units if total_units > 0 else None
-        
-        # Keep price_per_ml for backward compatibility
-        ppm = price_per_ml if price_per_ml is not None else selling_price_per_unit
-        
-        conn.execute(
-            """
-            INSERT INTO items (name, category, cost_price, selling_price, quantity, image_path, barcode, vat_rate, low_stock_threshold, unit_of_measure, is_special_volume, unit_size_ml, price_per_ml, cost_price_per_unit, unit_multiplier, selling_price_per_unit)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (name, category, cost_price, selling_price, quantity, image_path, barcode, vat_rate, low_stock_threshold, unit_of_measure, is_special_volume, unit_size, ppm, cost_price_per_unit, multiplier, selling_price_per_unit),
-        )
-        conn.commit()
+        conn.execute("BEGIN")
+        try:
+            # Sanitize inputs
+            name = name.strip()
+            category = category.strip() if category else None
+            barcode = barcode.strip() if barcode else None
+            unit_of_measure = unit_of_measure.strip() if unit_of_measure else "pieces"
+            image_path = image_path.strip() if image_path else None
+            
+            # Insert category if provided (atomic with item creation)
+            if category:
+                conn.execute("INSERT OR IGNORE INTO inventory_categories (name) VALUES (?)", (category,))
+            
+            # Default to appropriate size for unit type if not specified
+            if unit_size_ml is None:
+                unit_size_ml = _get_cached_default_unit_size(unit_of_measure)
+            unit_size = unit_size_ml
+            
+            multiplier = _get_cached_unit_multiplier(unit_of_measure)
+            
+            # Calculate normalized prices
+            price_data = _normalize_prices(cost_price, selling_price, unit_size, multiplier)
+            
+            conn.execute(
+                """
+                INSERT INTO items (name, category, cost_price, selling_price, quantity, image_path, barcode, vat_rate, low_stock_threshold, unit_of_measure, is_special_volume, unit_size_ml, price_per_ml, cost_price_per_unit, unit_multiplier, selling_price_per_unit)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (name, category, price_data["cost_price"], price_data["selling_price"], quantity, image_path, barcode, vat_rate, low_stock_threshold, unit_of_measure, is_special_volume, unit_size, price_data["price_per_ml"], price_data["cost_price_per_unit"], price_data["unit_multiplier"], price_data["selling_price_per_unit"]),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
         conn.row_factory = sqlite3.Row
         row = conn.execute("SELECT * FROM items WHERE rowid = last_insert_rowid();").fetchone()
     return _row_to_dict(row)
@@ -115,56 +203,103 @@ def update_item(item_id: int, **fields) -> Optional[dict]:
     # Validation
     if "name" in updates and (not updates["name"] or not updates["name"].strip()):
         raise ValueError("Item name is required")
+    if "name" in updates and len(updates["name"].strip()) > 100:
+        raise ValueError("Item name cannot exceed 100 characters")
+    
+    if "category" in updates and updates["category"] and len(updates["category"].strip()) > 50:
+        raise ValueError("Category name cannot exceed 50 characters")
+    
     if "cost_price" in updates and updates["cost_price"] < 0:
         raise ValueError("Cost price cannot be negative")
     if "selling_price" in updates and updates["selling_price"] < 0:
         raise ValueError("Selling price cannot be negative")
     if "quantity" in updates and updates["quantity"] < 0:
         raise ValueError("Quantity cannot be negative")
+    if "quantity" in updates and updates["quantity"] > 999999:
+        raise ValueError("Quantity cannot exceed 999,999")
+    
     if "vat_rate" in updates and (updates["vat_rate"] < 0 or updates["vat_rate"] > 100):
         raise ValueError("VAT rate must be between 0 and 100")
+    
+    if "low_stock_threshold" in updates and (updates["low_stock_threshold"] < 0 or updates["low_stock_threshold"] > 10000):
+        raise ValueError("Low stock threshold must be between 0 and 10,000")
+    
+    if "unit_of_measure" in updates and updates["unit_of_measure"] and len(updates["unit_of_measure"].strip()) > 20:
+        raise ValueError("Unit of measure name cannot exceed 20 characters")
+    
+    if "unit_size_ml" in updates and updates["unit_size_ml"] is not None and (updates["unit_size_ml"] <= 0 or updates["unit_size_ml"] > 1000000):
+        raise ValueError("Unit size must be between 1 and 1,000,000")
+    
+    if "image_path" in updates and updates["image_path"] and len(updates["image_path"].strip()) > 255:
+        raise ValueError("Image path cannot exceed 255 characters")
+    
     # Check barcode uniqueness if updating barcode
     if "barcode" in updates and updates["barcode"] and len(updates["barcode"].strip()) > 0:
         with get_connection() as conn:
             existing = conn.execute("SELECT item_id FROM items WHERE barcode = ? AND item_id != ?", (updates["barcode"].strip(), item_id)).fetchone()
             if existing:
                 raise ValueError("Barcode already exists")
+    
     # Check selling price >= cost price if both are being updated
-    if "selling_price" in updates and "cost_price" in updates and updates["selling_price"] < updates["cost_price"]:
-        raise ValueError("Selling price cannot be less than cost price")
+    if ("selling_price" in updates or "cost_price" in updates):
+        current_cost = current["cost_price"]
+        current_sell = current["selling_price"]
+        new_cost = updates.get("cost_price", current_cost)
+        new_sell = updates.get("selling_price", current_sell)
+        if new_sell < new_cost:
+            raise ValueError("Selling price cannot be less than cost price")
+        if new_sell > new_cost * 10:  # Reasonable markup check
+            raise ValueError("Selling price cannot be more than 10x cost price")
 
     with get_connection() as conn:
-        if "category" in updates and updates["category"]:
-            conn.execute("INSERT OR IGNORE INTO inventory_categories (name) VALUES (?)", (updates["category"],))
+        conn.execute("BEGIN")
+        try:
+            # Sanitize updates
+            if "name" in updates:
+                updates["name"] = updates["name"].strip()
+            if "category" in updates and updates["category"]:
+                updates["category"] = updates["category"].strip()
+            if "barcode" in updates and updates["barcode"]:
+                updates["barcode"] = updates["barcode"].strip()
+            if "unit_of_measure" in updates and updates["unit_of_measure"]:
+                updates["unit_of_measure"] = updates["unit_of_measure"].strip()
+            if "image_path" in updates and updates["image_path"]:
+                updates["image_path"] = updates["image_path"].strip()
+            
+            # Insert category if provided (atomic with item update)
+            if "category" in updates and updates["category"]:
+                conn.execute("INSERT OR IGNORE INTO inventory_categories (name) VALUES (?)", (updates["category"],))
+            
+            # Get current item to merge values for recalculation
+            conn.row_factory = sqlite3.Row
+            current = conn.execute("SELECT * FROM items WHERE item_id = ?", (item_id,)).fetchone()
+            if not current:
+                raise ValueError(f"Item {item_id} not found")
+            
+            # Determine values for per-unit price calculation
+            unit_of_measure = updates.get("unit_of_measure", current["unit_of_measure"])
+            unit_size = updates.get("unit_size_ml", current["unit_size_ml"]) or 1
+            selling_price = updates.get("selling_price", current["selling_price"])
+            cost_price = updates.get("cost_price", current["cost_price"])
+            
+            # Auto-calculate multiplier and per-unit prices
+            multiplier = _get_cached_unit_multiplier(unit_of_measure)
+            total_units = unit_size * multiplier
+            
+            if total_units > 0:
+                # Use normalized price calculation
+                price_data = _normalize_prices(cost_price, selling_price, unit_size, multiplier)
+                updates.update(price_data)
+            
+            set_clause = ", ".join(f"{k} = ?" for k in updates.keys())
+            params = list(updates.values()) + [item_id]
+            
+            conn.execute(f"UPDATE items SET {set_clause} WHERE item_id = ?", params)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
         
-        # Get current item to merge values for recalculation
-        conn.row_factory = sqlite3.Row
-        current = conn.execute("SELECT * FROM items WHERE item_id = ?", (item_id,)).fetchone()
-        if not current:
-            return None
-        
-        # Determine values for per-unit price calculation
-        unit_of_measure = updates.get("unit_of_measure", current["unit_of_measure"])
-        unit_size = updates.get("unit_size_ml", current["unit_size_ml"]) or 1
-        selling_price = updates.get("selling_price", current["selling_price"])
-        cost_price = updates.get("cost_price", current["cost_price"])
-        
-        # Auto-calculate multiplier and per-unit prices
-        multiplier = _get_unit_multiplier(unit_of_measure)
-        total_units = unit_size * multiplier
-        
-        if total_units > 0:
-            updates["unit_multiplier"] = multiplier
-            updates["selling_price_per_unit"] = selling_price / total_units
-            updates["cost_price_per_unit"] = cost_price / total_units
-            # Keep price_per_ml for backward compatibility
-            updates["price_per_ml"] = updates["selling_price_per_unit"]
-        
-        set_clause = ", ".join(f"{k} = ?" for k in updates.keys())
-        params = list(updates.values()) + [item_id]
-        
-        conn.execute(f"UPDATE items SET {set_clause} WHERE item_id = ?", params)
-        conn.commit()
         row = conn.execute("SELECT * FROM items WHERE item_id = ?", (item_id,)).fetchone()
     return _row_to_dict(row) if row else None
 

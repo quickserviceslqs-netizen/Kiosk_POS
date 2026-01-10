@@ -402,6 +402,10 @@ class InventoryFrame(ttk.Frame):
                 entry.grid(row=row, column=1, sticky=tk.EW, pady=5, padx=12)
             row += 1
 
+        # Add help text for price fields
+        ttk.Label(inner_frame, text="Prices are for the entire package/bulk quantity", font=("Segoe UI", 8), foreground="gray").grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=(0,10), padx=12)
+        row += 1
+
         # Image row
         ttk.Label(inner_frame, text="Image Path", font=("Segoe UI", 9)).grid(row=row, column=0, sticky=tk.W, pady=5, padx=12)
         img_frame = ttk.Frame(inner_frame)
@@ -521,6 +525,12 @@ class InventoryFrame(ttk.Frame):
         if is_admin:
             fields["price_per_ml"].trace_add("write", auto_bulk_from_unit)
             fields["cost_price_per_unit"].trace_add("write", auto_bulk_from_unit)
+
+        # Add help text for unit fields
+        ttk.Label(inner_frame, text="Package Size: Number of base units per package (e.g., 1000ml per liter bottle)", font=("Segoe UI", 8), foreground="gray").grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=(0,5), padx=12)
+        row += 1
+        ttk.Label(inner_frame, text="Unit prices are automatically calculated from bulk prices", font=("Segoe UI", 8), foreground="gray").grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=(0,10), padx=12)
+        row += 1
 
         def on_submit():
             try:

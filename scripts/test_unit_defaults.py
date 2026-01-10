@@ -1,12 +1,13 @@
 import sys
-sys.path.insert(0, r'c:\Users\ADMIN\Kiosk_Pos')
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from modules import items
 
 # Create a pieces item without specifying unit_size_ml
-p = items.create_item(name='UT Test Pieces', selling_price=5.0, unit_of_measure='pieces')
+p = items.create_item(name='UT Test Pieces', cost_price=4.0, selling_price=5.0, unit_of_measure='pieces')
 print('pieces:', p['item_id'], p['unit_of_measure'], p['unit_size_ml'], 'selling_price', p['selling_price'])
 # Create a liters item without specifying unit_size_ml
-l = items.create_item(name='UT Test Litre', selling_price=10.0, unit_of_measure='liters')
+l = items.create_item(name='UT Test Litre', cost_price=8.0, selling_price=10.0, unit_of_measure='liters')
 print('liters:', l['item_id'], l['unit_of_measure'], l['unit_size_ml'], 'selling_price', l['selling_price'])
 
 # Check computed per-base price (selling_price_per_unit) is correct

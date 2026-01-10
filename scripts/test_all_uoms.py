@@ -1,5 +1,6 @@
 import sys
-sys.path.insert(0, r'c:\Users\ADMIN\Kiosk_Pos')
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from modules import units_of_measure as uom, items
 
 units = uom.list_units(active_only=False)
