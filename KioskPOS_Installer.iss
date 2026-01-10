@@ -9,6 +9,8 @@
 ;   ISCC KioskPOS_Installer.iss
 ;
 ; Or use the provided build_installer.bat file
+;
+; If you get "source file does not exist" errors, you are NOT in the correct directory!
 
 ; #define SourceDir "."  ; Removed - using direct relative paths
 
@@ -41,13 +43,13 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
  [Files]
 ; Main executable (contains all bundled code)
-Source: "dist/main.exe"; DestDir: "{app}"; Flags: ignoreversion restartreplace
+Source: ".\dist\main.exe"; DestDir: "{app}"; Flags: ignoreversion restartreplace
 
 ; Assets folder
-Source: "assets/*"; DestDir: "{app}\assets"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: ".\assets\*"; DestDir: "{app}/assets"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; Email config template
-Source: "email_config.json"; DestDir: "{app}"; Flags: ignoreversion onlyifdoesntexist
+Source: ".\email_config.json"; DestDir: "{app}"; Flags: ignoreversion onlyifdoesntexist
 
 [Code]
 var
