@@ -714,5 +714,21 @@ def initialize_database(db_path: Path | None = None) -> Path:
     return resolved.resolve()
 
 
+def validate_database(db_path: Path | None = None) -> tuple[bool, str]:
+    """
+    Validate database health and return (is_valid, message).
+    
+    Returns:
+        tuple: (bool, str) - (True, "OK") if valid, (False, error_message) if invalid
+    """
+    try:
+        validate_database_setup(db_path)
+        return True, "Database validation passed"
+    except RuntimeError as e:
+        return False, str(e)
+    except Exception as e:
+        return False, f"Unexpected error during validation: {e}"
+
+
 if __name__ == "__main__":
     initialize_database()
