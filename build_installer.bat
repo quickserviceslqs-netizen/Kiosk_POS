@@ -31,14 +31,46 @@ if not exist "KioskPOS_Installer.iss" (
 )
 
 echo All required files found. Starting build...
+echo.
+
+echo Attempting build with relative paths...
 ISCC KioskPOS_Installer.iss
 
 if %ERRORLEVEL% EQU 0 (
     echo.
-    echo SUCCESS: Installer created in dist\ folder
+    echo SUCCESS: Installer created in dist\ folder using relative paths
+    goto :success
 ) else (
     echo.
-    echo ERROR: Build failed!
+    echo Relative path build failed. Trying with explicit source directory...
+    echo.
+    ISCC /dSourceDir="%CD%" KioskPOS_Installer.iss
+    
+    if %ERRORLEVEL% EQU 0 (
+        echo.
+        echo SUCCESS: Installer created in dist\ folder using explicit source directory
+        goto :success
+    ) else (
+        echo.
+        echo ERROR: Both build methods failed!
+        echo.
+        echo Troubleshooting:
+        echo - Ensure you're running from the Kiosk_POS project root
+        echo - Check that all files exist: dist\main.exe, assets\, email_config.json
+        echo - Try running: ISCC /dSourceDir="C:\full\path\to\Kiosk_POS" KioskPOS_Installer.iss
+        goto :error
+    )
 )
 
+:success
+echo.
+echo Build completed successfully!
+echo Installer: dist\KioskPOS_Installer_v1.004.exe
+goto :end
+
+:error
+echo Build failed with errors.
+goto :end
+
+:end
 pause
