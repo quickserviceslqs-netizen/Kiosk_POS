@@ -632,6 +632,54 @@ def get_default_db_path() -> Path:
     return resolved
 
 
+def validate_database_setup(db_path: Path | None = None) -> None:
+    """
+    Validate that the database is properly initialized with all required tables and data.
+    
+    Raises RuntimeError if the database is not properly set up.
+    """
+    try:
+        with get_connection(db_path) as conn:
+            # Check for required tables
+            required_tables = [
+                'users', 'items', 'sales', 'sales_items', 'refunds', 'refunds_items',
+                'expenses', 'vat_rates', 'units_of_measure', 'inventory_categories',
+                'expense_categories', 'item_variants', 'item_portions', 'settings'
+            ]
+            
+            existing_tables = {row[0] for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )}
+            
+            missing_tables = [table for table in required_tables if table not in existing_tables]
+            if missing_tables:
+                raise RuntimeError(f"Database missing required tables: {', '.join(missing_tables)}")
+            
+            # Check for required data
+            # Check if VAT rates are seeded
+            vat_count = conn.execute("SELECT COUNT(*) FROM vat_rates").fetchone()[0]
+            if vat_count == 0:
+                raise RuntimeError("Database missing VAT rates data")
+            
+            # Check if units of measure are seeded
+            uom_count = conn.execute("SELECT COUNT(*) FROM units_of_measure").fetchone()[0]
+            if uom_count == 0:
+                raise RuntimeError("Database missing units of measure data")
+            
+            # Check if inventory categories are seeded
+            inv_cat_count = conn.execute("SELECT COUNT(*) FROM inventory_categories").fetchone()[0]
+            if inv_cat_count == 0:
+                raise RuntimeError("Database missing inventory categories data")
+            
+            # Check if expense categories are seeded
+            exp_cat_count = conn.execute("SELECT COUNT(*) FROM expense_categories").fetchone()[0]
+            if exp_cat_count == 0:
+                raise RuntimeError("Database missing expense categories data")
+            
+    except sqlite3.Error as e:
+        raise RuntimeError(f"Database validation failed: {e}")
+
+
 def initialize_database(db_path: Path | None = None) -> Path:
     """Create required tables if they are missing and return the database path.
 

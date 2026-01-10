@@ -53,6 +53,11 @@ def bootstrap_database(*, create_default_admin: bool = True) -> Path:
     db_path = initialize_database(db_path)
     if not db_path.exists():
         raise RuntimeError("Database creation failed; file not found after initialization.")
+    
+    # Validate database setup
+    from database.init_db import validate_database_setup
+    validate_database_setup(db_path)
+    
     if create_default_admin:
         ensure_admin_user()
     try:
@@ -427,6 +432,25 @@ def main() -> None:
     import sys
     logger.debug("Command line args: %s", sys.argv)  # Debug: print arguments
     logger.info("Application starting; frozen=%s", getattr(sys, 'frozen', False))
+    
+    # Verify dependencies before proceeding
+    try:
+        from utils.app_config import verify_dependencies
+        verify_dependencies()
+    except RuntimeError as e:
+        # For command line operations, print to stderr and exit
+        if "--initialize-db" in sys.argv or "--recalc-prices" in sys.argv:
+            print(str(e), file=sys.stderr)
+            sys.exit(1)
+        # For GUI mode, show error dialog
+        try:
+            root = tk.Tk()
+            root.withdraw()
+            messagebox.showerror("Dependency Error", str(e))
+            root.destroy()
+        except Exception:
+            print(str(e), file=sys.stderr)
+        sys.exit(1)
     
 
     db_file = _default_db_path()
