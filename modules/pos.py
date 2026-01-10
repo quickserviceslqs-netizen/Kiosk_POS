@@ -99,6 +99,8 @@ def create_sale(
                         "price": price_per_unit,
                         "cost_price": cost_price,
                         "stock_units": stock_units,
+                        "variant_id": li.get("variant_id"),
+                        "portion_id": li.get("portion_id"),
                     }
                 )
             else:
@@ -114,6 +116,8 @@ def create_sale(
                         "price": price,
                         "cost_price": cost_price,
                         "stock_units": qty,
+                        "variant_id": li.get("variant_id"),
+                        "portion_id": li.get("portion_id"),
                     }
                 )
 
@@ -150,14 +154,28 @@ def create_sale(
                 price = entry["price"]
                 cost_price = entry["cost_price"]
                 stock_units = entry["stock_units"]
+                variant_id = entry.get("variant_id")
+                portion_id = entry.get("portion_id")
+                
+                # Insert sale item with variant and portion tracking
                 conn.execute(
-                    "INSERT INTO sales_items (sale_id, item_id, quantity, price, cost_price) VALUES (?, ?, ?, ?, ?)",
-                    (sale_id, item_id, qty, price, cost_price),
+                    "INSERT INTO sales_items (sale_id, item_id, variant_id, portion_id, quantity, price, cost_price) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (sale_id, item_id, variant_id, portion_id, qty, price, cost_price),
                 )
-                conn.execute(
-                    "UPDATE items SET quantity = quantity - ? WHERE item_id = ?",
-                    (stock_units, item_id),
-                )
+                
+                # Deduct stock from appropriate table
+                if variant_id:
+                    # Deduct from variant stock
+                    conn.execute(
+                        "UPDATE item_variants SET quantity = quantity - ? WHERE variant_id = ?",
+                        (stock_units, variant_id),
+                    )
+                else:
+                    # Deduct from base item stock
+                    conn.execute(
+                        "UPDATE items SET quantity = quantity - ? WHERE item_id = ?",
+                        (stock_units, item_id),
+                    )
             conn.commit()
             return {"sale_id": sale_id, "receipt_number": receipt_number}
         except Exception:

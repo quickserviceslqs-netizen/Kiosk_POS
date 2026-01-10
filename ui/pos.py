@@ -404,7 +404,8 @@ class PosFrame(ttk.Frame):
                     small_unit, 
                     multiplier,
                     preset_name=portion["portion_name"],
-                    preset_price=portion["selling_price"]
+                    preset_price=portion["selling_price"],
+                    portion_id=portion["portion_id"]
                 )
                 dialog.destroy()
             
@@ -531,7 +532,7 @@ class PosFrame(ttk.Frame):
         )
         self._refresh_cart()
 
-    def _add_special_sale(self, item: dict, qty_small: float, price_per_unit: float, display_unit: str, multiplier: float = 1, preset_name: str = None, preset_price: float = None) -> None:
+    def _add_special_sale(self, item: dict, qty_small: float, price_per_unit: float, display_unit: str, multiplier: float = 1, preset_name: str = None, preset_price: float = None, portion_id: int = None) -> None:
         if qty_small <= 0:
             messagebox.showerror("Invalid", "Quantity invalid")
             return
@@ -581,15 +582,28 @@ class PosFrame(ttk.Frame):
                 "display_unit": display_unit,
                 "preset_name": preset_name,
                 "preset_price": preset_price,
+                "portion_id": portion_id,
             }
         )
         self._refresh_cart()
 
     def _add_variant_to_cart(self, item: dict, variant: dict) -> None:
         """Add a specific variant to cart."""
+        from modules import variants
+        
+        # Check stock for the variant
+        if variant["quantity"] <= 0:
+            messagebox.showerror("Out of Stock", f"Variant '{variant['variant_name']}' is out of stock")
+            return
+        
         # Check if this exact variant is already in cart
         for entry in self.cart:
             if entry["item_id"] == item["item_id"] and entry.get("variant_id") == variant["variant_id"]:
+                # Check if we have enough stock for additional quantity
+                total_qty = entry["quantity"] + 1
+                if total_qty > variant["quantity"]:
+                    messagebox.showerror("Insufficient Stock", f"Not enough stock for variant '{variant['variant_name']}'. Available: {variant['quantity']}")
+                    return
                 entry.setdefault("cart_id", self._next_cart_id())
                 entry["quantity"] += 1
                 self._refresh_cart()

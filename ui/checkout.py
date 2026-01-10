@@ -192,9 +192,18 @@ class CheckoutDialog:
                 # Build sale payload using per-unit prices for non-special items and price-per-small-unit for special items
                 sale_lines = []
                 for e in cart:
+                    line_item = {'item_id': e['item_id']}
+                    
+                    # Include variant_id if present
+                    if e.get('variant_id'):
+                        line_item['variant_id'] = e['variant_id']
+                    
+                    # Include portion_id if present
+                    if e.get('portion_id'):
+                        line_item['portion_id'] = e['portion_id']
+                    
                     if e.get('is_special_volume'):
-                        sale_lines.append({
-                            'item_id': e['item_id'],
+                        line_item.update({
                             'quantity': e.get('qty_ml') or e.get('quantity'),
                             'price': e.get('price_per_ml') or e.get('price'),
                         })
@@ -205,7 +214,12 @@ class CheckoutDialog:
                         except Exception:
                             unit_size = 1
                         per_unit = float(e.get('price', 0)) / unit_size if unit_size else float(e.get('price', 0))
-                        sale_lines.append({'item_id': e['item_id'], 'quantity': e.get('quantity', 1), 'price': per_unit})
+                        line_item.update({
+                            'quantity': e.get('quantity', 1), 
+                            'price': per_unit
+                        })
+                    
+                    sale_lines.append(line_item)
 
                 sale_result = pos.create_sale(
                     sale_lines,

@@ -431,6 +431,20 @@ def _ensure_sales_columns(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _ensure_sales_items_columns(conn: sqlite3.Connection) -> None:
+    """Add missing columns to sales_items table for variant and portion tracking."""
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(sales_items);")}
+    # Add variant_id for tracking specific variants sold
+    if "variant_id" not in existing:
+        conn.execute("ALTER TABLE sales_items ADD COLUMN variant_id INTEGER")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_sales_items_variant_id ON sales_items(variant_id)")
+    # Add portion_id for tracking preset portions sold
+    if "portion_id" not in existing:
+        conn.execute("ALTER TABLE sales_items ADD COLUMN portion_id INTEGER")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_sales_items_portion_id ON sales_items(portion_id)")
+    conn.commit()
+
+
 def _seed_default_vat_rates(conn: sqlite3.Connection) -> None:
     """Seed default VAT rates if table is empty."""
     count = conn.execute("SELECT COUNT(*) FROM vat_rates").fetchone()[0]
@@ -615,6 +629,7 @@ def initialize_database(db_path: Path | None = None) -> Path:
         _ensure_item_columns(conn)
         _ensure_expense_columns(conn)
         _ensure_sales_columns(conn)
+        _ensure_sales_items_columns(conn)
         _ensure_refunds_table(conn)
         _ensure_inventory_categories_table(conn)
         _ensure_expense_categories_table(conn)
