@@ -46,6 +46,7 @@ def create_expense(*, date: str, category: str, amount: float, description: str 
     from utils.security import get_currency_code
     currency_code = get_currency_code()
     with get_connection() as conn:
+        conn.execute("INSERT OR IGNORE INTO expense_categories (name) VALUES (?)", (category,))
         conn.execute(
             "INSERT INTO expenses (date, category, amount, description, user_id, username, created_at, currency_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (date, category, amount, description, user_id, username, created_at, currency_code)
@@ -70,6 +71,8 @@ def update_expense(expense_id: int, **fields) -> Optional[dict]:
     params = list(updates.values()) + [expense_id]
     
     with get_connection() as conn:
+        if "category" in updates:
+            conn.execute("INSERT OR IGNORE INTO expense_categories (name) VALUES (?)", (updates["category"],))
         conn.execute(f"UPDATE expenses SET {set_clause} WHERE expense_id = ?", params)
         conn.commit()
         conn.row_factory = sqlite3.Row
@@ -125,5 +128,59 @@ def get_expenses_by_category(start_date: str, end_date: str) -> list[dict]:
 def get_expense_categories() -> list[str]:
     """Get all unique expense categories."""
     with get_connection() as conn:
-        rows = conn.execute("SELECT DISTINCT category FROM expenses ORDER BY category").fetchall()
+        rows = conn.execute("SELECT name FROM expense_categories ORDER BY name").fetchall()
+        if not rows:
+            # Fallback/backfill from expenses if table is empty
+            rows = conn.execute("SELECT DISTINCT category FROM expenses ORDER BY category").fetchall()
+            for (cat,) in rows:
+                conn.execute("INSERT OR IGNORE INTO expense_categories (name) VALUES (?)", (cat,))
+            conn.commit()
+        # Ensure an Uncategorized bucket exists for safe reassignments
+        conn.execute("INSERT OR IGNORE INTO expense_categories (name) VALUES (?)", ("Uncategorized",))
+        conn.commit()
     return [row[0] for row in rows]
+
+
+def add_expense_category(name: str) -> dict:
+    """Add a new expense category (idempotent)."""
+    clean = (name or "").strip()
+    if not clean:
+        raise ValueError("Category name is required")
+    with get_connection() as conn:
+        conn.execute("INSERT OR IGNORE INTO expense_categories (name) VALUES (?)", (clean,))
+        conn.commit()
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM expense_categories WHERE name = ?", (clean,)).fetchone()
+    return _row_to_dict(row) if row else {"name": clean}
+
+
+def rename_expense_category(old_name: str, new_name: str) -> dict:
+    """Rename a category and update expenses to the new name."""
+    old_clean = (old_name or "").strip()
+    new_clean = (new_name or "").strip()
+    if not old_clean or not new_clean:
+        raise ValueError("Both old and new category names are required")
+    with get_connection() as conn:
+        conn.execute("INSERT OR IGNORE INTO expense_categories (name) VALUES (?)", (new_clean,))
+        conn.execute("UPDATE expense_categories SET name = ? WHERE name = ?", (new_clean, old_clean))
+        conn.execute("UPDATE expenses SET category = ? WHERE category = ?", (new_clean, old_clean))
+        conn.commit()
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM expense_categories WHERE name = ?", (new_clean,)).fetchone()
+    return _row_to_dict(row) if row else {"name": new_clean}
+
+
+def delete_expense_category(name: str, *, reassign_to: str = "Uncategorized") -> None:
+    """Delete a category and reassign existing expenses to a fallback bucket."""
+    target = (name or "").strip()
+    fallback = (reassign_to or "Uncategorized").strip()
+    if not target:
+        raise ValueError("Category name is required")
+    with get_connection() as conn:
+        # Ensure fallback exists
+        conn.execute("INSERT OR IGNORE INTO expense_categories (name) VALUES (?)", (fallback,))
+        # Reassign expenses first
+        conn.execute("UPDATE expenses SET category = ? WHERE category = ?", (fallback, target))
+        # Delete the category entry
+        conn.execute("DELETE FROM expense_categories WHERE name = ?", (target,))
+        conn.commit()

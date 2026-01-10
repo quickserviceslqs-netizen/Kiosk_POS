@@ -18,12 +18,17 @@
   <a target="code" href="///C:/Users/ADMIN/Kiosk_Pos/main.py" type="text/plain"><tt>main.py</tt></a>
 <span class="moduletype">Script</span>  <div class="import">
 imports:
-    <a href="#_collections_abc">_collections_abc</a>
+    <a href="#PIL">PIL</a>
+ &#8226;   <a href="#__future__">__future__</a>
+ &#8226;   <a href="#_collections_abc">_collections_abc</a>
  &#8226;   <a href="#_weakrefset">_weakrefset</a>
  &#8226;   <a href="#abc">abc</a>
  &#8226;   <a href="#codecs">codecs</a>
  &#8226;   <a href="#collections">collections</a>
  &#8226;   <a href="#copyreg">copyreg</a>
+ &#8226;   <a href="#ctypes">ctypes</a>
+ &#8226;   <a href="#ctypes.wintypes">ctypes.wintypes</a>
+ &#8226;   <a href="#database">database</a>
  &#8226;   <a href="#database.init_db">database.init_db</a>
  &#8226;   <a href="#encodings">encodings</a>
  &#8226;   <a href="#encodings.aliases">encodings.aliases</a>
@@ -155,14 +160,28 @@ imports:
  &#8226;   <a href="#keyword">keyword</a>
  &#8226;   <a href="#linecache">linecache</a>
  &#8226;   <a href="#locale">locale</a>
+ &#8226;   <a href="#logging">logging</a>
  &#8226;   <a href="#modules">modules</a>
  &#8226;   <a href="#modules.backup">modules.backup</a>
+ &#8226;   <a href="#modules.dashboard">modules.dashboard</a>
+ &#8226;   <a href="#modules.expenses">modules.expenses</a>
+ &#8226;   <a href="#modules.items">modules.items</a>
+ &#8226;   <a href="#modules.notifications">modules.notifications</a>
+ &#8226;   <a href="#modules.portions">modules.portions</a>
+ &#8226;   <a href="#modules.pos">modules.pos</a>
+ &#8226;   <a href="#modules.receipts">modules.receipts</a>
+ &#8226;   <a href="#modules.refunds">modules.refunds</a>
+ &#8226;   <a href="#modules.reports">modules.reports</a>
+ &#8226;   <a href="#modules.units_of_measure">modules.units_of_measure</a>
  &#8226;   <a href="#modules.users">modules.users</a>
+ &#8226;   <a href="#modules.variants">modules.variants</a>
+ &#8226;   <a href="#modules.vat_rates">modules.vat_rates</a>
  &#8226;   <a href="#ntpath">ntpath</a>
  &#8226;   <a href="#operator">operator</a>
  &#8226;   <a href="#os">os</a>
  &#8226;   <a href="#pathlib">pathlib</a>
  &#8226;   <a href="#posixpath">posixpath</a>
+ &#8226;   <a href="#pycountry">pycountry</a>
  &#8226;   <a href="#pyi_rth__tkinter.py">pyi_rth__tkinter.py</a>
  &#8226;   <a href="#pyi_rth_inspect.py">pyi_rth_inspect.py</a>
  &#8226;   <a href="#pyi_rth_multiprocessing.py">pyi_rth_multiprocessing.py</a>
@@ -173,11 +192,14 @@ imports:
  &#8226;   <a href="#re._constants">re._constants</a>
  &#8226;   <a href="#re._parser">re._parser</a>
  &#8226;   <a href="#reprlib">reprlib</a>
+ &#8226;   <a href="#shutil">shutil</a>
  &#8226;   <a href="#sre_compile">sre_compile</a>
  &#8226;   <a href="#sre_constants">sre_constants</a>
  &#8226;   <a href="#sre_parse">sre_parse</a>
  &#8226;   <a href="#stat">stat</a>
  &#8226;   <a href="#sys">sys</a>
+ &#8226;   <a href="#tempfile">tempfile</a>
+ &#8226;   <a href="#tkcalendar">tkcalendar</a>
  &#8226;   <a href="#tkinter">tkinter</a>
  &#8226;   <a href="#tkinter.messagebox">tkinter.messagebox</a>
  &#8226;   <a href="#tkinter.ttk">tkinter.ttk</a>
@@ -185,17 +207,26 @@ imports:
  &#8226;   <a href="#types">types</a>
  &#8226;   <a href="#ui.admin_setup">ui.admin_setup</a>
  &#8226;   <a href="#ui.backup">ui.backup</a>
+ &#8226;   <a href="#ui.cart">ui.cart</a>
  &#8226;   <a href="#ui.checkout">ui.checkout</a>
  &#8226;   <a href="#ui.dashboard">ui.dashboard</a>
  &#8226;   <a href="#ui.email_settings">ui.email_settings</a>
  &#8226;   <a href="#ui.expenses">ui.expenses</a>
  &#8226;   <a href="#ui.inventory">ui.inventory</a>
  &#8226;   <a href="#ui.login">ui.login</a>
+ &#8226;   <a href="#ui.order_history">ui.order_history</a>
  &#8226;   <a href="#ui.pos">ui.pos</a>
  &#8226;   <a href="#ui.reports">ui.reports</a>
  &#8226;   <a href="#ui.settings">ui.settings</a>
+ &#8226;   <a href="#ui.shell">ui.shell</a>
+ &#8226;   <a href="#ui.system_info">ui.system_info</a>
+ &#8226;   <a href="#ui.uom_settings">ui.uom_settings</a>
  &#8226;   <a href="#ui.user_mgmt">ui.user_mgmt</a>
  &#8226;   <a href="#ui.vat_settings">ui.vat_settings</a>
+ &#8226;   <a href="#utils.app_config">utils.app_config</a>
+ &#8226;   <a href="#utils.csv_io">utils.csv_io</a>
+ &#8226;   <a href="#utils.images">utils.images</a>
+ &#8226;   <a href="#utils.security">utils.security</a>
  &#8226;   <a href="#warnings">warnings</a>
  &#8226;   <a href="#weakref">weakref</a>
 
@@ -294,6 +325,10 @@ imported by:
  &#8226;   <a href="#PIL._typing">PIL._typing</a>
  &#8226;   <a href="#asyncio.base_events">asyncio.base_events</a>
  &#8226;   <a href="#asyncio.coroutines">asyncio.coroutines</a>
+ &#8226;   <a href="#babel.core">babel.core</a>
+ &#8226;   <a href="#babel.dates">babel.dates</a>
+ &#8226;   <a href="#babel.localedata">babel.localedata</a>
+ &#8226;   <a href="#babel.plural">babel.plural</a>
  &#8226;   <a href="#http.client">http.client</a>
  &#8226;   <a href="#importlib.resources.readers">importlib.resources.readers</a>
  &#8226;   <a href="#inspect">inspect</a>
@@ -309,6 +344,7 @@ imported by:
  &#8226;   <a href="#numpy.random._generator">numpy.random._generator</a>
  &#8226;   <a href="#numpy.random.bit_generator">numpy.random.bit_generator</a>
  &#8226;   <a href="#numpy.random.mtrand">numpy.random.mtrand</a>
+ &#8226;   <a href="#pytz.lazy">pytz.lazy</a>
  &#8226;   <a href="#selectors">selectors</a>
  &#8226;   <a href="#sqlite3.dbapi2">sqlite3.dbapi2</a>
  &#8226;   <a href="#traceback">traceback</a>
@@ -494,6 +530,7 @@ imported by:
  &#8226;   <a href="#PIL._version">PIL._version</a>
  &#8226;   <a href="#PIL._webp">PIL._webp</a>
  &#8226;   <a href="#PIL.features">PIL.features</a>
+ &#8226;   <a href="#main.py">main.py</a>
  &#8226;   <a href="#ui.login">ui.login</a>
  &#8226;   <a href="#utils.images">utils.images</a>
 
@@ -2648,6 +2685,29 @@ imported by:
 </div>
 
 <div class="node">
+  <a name="Tkinter"></a>
+  <a target="code" href="" type="text/plain"><tt>Tkinter</tt></a>
+<span class="moduletype">MissingModule</span>  <div class="import">
+imported by:
+    <a href="#tkcalendar.dateentry">tkcalendar.dateentry</a>
+ &#8226;   <a href="#tkcalendar.tooltip">tkcalendar.tooltip</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="UserDict"></a>
+  <a target="code" href="" type="text/plain"><tt>UserDict</tt></a>
+<span class="moduletype">MissingModule</span>  <div class="import">
+imported by:
+    <a href="#pytz.lazy">pytz.lazy</a>
+
+  </div>
+
+</div>
+
+<div class="node">
   <a name="__future__"></a>
   <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/__future__.py" type="text/plain"><tt>__future__</tt></a>
 <span class="moduletype">SourceModule</span>  <div class="import">
@@ -2730,6 +2790,12 @@ imported by:
  &#8226;   <a href="#PIL.features">PIL.features</a>
  &#8226;   <a href="#_colorize">_colorize</a>
  &#8226;   <a href="#_pyrepl.pager">_pyrepl.pager</a>
+ &#8226;   <a href="#babel.core">babel.core</a>
+ &#8226;   <a href="#babel.dates">babel.dates</a>
+ &#8226;   <a href="#babel.localedata">babel.localedata</a>
+ &#8226;   <a href="#babel.localtime._win32">babel.localtime._win32</a>
+ &#8226;   <a href="#babel.numbers">babel.numbers</a>
+ &#8226;   <a href="#babel.plural">babel.plural</a>
  &#8226;   <a href="#charset_normalizer">charset_normalizer</a>
  &#8226;   <a href="#charset_normalizer.api">charset_normalizer.api</a>
  &#8226;   <a href="#charset_normalizer.cd">charset_normalizer.cd</a>
@@ -2744,25 +2810,35 @@ imported by:
  &#8226;   <a href="#importlib.metadata">importlib.metadata</a>
  &#8226;   <a href="#importlib.metadata._meta">importlib.metadata._meta</a>
  &#8226;   <a href="#importlib.resources.readers">importlib.resources.readers</a>
+ &#8226;   <a href="#main">main</a>
+ &#8226;   <a href="#main.py">main.py</a>
  &#8226;   <a href="#modules.backup">modules.backup</a>
  &#8226;   <a href="#modules.dashboard">modules.dashboard</a>
  &#8226;   <a href="#modules.expenses">modules.expenses</a>
  &#8226;   <a href="#modules.items">modules.items</a>
  &#8226;   <a href="#modules.notifications">modules.notifications</a>
+ &#8226;   <a href="#modules.portions">modules.portions</a>
  &#8226;   <a href="#modules.pos">modules.pos</a>
+ &#8226;   <a href="#modules.receipts">modules.receipts</a>
+ &#8226;   <a href="#modules.refunds">modules.refunds</a>
  &#8226;   <a href="#modules.reports">modules.reports</a>
+ &#8226;   <a href="#modules.units_of_measure">modules.units_of_measure</a>
  &#8226;   <a href="#modules.users">modules.users</a>
  &#8226;   <a href="#modules.vat_rates">modules.vat_rates</a>
  &#8226;   <a href="#pydoc">pydoc</a>
  &#8226;   <a href="#ui.backup">ui.backup</a>
+ &#8226;   <a href="#ui.cart">ui.cart</a>
  &#8226;   <a href="#ui.checkout">ui.checkout</a>
  &#8226;   <a href="#ui.dashboard">ui.dashboard</a>
  &#8226;   <a href="#ui.email_settings">ui.email_settings</a>
  &#8226;   <a href="#ui.expenses">ui.expenses</a>
  &#8226;   <a href="#ui.inventory">ui.inventory</a>
  &#8226;   <a href="#ui.login">ui.login</a>
+ &#8226;   <a href="#ui.order_history">ui.order_history</a>
  &#8226;   <a href="#ui.pos">ui.pos</a>
  &#8226;   <a href="#ui.reports">ui.reports</a>
+ &#8226;   <a href="#ui.shell">ui.shell</a>
+ &#8226;   <a href="#ui.uom_settings">ui.uom_settings</a>
  &#8226;   <a href="#ui.user_mgmt">ui.user_mgmt</a>
  &#8226;   <a href="#ui.vat_settings">ui.vat_settings</a>
  &#8226;   <a href="#utils.csv_io">utils.csv_io</a>
@@ -3800,6 +3876,16 @@ imported by:
 </div>
 
 <div class="node">
+  <a name="_uuid"></a>
+  <tt>_uuid</tt> <span class="moduletype"><tt>C:\Users\ADMIN\AppData\Local\Programs\Python\Python313\DLLs\_uuid.pyd</tt></span>  <div class="import">
+imported by:
+    <a href="#uuid">uuid</a>
+
+  </div>
+
+</div>
+
+<div class="node">
   <a name="_warnings"></a>
   <tt>_warnings</tt> <span class="moduletype"><i>(builtin module)</i></span>  <div class="import">
 imported by:
@@ -3873,6 +3959,16 @@ imported by:
   <tt>_wmi</tt> <span class="moduletype"><tt>C:\Users\ADMIN\AppData\Local\Programs\Python\Python313\DLLs\_wmi.pyd</tt></span>  <div class="import">
 imported by:
     <a href="#platform">platform</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="_zoneinfo"></a>
+  <tt>_zoneinfo</tt> <span class="moduletype"><tt>C:\Users\ADMIN\AppData\Local\Programs\Python\Python313\DLLs\_zoneinfo.pyd</tt></span>  <div class="import">
+imported by:
+    <a href="#zoneinfo">zoneinfo</a>
 
   </div>
 
@@ -3964,6 +4060,7 @@ imported by:
  &#8226;   <a href="#tarfile">tarfile</a>
  &#8226;   <a href="#tokenize">tokenize</a>
  &#8226;   <a href="#unittest.main">unittest.main</a>
+ &#8226;   <a href="#uuid">uuid</a>
  &#8226;   <a href="#webbrowser">webbrowser</a>
  &#8226;   <a href="#zipfile">zipfile</a>
 
@@ -4977,6 +5074,274 @@ imported by:
 </div>
 
 <div class="node">
+  <a name="babel"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/site-packages/babel/__init__.py" type="text/plain"><tt>babel</tt></a>
+<span class="moduletype">Package</span>  <div class="import">
+imports:
+    <a href="#babel.core">babel.core</a>
+ &#8226;   <a href="#babel.dates">babel.dates</a>
+ &#8226;   <a href="#babel.localedata">babel.localedata</a>
+ &#8226;   <a href="#babel.localtime">babel.localtime</a>
+ &#8226;   <a href="#babel.numbers">babel.numbers</a>
+ &#8226;   <a href="#babel.plural">babel.plural</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#babel.core">babel.core</a>
+ &#8226;   <a href="#babel.dates">babel.dates</a>
+ &#8226;   <a href="#babel.localedata">babel.localedata</a>
+ &#8226;   <a href="#babel.localtime">babel.localtime</a>
+ &#8226;   <a href="#babel.numbers">babel.numbers</a>
+ &#8226;   <a href="#babel.plural">babel.plural</a>
+ &#8226;   <a href="#tkcalendar.calendar_">tkcalendar.calendar_</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="babel.core"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/site-packages/babel/core.py" type="text/plain"><tt>babel.core</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#'collections.abc'">'collections.abc'</a>
+ &#8226;   <a href="#__future__">__future__</a>
+ &#8226;   <a href="#babel">babel</a>
+ &#8226;   <a href="#babel.localedata">babel.localedata</a>
+ &#8226;   <a href="#babel.plural">babel.plural</a>
+ &#8226;   <a href="#os">os</a>
+ &#8226;   <a href="#pickle">pickle</a>
+ &#8226;   <a href="#typing">typing</a>
+ &#8226;   <a href="#typing_extensions">typing_extensions</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#babel">babel</a>
+ &#8226;   <a href="#babel.dates">babel.dates</a>
+ &#8226;   <a href="#babel.localedata">babel.localedata</a>
+ &#8226;   <a href="#babel.localtime._win32">babel.localtime._win32</a>
+ &#8226;   <a href="#babel.numbers">babel.numbers</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="babel.dates"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/site-packages/babel/dates.py" type="text/plain"><tt>babel.dates</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#'collections.abc'">'collections.abc'</a>
+ &#8226;   <a href="#__future__">__future__</a>
+ &#8226;   <a href="#babel">babel</a>
+ &#8226;   <a href="#babel.core">babel.core</a>
+ &#8226;   <a href="#babel.localedata">babel.localedata</a>
+ &#8226;   <a href="#babel.localtime">babel.localtime</a>
+ &#8226;   <a href="#datetime">datetime</a>
+ &#8226;   <a href="#functools">functools</a>
+ &#8226;   <a href="#math">math</a>
+ &#8226;   <a href="#pytz">pytz</a>
+ &#8226;   <a href="#re">re</a>
+ &#8226;   <a href="#typing">typing</a>
+ &#8226;   <a href="#typing_extensions">typing_extensions</a>
+ &#8226;   <a href="#warnings">warnings</a>
+ &#8226;   <a href="#zoneinfo">zoneinfo</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#babel">babel</a>
+ &#8226;   <a href="#tkcalendar.calendar_">tkcalendar.calendar_</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="babel.localedata"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/site-packages/babel/localedata.py" type="text/plain"><tt>babel.localedata</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#'collections.abc'">'collections.abc'</a>
+ &#8226;   <a href="#__future__">__future__</a>
+ &#8226;   <a href="#babel">babel</a>
+ &#8226;   <a href="#babel.core">babel.core</a>
+ &#8226;   <a href="#collections">collections</a>
+ &#8226;   <a href="#functools">functools</a>
+ &#8226;   <a href="#itertools">itertools</a>
+ &#8226;   <a href="#os">os</a>
+ &#8226;   <a href="#pickle">pickle</a>
+ &#8226;   <a href="#re">re</a>
+ &#8226;   <a href="#sys">sys</a>
+ &#8226;   <a href="#threading">threading</a>
+ &#8226;   <a href="#typing">typing</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#babel">babel</a>
+ &#8226;   <a href="#babel.core">babel.core</a>
+ &#8226;   <a href="#babel.dates">babel.dates</a>
+ &#8226;   <a href="#babel.numbers">babel.numbers</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="babel.localtime"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/site-packages/babel/localtime/__init__.py" type="text/plain"><tt>babel.localtime</tt></a>
+<span class="moduletype">Package</span>  <div class="import">
+imports:
+    <a href="#babel">babel</a>
+ &#8226;   <a href="#babel.localtime._fallback">babel.localtime._fallback</a>
+ &#8226;   <a href="#babel.localtime._unix">babel.localtime._unix</a>
+ &#8226;   <a href="#babel.localtime._win32">babel.localtime._win32</a>
+ &#8226;   <a href="#datetime">datetime</a>
+ &#8226;   <a href="#sys">sys</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#babel">babel</a>
+ &#8226;   <a href="#babel.dates">babel.dates</a>
+ &#8226;   <a href="#babel.localtime._fallback">babel.localtime._fallback</a>
+ &#8226;   <a href="#babel.localtime._helpers">babel.localtime._helpers</a>
+ &#8226;   <a href="#babel.localtime._unix">babel.localtime._unix</a>
+ &#8226;   <a href="#babel.localtime._win32">babel.localtime._win32</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="babel.localtime._fallback"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/site-packages/babel/localtime/_fallback.py" type="text/plain"><tt>babel.localtime._fallback</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#babel.localtime">babel.localtime</a>
+ &#8226;   <a href="#datetime">datetime</a>
+ &#8226;   <a href="#time">time</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#babel.localtime">babel.localtime</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="babel.localtime._helpers"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/site-packages/babel/localtime/_helpers.py" type="text/plain"><tt>babel.localtime._helpers</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#babel.localtime">babel.localtime</a>
+ &#8226;   <a href="#pytz">pytz</a>
+ &#8226;   <a href="#zoneinfo">zoneinfo</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#babel.localtime._unix">babel.localtime._unix</a>
+ &#8226;   <a href="#babel.localtime._win32">babel.localtime._win32</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="babel.localtime._unix"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/site-packages/babel/localtime/_unix.py" type="text/plain"><tt>babel.localtime._unix</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#babel.localtime">babel.localtime</a>
+ &#8226;   <a href="#babel.localtime._helpers">babel.localtime._helpers</a>
+ &#8226;   <a href="#datetime">datetime</a>
+ &#8226;   <a href="#os">os</a>
+ &#8226;   <a href="#re">re</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#babel.localtime">babel.localtime</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="babel.localtime._win32"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/site-packages/babel/localtime/_win32.py" type="text/plain"><tt>babel.localtime._win32</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#__future__">__future__</a>
+ &#8226;   <a href="#babel.core">babel.core</a>
+ &#8226;   <a href="#babel.localtime">babel.localtime</a>
+ &#8226;   <a href="#babel.localtime._helpers">babel.localtime._helpers</a>
+ &#8226;   <a href="#datetime">datetime</a>
+ &#8226;   <a href="#typing">typing</a>
+ &#8226;   <a href="#winreg">winreg</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#babel.localtime">babel.localtime</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="babel.numbers"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/site-packages/babel/numbers.py" type="text/plain"><tt>babel.numbers</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#__future__">__future__</a>
+ &#8226;   <a href="#babel">babel</a>
+ &#8226;   <a href="#babel.core">babel.core</a>
+ &#8226;   <a href="#babel.localedata">babel.localedata</a>
+ &#8226;   <a href="#datetime">datetime</a>
+ &#8226;   <a href="#decimal">decimal</a>
+ &#8226;   <a href="#re">re</a>
+ &#8226;   <a href="#typing">typing</a>
+ &#8226;   <a href="#warnings">warnings</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#babel">babel</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="babel.plural"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/site-packages/babel/plural.py" type="text/plain"><tt>babel.plural</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#'collections.abc'">'collections.abc'</a>
+ &#8226;   <a href="#__future__">__future__</a>
+ &#8226;   <a href="#babel">babel</a>
+ &#8226;   <a href="#decimal">decimal</a>
+ &#8226;   <a href="#re">re</a>
+ &#8226;   <a href="#typing">typing</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#babel">babel</a>
+ &#8226;   <a href="#babel.core">babel.core</a>
+
+  </div>
+
+</div>
+
+<div class="node">
   <a name="base64"></a>
   <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/base64.py" type="text/plain"><tt>base64</tt></a>
 <span class="moduletype">SourceModule</span>  <div class="import">
@@ -5058,9 +5423,11 @@ imports:
   <div class="import">
 imported by:
     <a href="#multiprocessing.heap">multiprocessing.heap</a>
+ &#8226;   <a href="#pytz.tzinfo">pytz.tzinfo</a>
  &#8226;   <a href="#random">random</a>
  &#8226;   <a href="#statistics">statistics</a>
  &#8226;   <a href="#urllib.request">urllib.request</a>
+ &#8226;   <a href="#zoneinfo._zoneinfo">zoneinfo._zoneinfo</a>
 
   </div>
 
@@ -5147,6 +5514,8 @@ imported by:
  &#8226;   <a href="#email._parseaddr">email._parseaddr</a>
  &#8226;   <a href="#http.cookiejar">http.cookiejar</a>
  &#8226;   <a href="#ssl">ssl</a>
+ &#8226;   <a href="#tkcalendar.calendar_">tkcalendar.calendar_</a>
+ &#8226;   <a href="#zoneinfo._zoneinfo">zoneinfo._zoneinfo</a>
 
   </div>
 
@@ -5612,6 +5981,7 @@ imports:
     <a href="#_collections">_collections</a>
  &#8226;   <a href="#_collections_abc">_collections_abc</a>
  &#8226;   <a href="#_weakref">_weakref</a>
+ &#8226;   <a href="#collections.Mapping">collections.Mapping</a>
  &#8226;   <a href="#copy">copy</a>
  &#8226;   <a href="#heapq">heapq</a>
  &#8226;   <a href="#itertools">itertools</a>
@@ -5635,6 +6005,7 @@ imported by:
  &#8226;   <a href="#asyncio.selector_events">asyncio.selector_events</a>
  &#8226;   <a href="#asyncio.sslproto">asyncio.sslproto</a>
  &#8226;   <a href="#asyncio.streams">asyncio.streams</a>
+ &#8226;   <a href="#babel.localedata">babel.localedata</a>
  &#8226;   <a href="#charset_normalizer.cd">charset_normalizer.cd</a>
  &#8226;   <a href="#concurrent.futures._base">concurrent.futures._base</a>
  &#8226;   <a href="#contextlib">contextlib</a>
@@ -5661,6 +6032,7 @@ imported by:
  &#8226;   <a href="#psutil._common">psutil._common</a>
  &#8226;   <a href="#psutil._pswindows">psutil._pswindows</a>
  &#8226;   <a href="#pydoc">pydoc</a>
+ &#8226;   <a href="#pytz.lazy">pytz.lazy</a>
  &#8226;   <a href="#queue">queue</a>
  &#8226;   <a href="#selectors">selectors</a>
  &#8226;   <a href="#shlex">shlex</a>
@@ -5678,6 +6050,19 @@ imported by:
  &#8226;   <a href="#unittest.util">unittest.util</a>
  &#8226;   <a href="#urllib.parse">urllib.parse</a>
  &#8226;   <a href="#xml.etree.ElementTree">xml.etree.ElementTree</a>
+ &#8226;   <a href="#zoneinfo._zoneinfo">zoneinfo._zoneinfo</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="collections.Mapping"></a>
+  <a target="code" href="" type="text/plain"><tt>collections.Mapping</tt></a>
+<span class="moduletype">MissingModule</span>  <div class="import">
+imported by:
+    <a href="#collections">collections</a>
+ &#8226;   <a href="#pytz.lazy">pytz.lazy</a>
 
   </div>
 
@@ -5954,6 +6339,7 @@ imports:
   <div class="import">
 imported by:
     <a href="#importlib.metadata">importlib.metadata</a>
+ &#8226;   <a href="#ui.inventory">ui.inventory</a>
  &#8226;   <a href="#utils.csv_io">utils.csv_io</a>
 
   </div>
@@ -5968,6 +6354,7 @@ imports:
     <a href="#_ctypes">_ctypes</a>
  &#8226;   <a href="#ctypes._endian">ctypes._endian</a>
  &#8226;   <a href="#ctypes.util">ctypes.util</a>
+ &#8226;   <a href="#ctypes.wintypes">ctypes.wintypes</a>
  &#8226;   <a href="#nt">nt</a>
  &#8226;   <a href="#os">os</a>
  &#8226;   <a href="#struct">struct</a>
@@ -5983,6 +6370,9 @@ imported by:
  &#8226;   <a href="#ctypes._endian">ctypes._endian</a>
  &#8226;   <a href="#ctypes.macholib">ctypes.macholib</a>
  &#8226;   <a href="#ctypes.util">ctypes.util</a>
+ &#8226;   <a href="#ctypes.wintypes">ctypes.wintypes</a>
+ &#8226;   <a href="#main">main</a>
+ &#8226;   <a href="#main.py">main.py</a>
  &#8226;   <a href="#multiprocessing.sharedctypes">multiprocessing.sharedctypes</a>
  &#8226;   <a href="#numpy._core._dtype_ctypes">numpy._core._dtype_ctypes</a>
  &#8226;   <a href="#numpy._core._internal">numpy._core._internal</a>
@@ -6133,11 +6523,31 @@ imported by:
 </div>
 
 <div class="node">
+  <a name="ctypes.wintypes"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/ctypes/wintypes.py" type="text/plain"><tt>ctypes.wintypes</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#ctypes">ctypes</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#ctypes">ctypes</a>
+ &#8226;   <a href="#main">main</a>
+ &#8226;   <a href="#main.py">main.py</a>
+
+  </div>
+
+</div>
+
+<div class="node">
   <a name="database"></a>
   <a target="code" href="///C:/Users/ADMIN/Kiosk_Pos/database/__init__.py" type="text/plain"><tt>database</tt></a>
 <span class="moduletype">Package</span>  <div class="import">
 imported by:
     <a href="#database.init_db">database.init_db</a>
+ &#8226;   <a href="#main">main</a>
+ &#8226;   <a href="#main.py">main.py</a>
 
   </div>
 
@@ -6149,6 +6559,9 @@ imported by:
 <span class="moduletype">SourceModule</span>  <div class="import">
 imports:
     <a href="#database">database</a>
+ &#8226;   <a href="#logging">logging</a>
+ &#8226;   <a href="#modules">modules</a>
+ &#8226;   <a href="#modules.units_of_measure">modules.units_of_measure</a>
  &#8226;   <a href="#pathlib">pathlib</a>
  &#8226;   <a href="#sqlite3">sqlite3</a>
 
@@ -6161,11 +6574,17 @@ imported by:
  &#8226;   <a href="#modules.dashboard">modules.dashboard</a>
  &#8226;   <a href="#modules.expenses">modules.expenses</a>
  &#8226;   <a href="#modules.items">modules.items</a>
+ &#8226;   <a href="#modules.portions">modules.portions</a>
  &#8226;   <a href="#modules.pos">modules.pos</a>
+ &#8226;   <a href="#modules.receipts">modules.receipts</a>
+ &#8226;   <a href="#modules.refunds">modules.refunds</a>
  &#8226;   <a href="#modules.reports">modules.reports</a>
+ &#8226;   <a href="#modules.units_of_measure">modules.units_of_measure</a>
  &#8226;   <a href="#modules.users">modules.users</a>
+ &#8226;   <a href="#modules.variants">modules.variants</a>
  &#8226;   <a href="#modules.vat_rates">modules.vat_rates</a>
  &#8226;   <a href="#ui.settings">ui.settings</a>
+ &#8226;   <a href="#ui.system_info">ui.system_info</a>
  &#8226;   <a href="#utils.security">utils.security</a>
 
   </div>
@@ -6210,6 +6629,12 @@ imports:
 imported by:
     <a href="#PIL._imagingcms">PIL._imagingcms</a>
  &#8226;   <a href="#_strptime">_strptime</a>
+ &#8226;   <a href="#babel.dates">babel.dates</a>
+ &#8226;   <a href="#babel.localtime">babel.localtime</a>
+ &#8226;   <a href="#babel.localtime._fallback">babel.localtime._fallback</a>
+ &#8226;   <a href="#babel.localtime._unix">babel.localtime._unix</a>
+ &#8226;   <a href="#babel.localtime._win32">babel.localtime._win32</a>
+ &#8226;   <a href="#babel.numbers">babel.numbers</a>
  &#8226;   <a href="#calendar">calendar</a>
  &#8226;   <a href="#email.utils">email.utils</a>
  &#8226;   <a href="#http.cookiejar">http.cookiejar</a>
@@ -6219,15 +6644,22 @@ imported by:
  &#8226;   <a href="#modules.expenses">modules.expenses</a>
  &#8226;   <a href="#modules.notifications">modules.notifications</a>
  &#8226;   <a href="#modules.pos">modules.pos</a>
+ &#8226;   <a href="#modules.receipts">modules.receipts</a>
+ &#8226;   <a href="#modules.refunds">modules.refunds</a>
  &#8226;   <a href="#modules.reports">modules.reports</a>
  &#8226;   <a href="#psutil">psutil</a>
+ &#8226;   <a href="#pytz">pytz</a>
+ &#8226;   <a href="#pytz.tzfile">pytz.tzfile</a>
+ &#8226;   <a href="#pytz.tzinfo">pytz.tzinfo</a>
  &#8226;   <a href="#smtplib">smtplib</a>
  &#8226;   <a href="#sqlite3.dbapi2">sqlite3.dbapi2</a>
  &#8226;   <a href="#ui.backup">ui.backup</a>
  &#8226;   <a href="#ui.dashboard">ui.dashboard</a>
  &#8226;   <a href="#ui.expenses">ui.expenses</a>
+ &#8226;   <a href="#ui.order_history">ui.order_history</a>
  &#8226;   <a href="#ui.reports">ui.reports</a>
  &#8226;   <a href="#xmlrpc.client">xmlrpc.client</a>
+ &#8226;   <a href="#zoneinfo._zoneinfo">zoneinfo._zoneinfo</a>
 
   </div>
 
@@ -6245,7 +6677,9 @@ imports:
   </div>
   <div class="import">
 imported by:
-    <a href="#fractions">fractions</a>
+    <a href="#babel.numbers">babel.numbers</a>
+ &#8226;   <a href="#babel.plural">babel.plural</a>
+ &#8226;   <a href="#fractions">fractions</a>
  &#8226;   <a href="#statistics">statistics</a>
  &#8226;   <a href="#xmlrpc.client">xmlrpc.client</a>
 
@@ -6336,6 +6770,7 @@ imports:
   <div class="import">
 imported by:
     <a href="#numpy.testing._private.utils">numpy.testing._private.utils</a>
+ &#8226;   <a href="#pytz">pytz</a>
 
   </div>
 
@@ -9468,6 +9903,7 @@ imported by:
  &#8226;   <a href="#ssl">ssl</a>
  &#8226;   <a href="#tkinter">tkinter</a>
  &#8226;   <a href="#typing_extensions">typing_extensions</a>
+ &#8226;   <a href="#uuid">uuid</a>
 
   </div>
 
@@ -9635,6 +10071,8 @@ imported by:
  &#8226;   <a href="#asyncio.tasks">asyncio.tasks</a>
  &#8226;   <a href="#asyncio.threads">asyncio.threads</a>
  &#8226;   <a href="#asyncio.windows_events">asyncio.windows_events</a>
+ &#8226;   <a href="#babel.dates">babel.dates</a>
+ &#8226;   <a href="#babel.localedata">babel.localedata</a>
  &#8226;   <a href="#charset_normalizer.cd">charset_normalizer.cd</a>
  &#8226;   <a href="#charset_normalizer.md">charset_normalizer.md</a>
  &#8226;   <a href="#charset_normalizer.utils">charset_normalizer.utils</a>
@@ -9709,6 +10147,7 @@ imported by:
  &#8226;   <a href="#unittest.signals">unittest.signals</a>
  &#8226;   <a href="#urllib.parse">urllib.parse</a>
  &#8226;   <a href="#warnings">warnings</a>
+ &#8226;   <a href="#zoneinfo._zoneinfo">zoneinfo._zoneinfo</a>
 
   </div>
 
@@ -9914,6 +10353,7 @@ imported by:
  &#8226;   <a href="#random">random</a>
  &#8226;   <a href="#urllib.request">urllib.request</a>
  &#8226;   <a href="#utils.security">utils.security</a>
+ &#8226;   <a href="#uuid">uuid</a>
 
   </div>
 
@@ -10145,6 +10585,8 @@ imported by:
  &#8226;   <a href="#inspect">inspect</a>
  &#8226;   <a href="#pkgutil">pkgutil</a>
  &#8226;   <a href="#pycountry">pycountry</a>
+ &#8226;   <a href="#zoneinfo._common">zoneinfo._common</a>
+ &#8226;   <a href="#zoneinfo._tzpath">zoneinfo._tzpath</a>
 
   </div>
 
@@ -10478,6 +10920,8 @@ imported by:
  &#8226;   <a href="#importlib.resources.abc">importlib.resources.abc</a>
  &#8226;   <a href="#importlib.resources.readers">importlib.resources.readers</a>
  &#8226;   <a href="#pycountry">pycountry</a>
+ &#8226;   <a href="#zoneinfo._common">zoneinfo._common</a>
+ &#8226;   <a href="#zoneinfo._tzpath">zoneinfo._tzpath</a>
 
   </div>
 
@@ -10806,6 +11250,7 @@ imported by:
  &#8226;   <a href="#unittest.result">unittest.result</a>
  &#8226;   <a href="#urllib.error">urllib.error</a>
  &#8226;   <a href="#urllib.request">urllib.request</a>
+ &#8226;   <a href="#uuid">uuid</a>
  &#8226;   <a href="#xml.etree.ElementTree">xml.etree.ElementTree</a>
  &#8226;   <a href="#xml.sax">xml.sax</a>
  &#8226;   <a href="#xml.sax.saxutils">xml.sax.saxutils</a>
@@ -10850,6 +11295,7 @@ imported by:
  &#8226;   <a href="#asyncio.tasks">asyncio.tasks</a>
  &#8226;   <a href="#asyncio.unix_events">asyncio.unix_events</a>
  &#8226;   <a href="#asyncio.windows_utils">asyncio.windows_utils</a>
+ &#8226;   <a href="#babel.localedata">babel.localedata</a>
  &#8226;   <a href="#calendar">calendar</a>
  &#8226;   <a href="#collections">collections</a>
  &#8226;   <a href="#concurrent.futures.process">concurrent.futures.process</a>
@@ -10884,6 +11330,7 @@ imported by:
  &#8226;   <a href="#reprlib">reprlib</a>
  &#8226;   <a href="#statistics">statistics</a>
  &#8226;   <a href="#threading">threading</a>
+ &#8226;   <a href="#tkinter.font">tkinter.font</a>
  &#8226;   <a href="#tokenize">tokenize</a>
  &#8226;   <a href="#traceback">traceback</a>
  &#8226;   <a href="#weakref">weakref</a>
@@ -10927,6 +11374,7 @@ imported by:
  &#8226;   <a href="#numpy.__config__">numpy.__config__</a>
  &#8226;   <a href="#numpy.testing._private.utils">numpy.testing._private.utils</a>
  &#8226;   <a href="#pycountry.db">pycountry.db</a>
+ &#8226;   <a href="#utils.app_config">utils.app_config</a>
 
   </div>
 
@@ -11097,10 +11545,15 @@ imported by:
  &#8226;   <a href="#charset_normalizer.md">charset_normalizer.md</a>
  &#8226;   <a href="#charset_normalizer.utils">charset_normalizer.utils</a>
  &#8226;   <a href="#concurrent.futures._base">concurrent.futures._base</a>
+ &#8226;   <a href="#database.init_db">database.init_db</a>
  &#8226;   <a href="#hashlib">hashlib</a>
  &#8226;   <a href="#http.cookiejar">http.cookiejar</a>
+ &#8226;   <a href="#main">main</a>
+ &#8226;   <a href="#main.py">main.py</a>
  &#8226;   <a href="#multiprocessing.util">multiprocessing.util</a>
  &#8226;   <a href="#pycountry.db">pycountry.db</a>
+ &#8226;   <a href="#ui.dashboard">ui.dashboard</a>
+ &#8226;   <a href="#ui.inventory">ui.inventory</a>
  &#8226;   <a href="#unittest._log">unittest._log</a>
 
   </div>
@@ -11135,28 +11588,41 @@ imported by:
   <a target="code" href="///C:/Users/ADMIN/Kiosk_Pos/main.py" type="text/plain"><tt>main</tt></a>
 <span class="moduletype">SourceModule</span>  <div class="import">
 imports:
-    <a href="#database.init_db">database.init_db</a>
+    <a href="#__future__">__future__</a>
+ &#8226;   <a href="#ctypes">ctypes</a>
+ &#8226;   <a href="#ctypes.wintypes">ctypes.wintypes</a>
+ &#8226;   <a href="#database">database</a>
+ &#8226;   <a href="#database.init_db">database.init_db</a>
+ &#8226;   <a href="#logging">logging</a>
  &#8226;   <a href="#modules">modules</a>
  &#8226;   <a href="#modules.backup">modules.backup</a>
  &#8226;   <a href="#modules.users">modules.users</a>
  &#8226;   <a href="#os">os</a>
  &#8226;   <a href="#pathlib">pathlib</a>
+ &#8226;   <a href="#shutil">shutil</a>
  &#8226;   <a href="#sys">sys</a>
+ &#8226;   <a href="#tempfile">tempfile</a>
  &#8226;   <a href="#tkinter">tkinter</a>
  &#8226;   <a href="#tkinter.messagebox">tkinter.messagebox</a>
  &#8226;   <a href="#tkinter.ttk">tkinter.ttk</a>
  &#8226;   <a href="#ui.admin_setup">ui.admin_setup</a>
  &#8226;   <a href="#ui.backup">ui.backup</a>
+ &#8226;   <a href="#ui.cart">ui.cart</a>
  &#8226;   <a href="#ui.dashboard">ui.dashboard</a>
  &#8226;   <a href="#ui.email_settings">ui.email_settings</a>
  &#8226;   <a href="#ui.expenses">ui.expenses</a>
  &#8226;   <a href="#ui.inventory">ui.inventory</a>
  &#8226;   <a href="#ui.login">ui.login</a>
+ &#8226;   <a href="#ui.order_history">ui.order_history</a>
  &#8226;   <a href="#ui.pos">ui.pos</a>
  &#8226;   <a href="#ui.reports">ui.reports</a>
  &#8226;   <a href="#ui.settings">ui.settings</a>
+ &#8226;   <a href="#ui.shell">ui.shell</a>
+ &#8226;   <a href="#ui.system_info">ui.system_info</a>
+ &#8226;   <a href="#ui.uom_settings">ui.uom_settings</a>
  &#8226;   <a href="#ui.user_mgmt">ui.user_mgmt</a>
  &#8226;   <a href="#ui.vat_settings">ui.vat_settings</a>
+ &#8226;   <a href="#utils.app_config">utils.app_config</a>
 
   </div>
   <div class="import">
@@ -11197,6 +11663,7 @@ imported by:
  &#8226;   <a href="#_pydecimal">_pydecimal</a>
  &#8226;   <a href="#asyncio.tasks">asyncio.tasks</a>
  &#8226;   <a href="#asyncio.windows_events">asyncio.windows_events</a>
+ &#8226;   <a href="#babel.dates">babel.dates</a>
  &#8226;   <a href="#fractions">fractions</a>
  &#8226;   <a href="#numpy._core._internal">numpy._core._internal</a>
  &#8226;   <a href="#numpy._core._machar">numpy._core._machar</a>
@@ -11262,23 +11729,34 @@ imports:
  &#8226;   <a href="#modules.expenses">modules.expenses</a>
  &#8226;   <a href="#modules.items">modules.items</a>
  &#8226;   <a href="#modules.notifications">modules.notifications</a>
+ &#8226;   <a href="#modules.portions">modules.portions</a>
  &#8226;   <a href="#modules.pos">modules.pos</a>
+ &#8226;   <a href="#modules.receipts">modules.receipts</a>
+ &#8226;   <a href="#modules.refunds">modules.refunds</a>
  &#8226;   <a href="#modules.reports">modules.reports</a>
+ &#8226;   <a href="#modules.units_of_measure">modules.units_of_measure</a>
+ &#8226;   <a href="#modules.variants">modules.variants</a>
  &#8226;   <a href="#modules.vat_rates">modules.vat_rates</a>
 
   </div>
   <div class="import">
 imported by:
-    <a href="#main">main</a>
+    <a href="#database.init_db">database.init_db</a>
+ &#8226;   <a href="#main">main</a>
  &#8226;   <a href="#main.py">main.py</a>
  &#8226;   <a href="#modules.backup">modules.backup</a>
  &#8226;   <a href="#modules.dashboard">modules.dashboard</a>
  &#8226;   <a href="#modules.expenses">modules.expenses</a>
  &#8226;   <a href="#modules.items">modules.items</a>
  &#8226;   <a href="#modules.notifications">modules.notifications</a>
+ &#8226;   <a href="#modules.portions">modules.portions</a>
  &#8226;   <a href="#modules.pos">modules.pos</a>
+ &#8226;   <a href="#modules.receipts">modules.receipts</a>
+ &#8226;   <a href="#modules.refunds">modules.refunds</a>
  &#8226;   <a href="#modules.reports">modules.reports</a>
+ &#8226;   <a href="#modules.units_of_measure">modules.units_of_measure</a>
  &#8226;   <a href="#modules.users">modules.users</a>
+ &#8226;   <a href="#modules.variants">modules.variants</a>
  &#8226;   <a href="#modules.vat_rates">modules.vat_rates</a>
  &#8226;   <a href="#ui.backup">ui.backup</a>
  &#8226;   <a href="#ui.checkout">ui.checkout</a>
@@ -11286,8 +11764,10 @@ imported by:
  &#8226;   <a href="#ui.email_settings">ui.email_settings</a>
  &#8226;   <a href="#ui.expenses">ui.expenses</a>
  &#8226;   <a href="#ui.inventory">ui.inventory</a>
+ &#8226;   <a href="#ui.order_history">ui.order_history</a>
  &#8226;   <a href="#ui.pos">ui.pos</a>
  &#8226;   <a href="#ui.reports">ui.reports</a>
+ &#8226;   <a href="#ui.uom_settings">ui.uom_settings</a>
  &#8226;   <a href="#ui.user_mgmt">ui.user_mgmt</a>
  &#8226;   <a href="#ui.vat_settings">ui.vat_settings</a>
  &#8226;   <a href="#utils.csv_io">utils.csv_io</a>
@@ -11337,7 +11817,8 @@ imports:
   </div>
   <div class="import">
 imported by:
-    <a href="#modules">modules</a>
+    <a href="#main.py">main.py</a>
+ &#8226;   <a href="#modules">modules</a>
  &#8226;   <a href="#modules.notifications">modules.notifications</a>
  &#8226;   <a href="#ui.dashboard">ui.dashboard</a>
 
@@ -11361,7 +11842,8 @@ imports:
   </div>
   <div class="import">
 imported by:
-    <a href="#modules">modules</a>
+    <a href="#main.py">main.py</a>
+ &#8226;   <a href="#modules">modules</a>
  &#8226;   <a href="#ui.expenses">ui.expenses</a>
 
   </div>
@@ -11376,13 +11858,17 @@ imports:
     <a href="#__future__">__future__</a>
  &#8226;   <a href="#database.init_db">database.init_db</a>
  &#8226;   <a href="#modules">modules</a>
+ &#8226;   <a href="#modules.units_of_measure">modules.units_of_measure</a>
  &#8226;   <a href="#sqlite3">sqlite3</a>
  &#8226;   <a href="#typing">typing</a>
 
   </div>
   <div class="import">
 imported by:
-    <a href="#modules">modules</a>
+    <a href="#main.py">main.py</a>
+ &#8226;   <a href="#modules">modules</a>
+ &#8226;   <a href="#modules.refunds">modules.refunds</a>
+ &#8226;   <a href="#ui.checkout">ui.checkout</a>
  &#8226;   <a href="#ui.inventory">ui.inventory</a>
  &#8226;   <a href="#ui.pos">ui.pos</a>
  &#8226;   <a href="#utils.csv_io">utils.csv_io</a>
@@ -11411,8 +11897,32 @@ imports:
   </div>
   <div class="import">
 imported by:
-    <a href="#modules">modules</a>
+    <a href="#main.py">main.py</a>
+ &#8226;   <a href="#modules">modules</a>
  &#8226;   <a href="#ui.email_settings">ui.email_settings</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="modules.portions"></a>
+  <a target="code" href="///C:/Users/ADMIN/Kiosk_Pos/modules/portions.py" type="text/plain"><tt>modules.portions</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#__future__">__future__</a>
+ &#8226;   <a href="#database.init_db">database.init_db</a>
+ &#8226;   <a href="#modules">modules</a>
+ &#8226;   <a href="#sqlite3">sqlite3</a>
+ &#8226;   <a href="#typing">typing</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#main.py">main.py</a>
+ &#8226;   <a href="#modules">modules</a>
+ &#8226;   <a href="#ui.inventory">ui.inventory</a>
+ &#8226;   <a href="#ui.pos">ui.pos</a>
 
   </div>
 
@@ -11427,14 +11937,65 @@ imports:
  &#8226;   <a href="#database.init_db">database.init_db</a>
  &#8226;   <a href="#datetime">datetime</a>
  &#8226;   <a href="#modules">modules</a>
+ &#8226;   <a href="#random">random</a>
  &#8226;   <a href="#sqlite3">sqlite3</a>
+ &#8226;   <a href="#string">string</a>
  &#8226;   <a href="#typing">typing</a>
 
   </div>
   <div class="import">
 imported by:
-    <a href="#modules">modules</a>
+    <a href="#main.py">main.py</a>
+ &#8226;   <a href="#modules">modules</a>
  &#8226;   <a href="#ui.checkout">ui.checkout</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="modules.receipts"></a>
+  <a target="code" href="///C:/Users/ADMIN/Kiosk_Pos/modules/receipts.py" type="text/plain"><tt>modules.receipts</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#__future__">__future__</a>
+ &#8226;   <a href="#database.init_db">database.init_db</a>
+ &#8226;   <a href="#datetime">datetime</a>
+ &#8226;   <a href="#modules">modules</a>
+ &#8226;   <a href="#sqlite3">sqlite3</a>
+ &#8226;   <a href="#utils.security">utils.security</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#main.py">main.py</a>
+ &#8226;   <a href="#modules">modules</a>
+ &#8226;   <a href="#ui.order_history">ui.order_history</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="modules.refunds"></a>
+  <a target="code" href="///C:/Users/ADMIN/Kiosk_Pos/modules/refunds.py" type="text/plain"><tt>modules.refunds</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#__future__">__future__</a>
+ &#8226;   <a href="#database.init_db">database.init_db</a>
+ &#8226;   <a href="#datetime">datetime</a>
+ &#8226;   <a href="#modules">modules</a>
+ &#8226;   <a href="#modules.items">modules.items</a>
+ &#8226;   <a href="#random">random</a>
+ &#8226;   <a href="#sqlite3">sqlite3</a>
+ &#8226;   <a href="#string">string</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#main.py">main.py</a>
+ &#8226;   <a href="#modules">modules</a>
+ &#8226;   <a href="#ui.order_history">ui.order_history</a>
 
   </div>
 
@@ -11455,9 +12016,33 @@ imports:
   </div>
   <div class="import">
 imported by:
-    <a href="#modules">modules</a>
+    <a href="#main.py">main.py</a>
+ &#8226;   <a href="#modules">modules</a>
  &#8226;   <a href="#modules.notifications">modules.notifications</a>
  &#8226;   <a href="#ui.reports">ui.reports</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="modules.units_of_measure"></a>
+  <a target="code" href="///C:/Users/ADMIN/Kiosk_Pos/modules/units_of_measure.py" type="text/plain"><tt>modules.units_of_measure</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#__future__">__future__</a>
+ &#8226;   <a href="#database.init_db">database.init_db</a>
+ &#8226;   <a href="#modules">modules</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#database.init_db">database.init_db</a>
+ &#8226;   <a href="#main.py">main.py</a>
+ &#8226;   <a href="#modules">modules</a>
+ &#8226;   <a href="#modules.items">modules.items</a>
+ &#8226;   <a href="#ui.inventory">ui.inventory</a>
+ &#8226;   <a href="#ui.uom_settings">ui.uom_settings</a>
 
   </div>
 
@@ -11489,6 +12074,26 @@ imported by:
 </div>
 
 <div class="node">
+  <a name="modules.variants"></a>
+  <a target="code" href="///C:/Users/ADMIN/Kiosk_Pos/modules/variants.py" type="text/plain"><tt>modules.variants</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#database.init_db">database.init_db</a>
+ &#8226;   <a href="#modules">modules</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#main.py">main.py</a>
+ &#8226;   <a href="#modules">modules</a>
+ &#8226;   <a href="#ui.inventory">ui.inventory</a>
+ &#8226;   <a href="#ui.pos">ui.pos</a>
+
+  </div>
+
+</div>
+
+<div class="node">
   <a name="modules.vat_rates"></a>
   <a target="code" href="///C:/Users/ADMIN/Kiosk_Pos/modules/vat_rates.py" type="text/plain"><tt>modules.vat_rates</tt></a>
 <span class="moduletype">SourceModule</span>  <div class="import">
@@ -11502,7 +12107,8 @@ imports:
   </div>
   <div class="import">
 imported by:
-    <a href="#modules">modules</a>
+    <a href="#main.py">main.py</a>
+ &#8226;   <a href="#modules">modules</a>
  &#8226;   <a href="#ui.inventory">ui.inventory</a>
  &#8226;   <a href="#ui.vat_settings">ui.vat_settings</a>
 
@@ -19242,6 +19848,9 @@ imported by:
  &#8226;   <a href="#asyncio.selector_events">asyncio.selector_events</a>
  &#8226;   <a href="#asyncio.unix_events">asyncio.unix_events</a>
  &#8226;   <a href="#asyncio.windows_utils">asyncio.windows_utils</a>
+ &#8226;   <a href="#babel.core">babel.core</a>
+ &#8226;   <a href="#babel.localedata">babel.localedata</a>
+ &#8226;   <a href="#babel.localtime._unix">babel.localtime._unix</a>
  &#8226;   <a href="#bdb">bdb</a>
  &#8226;   <a href="#bz2">bz2</a>
  &#8226;   <a href="#charset_normalizer.api">charset_normalizer.api</a>
@@ -19348,15 +19957,20 @@ imported by:
  &#8226;   <a href="#ui.expenses">ui.expenses</a>
  &#8226;   <a href="#ui.inventory">ui.inventory</a>
  &#8226;   <a href="#ui.login">ui.login</a>
+ &#8226;   <a href="#ui.order_history">ui.order_history</a>
  &#8226;   <a href="#unittest.loader">unittest.loader</a>
  &#8226;   <a href="#unittest.main">unittest.main</a>
  &#8226;   <a href="#urllib.request">urllib.request</a>
+ &#8226;   <a href="#utils">utils</a>
+ &#8226;   <a href="#utils.app_config">utils.app_config</a>
  &#8226;   <a href="#utils.security">utils.security</a>
+ &#8226;   <a href="#uuid">uuid</a>
  &#8226;   <a href="#webbrowser">webbrowser</a>
  &#8226;   <a href="#xml.sax">xml.sax</a>
  &#8226;   <a href="#xml.sax.saxutils">xml.sax.saxutils</a>
  &#8226;   <a href="#zipfile">zipfile</a>
  &#8226;   <a href="#zipfile._path.glob">zipfile._path.glob</a>
+ &#8226;   <a href="#zoneinfo._tzpath">zoneinfo._tzpath</a>
 
   </div>
 
@@ -19378,6 +19992,8 @@ imported by:
  &#8226;   <a href="#pkgutil">pkgutil</a>
  &#8226;   <a href="#py_compile">py_compile</a>
  &#8226;   <a href="#pycountry">pycountry</a>
+ &#8226;   <a href="#pytz">pytz</a>
+ &#8226;   <a href="#pytz.tzfile">pytz.tzfile</a>
  &#8226;   <a href="#sysconfig">sysconfig</a>
  &#8226;   <a href="#tracemalloc">tracemalloc</a>
  &#8226;   <a href="#unittest.util">unittest.util</a>
@@ -19415,6 +20031,8 @@ imported by:
  &#8226;   <a href="#pathlib._abc">pathlib._abc</a>
  &#8226;   <a href="#pathlib._local">pathlib._local</a>
  &#8226;   <a href="#ui.backup">ui.backup</a>
+ &#8226;   <a href="#ui.system_info">ui.system_info</a>
+ &#8226;   <a href="#utils.app_config">utils.app_config</a>
  &#8226;   <a href="#utils.csv_io">utils.csv_io</a>
  &#8226;   <a href="#utils.images">utils.images</a>
  &#8226;   <a href="#zipfile._path">zipfile._path</a>
@@ -19540,12 +20158,15 @@ imports:
   </div>
   <div class="import">
 imported by:
-    <a href="#logging">logging</a>
+    <a href="#babel.core">babel.core</a>
+ &#8226;   <a href="#babel.localedata">babel.localedata</a>
+ &#8226;   <a href="#logging">logging</a>
  &#8226;   <a href="#multiprocessing.reduction">multiprocessing.reduction</a>
  &#8226;   <a href="#numpy._core._methods">numpy._core._methods</a>
  &#8226;   <a href="#numpy.lib._format_impl">numpy.lib._format_impl</a>
  &#8226;   <a href="#numpy.lib._npyio_impl">numpy.lib._npyio_impl</a>
  &#8226;   <a href="#tracemalloc">tracemalloc</a>
+ &#8226;   <a href="#zoneinfo._zoneinfo">zoneinfo._zoneinfo</a>
 
   </div>
 
@@ -19612,6 +20233,7 @@ imported by:
  &#8226;   <a href="#numpy.lib._utils_impl">numpy.lib._utils_impl</a>
  &#8226;   <a href="#numpy.testing._private.utils">numpy.testing._private.utils</a>
  &#8226;   <a href="#pydoc">pydoc</a>
+ &#8226;   <a href="#uuid">uuid</a>
 
   </div>
 
@@ -19687,6 +20309,7 @@ imported by:
  &#8226;   <a href="#numpy.testing._private.utils">numpy.testing._private.utils</a>
  &#8226;   <a href="#pdb">pdb</a>
  &#8226;   <a href="#pickle">pickle</a>
+ &#8226;   <a href="#pytz.tzfile">pytz.tzfile</a>
  &#8226;   <a href="#unittest.case">unittest.case</a>
 
   </div>
@@ -19860,7 +20483,8 @@ imports:
   </div>
   <div class="import">
 imported by:
-    <a href="#pycountry.db">pycountry.db</a>
+    <a href="#main.py">main.py</a>
+ &#8226;   <a href="#pycountry.db">pycountry.db</a>
  &#8226;   <a href="#ui.settings">ui.settings</a>
 
   </div>
@@ -19985,6 +20609,116 @@ imported by:
 </div>
 
 <div class="node">
+  <a name="pytz"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/site-packages/pytz/__init__.py" type="text/plain"><tt>pytz</tt></a>
+<span class="moduletype">Package</span>  <div class="import">
+imports:
+    <a href="#datetime">datetime</a>
+ &#8226;   <a href="#doctest">doctest</a>
+ &#8226;   <a href="#os.path">os.path</a>
+ &#8226;   <a href="#pytz">pytz</a>
+ &#8226;   <a href="#pytz.exceptions">pytz.exceptions</a>
+ &#8226;   <a href="#pytz.lazy">pytz.lazy</a>
+ &#8226;   <a href="#pytz.tzfile">pytz.tzfile</a>
+ &#8226;   <a href="#pytz.tzinfo">pytz.tzinfo</a>
+ &#8226;   <a href="#sys">sys</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#babel.dates">babel.dates</a>
+ &#8226;   <a href="#babel.localtime._helpers">babel.localtime._helpers</a>
+ &#8226;   <a href="#pytz">pytz</a>
+ &#8226;   <a href="#pytz.exceptions">pytz.exceptions</a>
+ &#8226;   <a href="#pytz.lazy">pytz.lazy</a>
+ &#8226;   <a href="#pytz.tzfile">pytz.tzfile</a>
+ &#8226;   <a href="#pytz.tzinfo">pytz.tzinfo</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="pytz.exceptions"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/site-packages/pytz/exceptions.py" type="text/plain"><tt>pytz.exceptions</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#pytz">pytz</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#pytz">pytz</a>
+ &#8226;   <a href="#pytz.tzinfo">pytz.tzinfo</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="pytz.lazy"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/site-packages/pytz/lazy.py" type="text/plain"><tt>pytz.lazy</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#'collections.abc'">'collections.abc'</a>
+ &#8226;   <a href="#UserDict">UserDict</a>
+ &#8226;   <a href="#collections">collections</a>
+ &#8226;   <a href="#collections.Mapping">collections.Mapping</a>
+ &#8226;   <a href="#pytz">pytz</a>
+ &#8226;   <a href="#threading">threading</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#pytz">pytz</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="pytz.tzfile"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/site-packages/pytz/tzfile.py" type="text/plain"><tt>pytz.tzfile</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#datetime">datetime</a>
+ &#8226;   <a href="#os.path">os.path</a>
+ &#8226;   <a href="#pprint">pprint</a>
+ &#8226;   <a href="#pytz">pytz</a>
+ &#8226;   <a href="#pytz.tzinfo">pytz.tzinfo</a>
+ &#8226;   <a href="#struct">struct</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#pytz">pytz</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="pytz.tzinfo"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/site-packages/pytz/tzinfo.py" type="text/plain"><tt>pytz.tzinfo</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#bisect">bisect</a>
+ &#8226;   <a href="#datetime">datetime</a>
+ &#8226;   <a href="#pytz">pytz</a>
+ &#8226;   <a href="#pytz.exceptions">pytz.exceptions</a>
+ &#8226;   <a href="#sets">sets</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#pytz">pytz</a>
+ &#8226;   <a href="#pytz.tzfile">pytz.tzfile</a>
+
+  </div>
+
+</div>
+
+<div class="node">
   <a name="queue"></a>
   <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/queue.py" type="text/plain"><tt>queue</tt></a>
 <span class="moduletype">SourceModule</span>  <div class="import">
@@ -20057,9 +20791,12 @@ imported by:
     <a href="#PIL.ImagePalette">PIL.ImagePalette</a>
  &#8226;   <a href="#email.generator">email.generator</a>
  &#8226;   <a href="#email.utils">email.utils</a>
+ &#8226;   <a href="#modules.pos">modules.pos</a>
+ &#8226;   <a href="#modules.refunds">modules.refunds</a>
  &#8226;   <a href="#secrets">secrets</a>
  &#8226;   <a href="#statistics">statistics</a>
  &#8226;   <a href="#tempfile">tempfile</a>
+ &#8226;   <a href="#uuid">uuid</a>
 
   </div>
 
@@ -20100,6 +20837,11 @@ imported by:
  &#8226;   <a href="#_strptime">_strptime</a>
  &#8226;   <a href="#argparse">argparse</a>
  &#8226;   <a href="#ast">ast</a>
+ &#8226;   <a href="#babel.dates">babel.dates</a>
+ &#8226;   <a href="#babel.localedata">babel.localedata</a>
+ &#8226;   <a href="#babel.localtime._unix">babel.localtime._unix</a>
+ &#8226;   <a href="#babel.numbers">babel.numbers</a>
+ &#8226;   <a href="#babel.plural">babel.plural</a>
  &#8226;   <a href="#base64">base64</a>
  &#8226;   <a href="#charset_normalizer.constant">charset_normalizer.constant</a>
  &#8226;   <a href="#charset_normalizer.models">charset_normalizer.models</a>
@@ -20179,6 +20921,7 @@ imported by:
  &#8226;   <a href="#sysconfig">sysconfig</a>
  &#8226;   <a href="#tarfile">tarfile</a>
  &#8226;   <a href="#textwrap">textwrap</a>
+ &#8226;   <a href="#tkcalendar.calendar_">tkcalendar.calendar_</a>
  &#8226;   <a href="#tkinter">tkinter</a>
  &#8226;   <a href="#tokenize">tokenize</a>
  &#8226;   <a href="#typing">typing</a>
@@ -20191,6 +20934,7 @@ imported by:
  &#8226;   <a href="#xml.etree.ElementTree">xml.etree.ElementTree</a>
  &#8226;   <a href="#zipfile._path">zipfile._path</a>
  &#8226;   <a href="#zipfile._path.glob">zipfile._path.glob</a>
+ &#8226;   <a href="#zoneinfo._zoneinfo">zoneinfo._zoneinfo</a>
 
   </div>
 
@@ -20437,6 +21181,17 @@ imported by:
 </div>
 
 <div class="node">
+  <a name="sets"></a>
+  <a target="code" href="" type="text/plain"><tt>sets</tt></a>
+<span class="moduletype">MissingModule</span>  <div class="import">
+imported by:
+    <a href="#pytz.tzinfo">pytz.tzinfo</a>
+
+  </div>
+
+</div>
+
+<div class="node">
   <a name="shlex"></a>
   <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/shlex.py" type="text/plain"><tt>shlex</tt></a>
 <span class="moduletype">SourceModule</span>  <div class="import">
@@ -20488,6 +21243,8 @@ imported by:
  &#8226;   <a href="#argparse">argparse</a>
  &#8226;   <a href="#ctypes.util">ctypes.util</a>
  &#8226;   <a href="#http.server">http.server</a>
+ &#8226;   <a href="#main">main</a>
+ &#8226;   <a href="#main.py">main.py</a>
  &#8226;   <a href="#modules.backup">modules.backup</a>
  &#8226;   <a href="#multiprocessing.util">multiprocessing.util</a>
  &#8226;   <a href="#numpy.f2py._backends._distutils">numpy.f2py._backends._distutils</a>
@@ -20497,6 +21254,7 @@ imported by:
  &#8226;   <a href="#tarfile">tarfile</a>
  &#8226;   <a href="#tempfile">tempfile</a>
  &#8226;   <a href="#ui.inventory">ui.inventory</a>
+ &#8226;   <a href="#uuid">uuid</a>
  &#8226;   <a href="#webbrowser">webbrowser</a>
  &#8226;   <a href="#zipfile">zipfile</a>
 
@@ -20606,6 +21364,7 @@ imported by:
  &#8226;   <a href="#socketserver">socketserver</a>
  &#8226;   <a href="#ssl">ssl</a>
  &#8226;   <a href="#urllib.request">urllib.request</a>
+ &#8226;   <a href="#uuid">uuid</a>
 
   </div>
 
@@ -20652,7 +21411,10 @@ imported by:
  &#8226;   <a href="#modules.dashboard">modules.dashboard</a>
  &#8226;   <a href="#modules.expenses">modules.expenses</a>
  &#8226;   <a href="#modules.items">modules.items</a>
+ &#8226;   <a href="#modules.portions">modules.portions</a>
  &#8226;   <a href="#modules.pos">modules.pos</a>
+ &#8226;   <a href="#modules.receipts">modules.receipts</a>
+ &#8226;   <a href="#modules.refunds">modules.refunds</a>
  &#8226;   <a href="#modules.reports">modules.reports</a>
  &#8226;   <a href="#modules.users">modules.users</a>
  &#8226;   <a href="#modules.vat_rates">modules.vat_rates</a>
@@ -20660,6 +21422,7 @@ imported by:
  &#8226;   <a href="#sqlite3.__main__">sqlite3.__main__</a>
  &#8226;   <a href="#sqlite3.dbapi2">sqlite3.dbapi2</a>
  &#8226;   <a href="#sqlite3.dump">sqlite3.dump</a>
+ &#8226;   <a href="#ui.system_info">ui.system_info</a>
 
   </div>
 
@@ -20882,6 +21645,8 @@ imported by:
  &#8226;   <a href="#email._header_value_parser">email._header_value_parser</a>
  &#8226;   <a href="#email.quoprimime">email.quoprimime</a>
  &#8226;   <a href="#logging">logging</a>
+ &#8226;   <a href="#modules.pos">modules.pos</a>
+ &#8226;   <a href="#modules.refunds">modules.refunds</a>
  &#8226;   <a href="#ntpath">ntpath</a>
  &#8226;   <a href="#nturl2path">nturl2path</a>
  &#8226;   <a href="#numpy.f2py._backends._meson">numpy.f2py._backends._meson</a>
@@ -20947,9 +21712,11 @@ imported by:
  &#8226;   <a href="#numpy.lib._format_impl">numpy.lib._format_impl</a>
  &#8226;   <a href="#pickle">pickle</a>
  &#8226;   <a href="#platform">platform</a>
+ &#8226;   <a href="#pytz.tzfile">pytz.tzfile</a>
  &#8226;   <a href="#tarfile">tarfile</a>
  &#8226;   <a href="#zipfile">zipfile</a>
  &#8226;   <a href="#zipimport">zipimport</a>
+ &#8226;   <a href="#zoneinfo._common">zoneinfo._common</a>
 
   </div>
 
@@ -21009,6 +21776,8 @@ imported by:
  &#8226;   <a href="#platform">platform</a>
  &#8226;   <a href="#psutil">psutil</a>
  &#8226;   <a href="#pyi_rth_multiprocessing.py">pyi_rth_multiprocessing.py</a>
+ &#8226;   <a href="#ui.order_history">ui.order_history</a>
+ &#8226;   <a href="#uuid">uuid</a>
  &#8226;   <a href="#webbrowser">webbrowser</a>
 
   </div>
@@ -21053,6 +21822,8 @@ imported by:
  &#8226;   <a href="#asyncio.unix_events">asyncio.unix_events</a>
  &#8226;   <a href="#asyncio.windows_events">asyncio.windows_events</a>
  &#8226;   <a href="#asyncio.windows_utils">asyncio.windows_utils</a>
+ &#8226;   <a href="#babel.localedata">babel.localedata</a>
+ &#8226;   <a href="#babel.localtime">babel.localtime</a>
  &#8226;   <a href="#base64">base64</a>
  &#8226;   <a href="#bdb">bdb</a>
  &#8226;   <a href="#calendar">calendar</a>
@@ -21159,6 +21930,7 @@ imported by:
  &#8226;   <a href="#pyi_rth__tkinter.py">pyi_rth__tkinter.py</a>
  &#8226;   <a href="#pyi_rth_inspect.py">pyi_rth_inspect.py</a>
  &#8226;   <a href="#pyi_rth_multiprocessing.py">pyi_rth_multiprocessing.py</a>
+ &#8226;   <a href="#pytz">pytz</a>
  &#8226;   <a href="#quopri">quopri</a>
  &#8226;   <a href="#re._compiler">re._compiler</a>
  &#8226;   <a href="#reprlib">reprlib</a>
@@ -21177,6 +21949,8 @@ imported by:
  &#8226;   <a href="#tarfile">tarfile</a>
  &#8226;   <a href="#tempfile">tempfile</a>
  &#8226;   <a href="#threading">threading</a>
+ &#8226;   <a href="#tkcalendar.dateentry">tkcalendar.dateentry</a>
+ &#8226;   <a href="#tkcalendar.tooltip">tkcalendar.tooltip</a>
  &#8226;   <a href="#tkinter">tkinter</a>
  &#8226;   <a href="#tokenize">tokenize</a>
  &#8226;   <a href="#traceback">traceback</a>
@@ -21184,7 +21958,6 @@ imported by:
  &#8226;   <a href="#typing">typing</a>
  &#8226;   <a href="#typing_extensions">typing_extensions</a>
  &#8226;   <a href="#ui.expenses">ui.expenses</a>
- &#8226;   <a href="#ui.inventory">ui.inventory</a>
  &#8226;   <a href="#unittest.case">unittest.case</a>
  &#8226;   <a href="#unittest.loader">unittest.loader</a>
  &#8226;   <a href="#unittest.main">unittest.main</a>
@@ -21192,6 +21965,8 @@ imported by:
  &#8226;   <a href="#unittest.runner">unittest.runner</a>
  &#8226;   <a href="#unittest.suite">unittest.suite</a>
  &#8226;   <a href="#urllib.request">urllib.request</a>
+ &#8226;   <a href="#utils">utils</a>
+ &#8226;   <a href="#uuid">uuid</a>
  &#8226;   <a href="#warnings">warnings</a>
  &#8226;   <a href="#weakref">weakref</a>
  &#8226;   <a href="#webbrowser">webbrowser</a>
@@ -21233,6 +22008,7 @@ imported by:
  &#8226;   <a href="#numpy.testing._private.extbuild">numpy.testing._private.extbuild</a>
  &#8226;   <a href="#numpy.testing._private.utils">numpy.testing._private.utils</a>
  &#8226;   <a href="#pydoc">pydoc</a>
+ &#8226;   <a href="#zoneinfo._tzpath">zoneinfo._tzpath</a>
 
   </div>
 
@@ -21298,6 +22074,8 @@ imported by:
  &#8226;   <a href="#asyncio.windows_utils">asyncio.windows_utils</a>
  &#8226;   <a href="#ctypes.util">ctypes.util</a>
  &#8226;   <a href="#importlib.resources._common">importlib.resources._common</a>
+ &#8226;   <a href="#main">main</a>
+ &#8226;   <a href="#main.py">main.py</a>
  &#8226;   <a href="#multiprocessing.connection">multiprocessing.connection</a>
  &#8226;   <a href="#multiprocessing.heap">multiprocessing.heap</a>
  &#8226;   <a href="#multiprocessing.synchronize">multiprocessing.synchronize</a>
@@ -21306,6 +22084,7 @@ imported by:
  &#8226;   <a href="#numpy.f2py.f2py2e">numpy.f2py.f2py2e</a>
  &#8226;   <a href="#numpy.lib._datasource">numpy.lib._datasource</a>
  &#8226;   <a href="#numpy.testing._private.utils">numpy.testing._private.utils</a>
+ &#8226;   <a href="#ui.order_history">ui.order_history</a>
  &#8226;   <a href="#urllib.request">urllib.request</a>
  &#8226;   <a href="#urllib.response">urllib.response</a>
 
@@ -21379,6 +22158,7 @@ imported by:
  &#8226;   <a href="#asyncio.proactor_events">asyncio.proactor_events</a>
  &#8226;   <a href="#asyncio.runners">asyncio.runners</a>
  &#8226;   <a href="#asyncio.unix_events">asyncio.unix_events</a>
+ &#8226;   <a href="#babel.localedata">babel.localedata</a>
  &#8226;   <a href="#concurrent.futures._base">concurrent.futures._base</a>
  &#8226;   <a href="#concurrent.futures.process">concurrent.futures.process</a>
  &#8226;   <a href="#concurrent.futures.thread">concurrent.futures.thread</a>
@@ -21404,6 +22184,7 @@ imported by:
  &#8226;   <a href="#psutil._pswindows">psutil._pswindows</a>
  &#8226;   <a href="#pycountry.db">pycountry.db</a>
  &#8226;   <a href="#pydoc">pydoc</a>
+ &#8226;   <a href="#pytz.lazy">pytz.lazy</a>
  &#8226;   <a href="#queue">queue</a>
  &#8226;   <a href="#socketserver">socketserver</a>
  &#8226;   <a href="#subprocess">subprocess</a>
@@ -21442,6 +22223,7 @@ imported by:
  &#8226;   <a href="#_strptime">_strptime</a>
  &#8226;   <a href="#asyncio.base_events">asyncio.base_events</a>
  &#8226;   <a href="#asyncio.windows_events">asyncio.windows_events</a>
+ &#8226;   <a href="#babel.localtime._fallback">babel.localtime._fallback</a>
  &#8226;   <a href="#concurrent.futures._base">concurrent.futures._base</a>
  &#8226;   <a href="#datetime">datetime</a>
  &#8226;   <a href="#email._parseaddr">email._parseaddr</a>
@@ -21473,9 +22255,114 @@ imported by:
  &#8226;   <a href="#unittest.case">unittest.case</a>
  &#8226;   <a href="#unittest.runner">unittest.runner</a>
  &#8226;   <a href="#urllib.request">urllib.request</a>
+ &#8226;   <a href="#uuid">uuid</a>
  &#8226;   <a href="#xmlrpc.client">xmlrpc.client</a>
  &#8226;   <a href="#zipfile">zipfile</a>
  &#8226;   <a href="#zipimport">zipimport</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="tkFont"></a>
+  <a target="code" href="" type="text/plain"><tt>tkFont</tt></a>
+<span class="moduletype">MissingModule</span>  <div class="import">
+imported by:
+    <a href="#tkcalendar.calendar_">tkcalendar.calendar_</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="tkcalendar"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/site-packages/tkcalendar/__init__.py" type="text/plain"><tt>tkcalendar</tt></a>
+<span class="moduletype">Package</span>  <div class="import">
+imports:
+    <a href="#tkcalendar.calendar_">tkcalendar.calendar_</a>
+ &#8226;   <a href="#tkcalendar.dateentry">tkcalendar.dateentry</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#main.py">main.py</a>
+ &#8226;   <a href="#tkcalendar.calendar_">tkcalendar.calendar_</a>
+ &#8226;   <a href="#tkcalendar.dateentry">tkcalendar.dateentry</a>
+ &#8226;   <a href="#tkcalendar.tooltip">tkcalendar.tooltip</a>
+ &#8226;   <a href="#ui.expenses">ui.expenses</a>
+ &#8226;   <a href="#ui.order_history">ui.order_history</a>
+ &#8226;   <a href="#ui.reports">ui.reports</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="tkcalendar.calendar_"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/site-packages/tkcalendar/calendar_.py" type="text/plain"><tt>tkcalendar.calendar_</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#babel">babel</a>
+ &#8226;   <a href="#babel.dates">babel.dates</a>
+ &#8226;   <a href="#calendar">calendar</a>
+ &#8226;   <a href="#re">re</a>
+ &#8226;   <a href="#tkFont">tkFont</a>
+ &#8226;   <a href="#tkcalendar">tkcalendar</a>
+ &#8226;   <a href="#tkcalendar.tooltip">tkcalendar.tooltip</a>
+ &#8226;   <a href="#tkinter">tkinter</a>
+ &#8226;   <a href="#tkinter.font">tkinter.font</a>
+ &#8226;   <a href="#tkinter.ttk">tkinter.ttk</a>
+ &#8226;   <a href="#ttk">ttk</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#tkcalendar">tkcalendar</a>
+ &#8226;   <a href="#tkcalendar.dateentry">tkcalendar.dateentry</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="tkcalendar.dateentry"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/site-packages/tkcalendar/dateentry.py" type="text/plain"><tt>tkcalendar.dateentry</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#Tkinter">Tkinter</a>
+ &#8226;   <a href="#sys">sys</a>
+ &#8226;   <a href="#tkcalendar">tkcalendar</a>
+ &#8226;   <a href="#tkcalendar.calendar_">tkcalendar.calendar_</a>
+ &#8226;   <a href="#tkinter">tkinter</a>
+ &#8226;   <a href="#tkinter.ttk">tkinter.ttk</a>
+ &#8226;   <a href="#ttk">ttk</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#tkcalendar">tkcalendar</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="tkcalendar.tooltip"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/site-packages/tkcalendar/tooltip.py" type="text/plain"><tt>tkcalendar.tooltip</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#Tkinter">Tkinter</a>
+ &#8226;   <a href="#sys">sys</a>
+ &#8226;   <a href="#tkcalendar">tkcalendar</a>
+ &#8226;   <a href="#tkinter">tkinter</a>
+ &#8226;   <a href="#tkinter.ttk">tkinter.ttk</a>
+ &#8226;   <a href="#ttk">ttk</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#tkcalendar.calendar_">tkcalendar.calendar_</a>
 
   </div>
 
@@ -21504,26 +22391,36 @@ imports:
 imported by:
     <a href="#main">main</a>
  &#8226;   <a href="#main.py">main.py</a>
+ &#8226;   <a href="#tkcalendar.calendar_">tkcalendar.calendar_</a>
+ &#8226;   <a href="#tkcalendar.dateentry">tkcalendar.dateentry</a>
+ &#8226;   <a href="#tkcalendar.tooltip">tkcalendar.tooltip</a>
  &#8226;   <a href="#tkinter.commondialog">tkinter.commondialog</a>
  &#8226;   <a href="#tkinter.constants">tkinter.constants</a>
  &#8226;   <a href="#tkinter.dialog">tkinter.dialog</a>
  &#8226;   <a href="#tkinter.filedialog">tkinter.filedialog</a>
+ &#8226;   <a href="#tkinter.font">tkinter.font</a>
  &#8226;   <a href="#tkinter.messagebox">tkinter.messagebox</a>
  &#8226;   <a href="#tkinter.simpledialog">tkinter.simpledialog</a>
  &#8226;   <a href="#tkinter.ttk">tkinter.ttk</a>
  &#8226;   <a href="#ui.admin_setup">ui.admin_setup</a>
  &#8226;   <a href="#ui.backup">ui.backup</a>
+ &#8226;   <a href="#ui.cart">ui.cart</a>
  &#8226;   <a href="#ui.checkout">ui.checkout</a>
  &#8226;   <a href="#ui.dashboard">ui.dashboard</a>
  &#8226;   <a href="#ui.email_settings">ui.email_settings</a>
  &#8226;   <a href="#ui.expenses">ui.expenses</a>
  &#8226;   <a href="#ui.inventory">ui.inventory</a>
  &#8226;   <a href="#ui.login">ui.login</a>
+ &#8226;   <a href="#ui.order_history">ui.order_history</a>
  &#8226;   <a href="#ui.pos">ui.pos</a>
  &#8226;   <a href="#ui.reports">ui.reports</a>
  &#8226;   <a href="#ui.settings">ui.settings</a>
+ &#8226;   <a href="#ui.shell">ui.shell</a>
+ &#8226;   <a href="#ui.system_info">ui.system_info</a>
+ &#8226;   <a href="#ui.uom_settings">ui.uom_settings</a>
  &#8226;   <a href="#ui.user_mgmt">ui.user_mgmt</a>
  &#8226;   <a href="#ui.vat_settings">ui.vat_settings</a>
+ &#8226;   <a href="#utils">utils</a>
 
   </div>
 
@@ -21597,6 +22494,25 @@ imported by:
     <a href="#tkinter">tkinter</a>
  &#8226;   <a href="#ui.backup">ui.backup</a>
  &#8226;   <a href="#ui.inventory">ui.inventory</a>
+ &#8226;   <a href="#ui.order_history">ui.order_history</a>
+ &#8226;   <a href="#ui.reports">ui.reports</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="tkinter.font"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/tkinter/font.py" type="text/plain"><tt>tkinter.font</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#itertools">itertools</a>
+ &#8226;   <a href="#tkinter">tkinter</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#tkcalendar.calendar_">tkcalendar.calendar_</a>
 
   </div>
 
@@ -21619,14 +22535,17 @@ imported by:
  &#8226;   <a href="#tkinter.simpledialog">tkinter.simpledialog</a>
  &#8226;   <a href="#ui.admin_setup">ui.admin_setup</a>
  &#8226;   <a href="#ui.backup">ui.backup</a>
+ &#8226;   <a href="#ui.cart">ui.cart</a>
  &#8226;   <a href="#ui.checkout">ui.checkout</a>
  &#8226;   <a href="#ui.email_settings">ui.email_settings</a>
  &#8226;   <a href="#ui.expenses">ui.expenses</a>
  &#8226;   <a href="#ui.inventory">ui.inventory</a>
  &#8226;   <a href="#ui.login">ui.login</a>
+ &#8226;   <a href="#ui.order_history">ui.order_history</a>
  &#8226;   <a href="#ui.pos">ui.pos</a>
  &#8226;   <a href="#ui.reports">ui.reports</a>
  &#8226;   <a href="#ui.settings">ui.settings</a>
+ &#8226;   <a href="#ui.uom_settings">ui.uom_settings</a>
  &#8226;   <a href="#ui.user_mgmt">ui.user_mgmt</a>
  &#8226;   <a href="#ui.vat_settings">ui.vat_settings</a>
 
@@ -21646,6 +22565,9 @@ imports:
   <div class="import">
 imported by:
     <a href="#tkinter.filedialog">tkinter.filedialog</a>
+ &#8226;   <a href="#ui.expenses">ui.expenses</a>
+ &#8226;   <a href="#ui.inventory">ui.inventory</a>
+ &#8226;   <a href="#ui.uom_settings">ui.uom_settings</a>
 
   </div>
 
@@ -21663,18 +22585,26 @@ imports:
 imported by:
     <a href="#main">main</a>
  &#8226;   <a href="#main.py">main.py</a>
+ &#8226;   <a href="#tkcalendar.calendar_">tkcalendar.calendar_</a>
+ &#8226;   <a href="#tkcalendar.dateentry">tkcalendar.dateentry</a>
+ &#8226;   <a href="#tkcalendar.tooltip">tkcalendar.tooltip</a>
  &#8226;   <a href="#tkinter">tkinter</a>
  &#8226;   <a href="#ui.admin_setup">ui.admin_setup</a>
  &#8226;   <a href="#ui.backup">ui.backup</a>
+ &#8226;   <a href="#ui.cart">ui.cart</a>
  &#8226;   <a href="#ui.checkout">ui.checkout</a>
  &#8226;   <a href="#ui.dashboard">ui.dashboard</a>
  &#8226;   <a href="#ui.email_settings">ui.email_settings</a>
  &#8226;   <a href="#ui.expenses">ui.expenses</a>
  &#8226;   <a href="#ui.inventory">ui.inventory</a>
  &#8226;   <a href="#ui.login">ui.login</a>
+ &#8226;   <a href="#ui.order_history">ui.order_history</a>
  &#8226;   <a href="#ui.pos">ui.pos</a>
  &#8226;   <a href="#ui.reports">ui.reports</a>
  &#8226;   <a href="#ui.settings">ui.settings</a>
+ &#8226;   <a href="#ui.shell">ui.shell</a>
+ &#8226;   <a href="#ui.system_info">ui.system_info</a>
+ &#8226;   <a href="#ui.uom_settings">ui.uom_settings</a>
  &#8226;   <a href="#ui.user_mgmt">ui.user_mgmt</a>
  &#8226;   <a href="#ui.vat_settings">ui.vat_settings</a>
 
@@ -21793,6 +22723,19 @@ imports:
   <div class="import">
 imported by:
     <a href="#warnings">warnings</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="ttk"></a>
+  <a target="code" href="" type="text/plain"><tt>ttk</tt></a>
+<span class="moduletype">MissingModule</span>  <div class="import">
+imported by:
+    <a href="#tkcalendar.calendar_">tkcalendar.calendar_</a>
+ &#8226;   <a href="#tkcalendar.dateentry">tkcalendar.dateentry</a>
+ &#8226;   <a href="#tkcalendar.tooltip">tkcalendar.tooltip</a>
 
   </div>
 
@@ -21969,6 +22912,12 @@ imported by:
  &#8226;   <a href="#_colorize">_colorize</a>
  &#8226;   <a href="#_pyrepl.pager">_pyrepl.pager</a>
  &#8226;   <a href="#asyncio.timeouts">asyncio.timeouts</a>
+ &#8226;   <a href="#babel.core">babel.core</a>
+ &#8226;   <a href="#babel.dates">babel.dates</a>
+ &#8226;   <a href="#babel.localedata">babel.localedata</a>
+ &#8226;   <a href="#babel.localtime._win32">babel.localtime._win32</a>
+ &#8226;   <a href="#babel.numbers">babel.numbers</a>
+ &#8226;   <a href="#babel.plural">babel.plural</a>
  &#8226;   <a href="#charset_normalizer.api">charset_normalizer.api</a>
  &#8226;   <a href="#charset_normalizer.cd">charset_normalizer.cd</a>
  &#8226;   <a href="#charset_normalizer.legacy">charset_normalizer.legacy</a>
@@ -21984,6 +22933,7 @@ imported by:
  &#8226;   <a href="#modules.expenses">modules.expenses</a>
  &#8226;   <a href="#modules.items">modules.items</a>
  &#8226;   <a href="#modules.notifications">modules.notifications</a>
+ &#8226;   <a href="#modules.portions">modules.portions</a>
  &#8226;   <a href="#modules.pos">modules.pos</a>
  &#8226;   <a href="#modules.reports">modules.reports</a>
  &#8226;   <a href="#modules.users">modules.users</a>
@@ -22045,8 +22995,405 @@ imports:
   </div>
   <div class="import">
 imported by:
-    <a href="#charset_normalizer.legacy">charset_normalizer.legacy</a>
+    <a href="#babel.core">babel.core</a>
+ &#8226;   <a href="#babel.dates">babel.dates</a>
+ &#8226;   <a href="#charset_normalizer.legacy">charset_normalizer.legacy</a>
  &#8226;   <a href="#numpy.random.bit_generator">numpy.random.bit_generator</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="tzdata"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/site-packages/tzdata/__init__.py" type="text/plain"><tt>tzdata</tt></a>
+<span class="moduletype">Package</span>  <div class="import">
+imports:
+    <a href="#tzdata">tzdata</a>
+ &#8226;   <a href="#tzdata.zoneinfo">tzdata.zoneinfo</a>
+ &#8226;   <a href="#tzdata.zoneinfo.Africa">tzdata.zoneinfo.Africa</a>
+ &#8226;   <a href="#tzdata.zoneinfo.America">tzdata.zoneinfo.America</a>
+ &#8226;   <a href="#tzdata.zoneinfo.America.Argentina">tzdata.zoneinfo.America.Argentina</a>
+ &#8226;   <a href="#tzdata.zoneinfo.America.Indiana">tzdata.zoneinfo.America.Indiana</a>
+ &#8226;   <a href="#tzdata.zoneinfo.America.Kentucky">tzdata.zoneinfo.America.Kentucky</a>
+ &#8226;   <a href="#tzdata.zoneinfo.America.North_Dakota">tzdata.zoneinfo.America.North_Dakota</a>
+ &#8226;   <a href="#tzdata.zoneinfo.Antarctica">tzdata.zoneinfo.Antarctica</a>
+ &#8226;   <a href="#tzdata.zoneinfo.Arctic">tzdata.zoneinfo.Arctic</a>
+ &#8226;   <a href="#tzdata.zoneinfo.Asia">tzdata.zoneinfo.Asia</a>
+ &#8226;   <a href="#tzdata.zoneinfo.Atlantic">tzdata.zoneinfo.Atlantic</a>
+ &#8226;   <a href="#tzdata.zoneinfo.Australia">tzdata.zoneinfo.Australia</a>
+ &#8226;   <a href="#tzdata.zoneinfo.Brazil">tzdata.zoneinfo.Brazil</a>
+ &#8226;   <a href="#tzdata.zoneinfo.Canada">tzdata.zoneinfo.Canada</a>
+ &#8226;   <a href="#tzdata.zoneinfo.Chile">tzdata.zoneinfo.Chile</a>
+ &#8226;   <a href="#tzdata.zoneinfo.Etc">tzdata.zoneinfo.Etc</a>
+ &#8226;   <a href="#tzdata.zoneinfo.Europe">tzdata.zoneinfo.Europe</a>
+ &#8226;   <a href="#tzdata.zoneinfo.Indian">tzdata.zoneinfo.Indian</a>
+ &#8226;   <a href="#tzdata.zoneinfo.Mexico">tzdata.zoneinfo.Mexico</a>
+ &#8226;   <a href="#tzdata.zoneinfo.Pacific">tzdata.zoneinfo.Pacific</a>
+ &#8226;   <a href="#tzdata.zoneinfo.US">tzdata.zoneinfo.US</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#tzdata">tzdata</a>
+ &#8226;   <a href="#tzdata.zoneinfo">tzdata.zoneinfo</a>
+ &#8226;   <a href="#zoneinfo">zoneinfo</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="tzdata.zoneinfo"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/site-packages/tzdata/zoneinfo/__init__.py" type="text/plain"><tt>tzdata.zoneinfo</tt></a>
+<span class="moduletype">Package</span>  <div class="import">
+imports:
+    <a href="#tzdata">tzdata</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#tzdata">tzdata</a>
+ &#8226;   <a href="#tzdata.zoneinfo.Africa">tzdata.zoneinfo.Africa</a>
+ &#8226;   <a href="#tzdata.zoneinfo.America">tzdata.zoneinfo.America</a>
+ &#8226;   <a href="#tzdata.zoneinfo.Antarctica">tzdata.zoneinfo.Antarctica</a>
+ &#8226;   <a href="#tzdata.zoneinfo.Arctic">tzdata.zoneinfo.Arctic</a>
+ &#8226;   <a href="#tzdata.zoneinfo.Asia">tzdata.zoneinfo.Asia</a>
+ &#8226;   <a href="#tzdata.zoneinfo.Atlantic">tzdata.zoneinfo.Atlantic</a>
+ &#8226;   <a href="#tzdata.zoneinfo.Australia">tzdata.zoneinfo.Australia</a>
+ &#8226;   <a href="#tzdata.zoneinfo.Brazil">tzdata.zoneinfo.Brazil</a>
+ &#8226;   <a href="#tzdata.zoneinfo.Canada">tzdata.zoneinfo.Canada</a>
+ &#8226;   <a href="#tzdata.zoneinfo.Chile">tzdata.zoneinfo.Chile</a>
+ &#8226;   <a href="#tzdata.zoneinfo.Etc">tzdata.zoneinfo.Etc</a>
+ &#8226;   <a href="#tzdata.zoneinfo.Europe">tzdata.zoneinfo.Europe</a>
+ &#8226;   <a href="#tzdata.zoneinfo.Indian">tzdata.zoneinfo.Indian</a>
+ &#8226;   <a href="#tzdata.zoneinfo.Mexico">tzdata.zoneinfo.Mexico</a>
+ &#8226;   <a href="#tzdata.zoneinfo.Pacific">tzdata.zoneinfo.Pacific</a>
+ &#8226;   <a href="#tzdata.zoneinfo.US">tzdata.zoneinfo.US</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="tzdata.zoneinfo.Africa"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/site-packages/tzdata/zoneinfo/Africa/__init__.py" type="text/plain"><tt>tzdata.zoneinfo.Africa</tt></a>
+<span class="moduletype">Package</span>  <div class="import">
+imports:
+    <a href="#tzdata.zoneinfo">tzdata.zoneinfo</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#tzdata">tzdata</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="tzdata.zoneinfo.America"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/site-packages/tzdata/zoneinfo/America/__init__.py" type="text/plain"><tt>tzdata.zoneinfo.America</tt></a>
+<span class="moduletype">Package</span>  <div class="import">
+imports:
+    <a href="#tzdata.zoneinfo">tzdata.zoneinfo</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#tzdata">tzdata</a>
+ &#8226;   <a href="#tzdata.zoneinfo.America.Argentina">tzdata.zoneinfo.America.Argentina</a>
+ &#8226;   <a href="#tzdata.zoneinfo.America.Indiana">tzdata.zoneinfo.America.Indiana</a>
+ &#8226;   <a href="#tzdata.zoneinfo.America.Kentucky">tzdata.zoneinfo.America.Kentucky</a>
+ &#8226;   <a href="#tzdata.zoneinfo.America.North_Dakota">tzdata.zoneinfo.America.North_Dakota</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="tzdata.zoneinfo.America.Argentina"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/site-packages/tzdata/zoneinfo/America/Argentina/__init__.py" type="text/plain"><tt>tzdata.zoneinfo.America.Argentina</tt></a>
+<span class="moduletype">Package</span>  <div class="import">
+imports:
+    <a href="#tzdata.zoneinfo.America">tzdata.zoneinfo.America</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#tzdata">tzdata</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="tzdata.zoneinfo.America.Indiana"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/site-packages/tzdata/zoneinfo/America/Indiana/__init__.py" type="text/plain"><tt>tzdata.zoneinfo.America.Indiana</tt></a>
+<span class="moduletype">Package</span>  <div class="import">
+imports:
+    <a href="#tzdata.zoneinfo.America">tzdata.zoneinfo.America</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#tzdata">tzdata</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="tzdata.zoneinfo.America.Kentucky"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/site-packages/tzdata/zoneinfo/America/Kentucky/__init__.py" type="text/plain"><tt>tzdata.zoneinfo.America.Kentucky</tt></a>
+<span class="moduletype">Package</span>  <div class="import">
+imports:
+    <a href="#tzdata.zoneinfo.America">tzdata.zoneinfo.America</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#tzdata">tzdata</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="tzdata.zoneinfo.America.North_Dakota"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/site-packages/tzdata/zoneinfo/America/North_Dakota/__init__.py" type="text/plain"><tt>tzdata.zoneinfo.America.North_Dakota</tt></a>
+<span class="moduletype">Package</span>  <div class="import">
+imports:
+    <a href="#tzdata.zoneinfo.America">tzdata.zoneinfo.America</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#tzdata">tzdata</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="tzdata.zoneinfo.Antarctica"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/site-packages/tzdata/zoneinfo/Antarctica/__init__.py" type="text/plain"><tt>tzdata.zoneinfo.Antarctica</tt></a>
+<span class="moduletype">Package</span>  <div class="import">
+imports:
+    <a href="#tzdata.zoneinfo">tzdata.zoneinfo</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#tzdata">tzdata</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="tzdata.zoneinfo.Arctic"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/site-packages/tzdata/zoneinfo/Arctic/__init__.py" type="text/plain"><tt>tzdata.zoneinfo.Arctic</tt></a>
+<span class="moduletype">Package</span>  <div class="import">
+imports:
+    <a href="#tzdata.zoneinfo">tzdata.zoneinfo</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#tzdata">tzdata</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="tzdata.zoneinfo.Asia"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/site-packages/tzdata/zoneinfo/Asia/__init__.py" type="text/plain"><tt>tzdata.zoneinfo.Asia</tt></a>
+<span class="moduletype">Package</span>  <div class="import">
+imports:
+    <a href="#tzdata.zoneinfo">tzdata.zoneinfo</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#tzdata">tzdata</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="tzdata.zoneinfo.Atlantic"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/site-packages/tzdata/zoneinfo/Atlantic/__init__.py" type="text/plain"><tt>tzdata.zoneinfo.Atlantic</tt></a>
+<span class="moduletype">Package</span>  <div class="import">
+imports:
+    <a href="#tzdata.zoneinfo">tzdata.zoneinfo</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#tzdata">tzdata</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="tzdata.zoneinfo.Australia"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/site-packages/tzdata/zoneinfo/Australia/__init__.py" type="text/plain"><tt>tzdata.zoneinfo.Australia</tt></a>
+<span class="moduletype">Package</span>  <div class="import">
+imports:
+    <a href="#tzdata.zoneinfo">tzdata.zoneinfo</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#tzdata">tzdata</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="tzdata.zoneinfo.Brazil"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/site-packages/tzdata/zoneinfo/Brazil/__init__.py" type="text/plain"><tt>tzdata.zoneinfo.Brazil</tt></a>
+<span class="moduletype">Package</span>  <div class="import">
+imports:
+    <a href="#tzdata.zoneinfo">tzdata.zoneinfo</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#tzdata">tzdata</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="tzdata.zoneinfo.Canada"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/site-packages/tzdata/zoneinfo/Canada/__init__.py" type="text/plain"><tt>tzdata.zoneinfo.Canada</tt></a>
+<span class="moduletype">Package</span>  <div class="import">
+imports:
+    <a href="#tzdata.zoneinfo">tzdata.zoneinfo</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#tzdata">tzdata</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="tzdata.zoneinfo.Chile"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/site-packages/tzdata/zoneinfo/Chile/__init__.py" type="text/plain"><tt>tzdata.zoneinfo.Chile</tt></a>
+<span class="moduletype">Package</span>  <div class="import">
+imports:
+    <a href="#tzdata.zoneinfo">tzdata.zoneinfo</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#tzdata">tzdata</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="tzdata.zoneinfo.Etc"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/site-packages/tzdata/zoneinfo/Etc/__init__.py" type="text/plain"><tt>tzdata.zoneinfo.Etc</tt></a>
+<span class="moduletype">Package</span>  <div class="import">
+imports:
+    <a href="#tzdata.zoneinfo">tzdata.zoneinfo</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#tzdata">tzdata</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="tzdata.zoneinfo.Europe"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/site-packages/tzdata/zoneinfo/Europe/__init__.py" type="text/plain"><tt>tzdata.zoneinfo.Europe</tt></a>
+<span class="moduletype">Package</span>  <div class="import">
+imports:
+    <a href="#tzdata.zoneinfo">tzdata.zoneinfo</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#tzdata">tzdata</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="tzdata.zoneinfo.Indian"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/site-packages/tzdata/zoneinfo/Indian/__init__.py" type="text/plain"><tt>tzdata.zoneinfo.Indian</tt></a>
+<span class="moduletype">Package</span>  <div class="import">
+imports:
+    <a href="#tzdata.zoneinfo">tzdata.zoneinfo</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#tzdata">tzdata</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="tzdata.zoneinfo.Mexico"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/site-packages/tzdata/zoneinfo/Mexico/__init__.py" type="text/plain"><tt>tzdata.zoneinfo.Mexico</tt></a>
+<span class="moduletype">Package</span>  <div class="import">
+imports:
+    <a href="#tzdata.zoneinfo">tzdata.zoneinfo</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#tzdata">tzdata</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="tzdata.zoneinfo.Pacific"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/site-packages/tzdata/zoneinfo/Pacific/__init__.py" type="text/plain"><tt>tzdata.zoneinfo.Pacific</tt></a>
+<span class="moduletype">Package</span>  <div class="import">
+imports:
+    <a href="#tzdata.zoneinfo">tzdata.zoneinfo</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#tzdata">tzdata</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="tzdata.zoneinfo.US"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/site-packages/tzdata/zoneinfo/US/__init__.py" type="text/plain"><tt>tzdata.zoneinfo.US</tt></a>
+<span class="moduletype">Package</span>  <div class="import">
+imports:
+    <a href="#tzdata.zoneinfo">tzdata.zoneinfo</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#tzdata">tzdata</a>
 
   </div>
 
@@ -22076,15 +23423,20 @@ imports:
 imported by:
     <a href="#ui.admin_setup">ui.admin_setup</a>
  &#8226;   <a href="#ui.backup">ui.backup</a>
+ &#8226;   <a href="#ui.cart">ui.cart</a>
  &#8226;   <a href="#ui.checkout">ui.checkout</a>
  &#8226;   <a href="#ui.dashboard">ui.dashboard</a>
  &#8226;   <a href="#ui.email_settings">ui.email_settings</a>
  &#8226;   <a href="#ui.expenses">ui.expenses</a>
  &#8226;   <a href="#ui.inventory">ui.inventory</a>
  &#8226;   <a href="#ui.login">ui.login</a>
+ &#8226;   <a href="#ui.order_history">ui.order_history</a>
  &#8226;   <a href="#ui.pos">ui.pos</a>
  &#8226;   <a href="#ui.reports">ui.reports</a>
  &#8226;   <a href="#ui.settings">ui.settings</a>
+ &#8226;   <a href="#ui.shell">ui.shell</a>
+ &#8226;   <a href="#ui.system_info">ui.system_info</a>
+ &#8226;   <a href="#ui.uom_settings">ui.uom_settings</a>
  &#8226;   <a href="#ui.user_mgmt">ui.user_mgmt</a>
  &#8226;   <a href="#ui.vat_settings">ui.vat_settings</a>
 
@@ -22102,6 +23454,7 @@ imports:
  &#8226;   <a href="#tkinter.messagebox">tkinter.messagebox</a>
  &#8226;   <a href="#tkinter.ttk">tkinter.ttk</a>
  &#8226;   <a href="#ui">ui</a>
+ &#8226;   <a href="#utils">utils</a>
 
   </div>
   <div class="import">
@@ -22129,6 +23482,7 @@ imports:
  &#8226;   <a href="#tkinter.messagebox">tkinter.messagebox</a>
  &#8226;   <a href="#tkinter.ttk">tkinter.ttk</a>
  &#8226;   <a href="#ui">ui</a>
+ &#8226;   <a href="#utils">utils</a>
 
   </div>
   <div class="import">
@@ -22142,23 +23496,50 @@ imported by:
 </div>
 
 <div class="node">
+  <a name="ui.cart"></a>
+  <a target="code" href="///C:/Users/ADMIN/Kiosk_Pos/ui/cart.py" type="text/plain"><tt>ui.cart</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#__future__">__future__</a>
+ &#8226;   <a href="#tkinter">tkinter</a>
+ &#8226;   <a href="#tkinter.messagebox">tkinter.messagebox</a>
+ &#8226;   <a href="#tkinter.ttk">tkinter.ttk</a>
+ &#8226;   <a href="#ui">ui</a>
+ &#8226;   <a href="#ui.checkout">ui.checkout</a>
+ &#8226;   <a href="#utils.images">utils.images</a>
+ &#8226;   <a href="#utils.security">utils.security</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#main">main</a>
+ &#8226;   <a href="#main.py">main.py</a>
+
+  </div>
+
+</div>
+
+<div class="node">
   <a name="ui.checkout"></a>
   <a target="code" href="///C:/Users/ADMIN/Kiosk_Pos/ui/checkout.py" type="text/plain"><tt>ui.checkout</tt></a>
 <span class="moduletype">SourceModule</span>  <div class="import">
 imports:
     <a href="#__future__">__future__</a>
  &#8226;   <a href="#modules">modules</a>
+ &#8226;   <a href="#modules.items">modules.items</a>
  &#8226;   <a href="#modules.pos">modules.pos</a>
  &#8226;   <a href="#tkinter">tkinter</a>
  &#8226;   <a href="#tkinter.messagebox">tkinter.messagebox</a>
  &#8226;   <a href="#tkinter.ttk">tkinter.ttk</a>
  &#8226;   <a href="#ui">ui</a>
+ &#8226;   <a href="#utils">utils</a>
 
   </div>
   <div class="import">
 imported by:
     <a href="#main.py">main.py</a>
  &#8226;   <a href="#ui">ui</a>
+ &#8226;   <a href="#ui.cart">ui.cart</a>
  &#8226;   <a href="#ui.pos">ui.pos</a>
 
   </div>
@@ -22172,6 +23553,7 @@ imported by:
 imports:
     <a href="#__future__">__future__</a>
  &#8226;   <a href="#datetime">datetime</a>
+ &#8226;   <a href="#logging">logging</a>
  &#8226;   <a href="#modules">modules</a>
  &#8226;   <a href="#modules.dashboard">modules.dashboard</a>
  &#8226;   <a href="#tkinter">tkinter</a>
@@ -22225,10 +23607,13 @@ imports:
  &#8226;   <a href="#modules.expenses">modules.expenses</a>
  &#8226;   <a href="#os">os</a>
  &#8226;   <a href="#sys">sys</a>
+ &#8226;   <a href="#tkcalendar">tkcalendar</a>
  &#8226;   <a href="#tkinter">tkinter</a>
  &#8226;   <a href="#tkinter.messagebox">tkinter.messagebox</a>
+ &#8226;   <a href="#tkinter.simpledialog">tkinter.simpledialog</a>
  &#8226;   <a href="#tkinter.ttk">tkinter.ttk</a>
  &#8226;   <a href="#ui">ui</a>
+ &#8226;   <a href="#utils">utils</a>
  &#8226;   <a href="#utils.security">utils.security</a>
 
   </div>
@@ -22248,17 +23633,23 @@ imported by:
 <span class="moduletype">SourceModule</span>  <div class="import">
 imports:
     <a href="#__future__">__future__</a>
+ &#8226;   <a href="#csv">csv</a>
+ &#8226;   <a href="#logging">logging</a>
  &#8226;   <a href="#modules">modules</a>
  &#8226;   <a href="#modules.items">modules.items</a>
+ &#8226;   <a href="#modules.portions">modules.portions</a>
+ &#8226;   <a href="#modules.units_of_measure">modules.units_of_measure</a>
+ &#8226;   <a href="#modules.variants">modules.variants</a>
  &#8226;   <a href="#modules.vat_rates">modules.vat_rates</a>
  &#8226;   <a href="#os">os</a>
  &#8226;   <a href="#shutil">shutil</a>
- &#8226;   <a href="#sys">sys</a>
  &#8226;   <a href="#tkinter">tkinter</a>
  &#8226;   <a href="#tkinter.filedialog">tkinter.filedialog</a>
  &#8226;   <a href="#tkinter.messagebox">tkinter.messagebox</a>
+ &#8226;   <a href="#tkinter.simpledialog">tkinter.simpledialog</a>
  &#8226;   <a href="#tkinter.ttk">tkinter.ttk</a>
  &#8226;   <a href="#ui">ui</a>
+ &#8226;   <a href="#utils">utils</a>
  &#8226;   <a href="#utils.csv_io">utils.csv_io</a>
  &#8226;   <a href="#utils.images">utils.images</a>
  &#8226;   <a href="#utils.security">utils.security</a>
@@ -22303,6 +23694,38 @@ imported by:
 </div>
 
 <div class="node">
+  <a name="ui.order_history"></a>
+  <a target="code" href="///C:/Users/ADMIN/Kiosk_Pos/ui/order_history.py" type="text/plain"><tt>ui.order_history</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#__future__">__future__</a>
+ &#8226;   <a href="#datetime">datetime</a>
+ &#8226;   <a href="#modules">modules</a>
+ &#8226;   <a href="#modules.receipts">modules.receipts</a>
+ &#8226;   <a href="#modules.refunds">modules.refunds</a>
+ &#8226;   <a href="#os">os</a>
+ &#8226;   <a href="#subprocess">subprocess</a>
+ &#8226;   <a href="#tempfile">tempfile</a>
+ &#8226;   <a href="#tkcalendar">tkcalendar</a>
+ &#8226;   <a href="#tkinter">tkinter</a>
+ &#8226;   <a href="#tkinter.filedialog">tkinter.filedialog</a>
+ &#8226;   <a href="#tkinter.messagebox">tkinter.messagebox</a>
+ &#8226;   <a href="#tkinter.ttk">tkinter.ttk</a>
+ &#8226;   <a href="#ui">ui</a>
+ &#8226;   <a href="#utils">utils</a>
+ &#8226;   <a href="#utils.security">utils.security</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#main">main</a>
+ &#8226;   <a href="#main.py">main.py</a>
+
+  </div>
+
+</div>
+
+<div class="node">
   <a name="ui.pos"></a>
   <a target="code" href="///C:/Users/ADMIN/Kiosk_Pos/ui/pos.py" type="text/plain"><tt>ui.pos</tt></a>
 <span class="moduletype">SourceModule</span>  <div class="import">
@@ -22310,11 +23733,15 @@ imports:
     <a href="#__future__">__future__</a>
  &#8226;   <a href="#modules">modules</a>
  &#8226;   <a href="#modules.items">modules.items</a>
+ &#8226;   <a href="#modules.portions">modules.portions</a>
+ &#8226;   <a href="#modules.variants">modules.variants</a>
  &#8226;   <a href="#tkinter">tkinter</a>
  &#8226;   <a href="#tkinter.messagebox">tkinter.messagebox</a>
  &#8226;   <a href="#tkinter.ttk">tkinter.ttk</a>
  &#8226;   <a href="#ui">ui</a>
  &#8226;   <a href="#ui.checkout">ui.checkout</a>
+ &#8226;   <a href="#utils">utils</a>
+ &#8226;   <a href="#utils.images">utils.images</a>
  &#8226;   <a href="#utils.security">utils.security</a>
 
   </div>
@@ -22337,10 +23764,13 @@ imports:
  &#8226;   <a href="#datetime">datetime</a>
  &#8226;   <a href="#modules">modules</a>
  &#8226;   <a href="#modules.reports">modules.reports</a>
+ &#8226;   <a href="#tkcalendar">tkcalendar</a>
  &#8226;   <a href="#tkinter">tkinter</a>
+ &#8226;   <a href="#tkinter.filedialog">tkinter.filedialog</a>
  &#8226;   <a href="#tkinter.messagebox">tkinter.messagebox</a>
  &#8226;   <a href="#tkinter.ttk">tkinter.ttk</a>
  &#8226;   <a href="#ui">ui</a>
+ &#8226;   <a href="#utils">utils</a>
  &#8226;   <a href="#utils.security">utils.security</a>
 
   </div>
@@ -22379,6 +23809,73 @@ imported by:
 </div>
 
 <div class="node">
+  <a name="ui.shell"></a>
+  <a target="code" href="///C:/Users/ADMIN/Kiosk_Pos/ui/shell.py" type="text/plain"><tt>ui.shell</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#__future__">__future__</a>
+ &#8226;   <a href="#tkinter">tkinter</a>
+ &#8226;   <a href="#tkinter.ttk">tkinter.ttk</a>
+ &#8226;   <a href="#ui">ui</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#main">main</a>
+ &#8226;   <a href="#main.py">main.py</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="ui.system_info"></a>
+  <a target="code" href="///C:/Users/ADMIN/Kiosk_Pos/ui/system_info.py" type="text/plain"><tt>ui.system_info</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#database.init_db">database.init_db</a>
+ &#8226;   <a href="#pathlib">pathlib</a>
+ &#8226;   <a href="#sqlite3">sqlite3</a>
+ &#8226;   <a href="#tkinter">tkinter</a>
+ &#8226;   <a href="#tkinter.ttk">tkinter.ttk</a>
+ &#8226;   <a href="#ui">ui</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#main">main</a>
+ &#8226;   <a href="#main.py">main.py</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="ui.uom_settings"></a>
+  <a target="code" href="///C:/Users/ADMIN/Kiosk_Pos/ui/uom_settings.py" type="text/plain"><tt>ui.uom_settings</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#__future__">__future__</a>
+ &#8226;   <a href="#modules">modules</a>
+ &#8226;   <a href="#modules.units_of_measure">modules.units_of_measure</a>
+ &#8226;   <a href="#tkinter">tkinter</a>
+ &#8226;   <a href="#tkinter.messagebox">tkinter.messagebox</a>
+ &#8226;   <a href="#tkinter.simpledialog">tkinter.simpledialog</a>
+ &#8226;   <a href="#tkinter.ttk">tkinter.ttk</a>
+ &#8226;   <a href="#ui">ui</a>
+ &#8226;   <a href="#utils">utils</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#main">main</a>
+ &#8226;   <a href="#main.py">main.py</a>
+
+  </div>
+
+</div>
+
+<div class="node">
   <a name="ui.user_mgmt"></a>
   <a target="code" href="///C:/Users/ADMIN/Kiosk_Pos/ui/user_mgmt.py" type="text/plain"><tt>ui.user_mgmt</tt></a>
 <span class="moduletype">SourceModule</span>  <div class="import">
@@ -22390,6 +23887,7 @@ imports:
  &#8226;   <a href="#tkinter.messagebox">tkinter.messagebox</a>
  &#8226;   <a href="#tkinter.ttk">tkinter.ttk</a>
  &#8226;   <a href="#ui">ui</a>
+ &#8226;   <a href="#utils">utils</a>
 
   </div>
   <div class="import">
@@ -22414,6 +23912,7 @@ imports:
  &#8226;   <a href="#tkinter.messagebox">tkinter.messagebox</a>
  &#8226;   <a href="#tkinter.ttk">tkinter.ttk</a>
  &#8226;   <a href="#ui">ui</a>
+ &#8226;   <a href="#utils">utils</a>
 
   </div>
   <div class="import">
@@ -22853,10 +24352,50 @@ imported by:
   <a name="utils"></a>
   <a target="code" href="///C:/Users/ADMIN/Kiosk_Pos/utils/__init__.py" type="text/plain"><tt>utils</tt></a>
 <span class="moduletype">Package</span>  <div class="import">
+imports:
+    <a href="#os">os</a>
+ &#8226;   <a href="#sys">sys</a>
+ &#8226;   <a href="#tkinter">tkinter</a>
+
+  </div>
+  <div class="import">
 imported by:
-    <a href="#utils.csv_io">utils.csv_io</a>
+    <a href="#ui.admin_setup">ui.admin_setup</a>
+ &#8226;   <a href="#ui.backup">ui.backup</a>
+ &#8226;   <a href="#ui.checkout">ui.checkout</a>
+ &#8226;   <a href="#ui.expenses">ui.expenses</a>
+ &#8226;   <a href="#ui.inventory">ui.inventory</a>
+ &#8226;   <a href="#ui.order_history">ui.order_history</a>
+ &#8226;   <a href="#ui.pos">ui.pos</a>
+ &#8226;   <a href="#ui.reports">ui.reports</a>
+ &#8226;   <a href="#ui.uom_settings">ui.uom_settings</a>
+ &#8226;   <a href="#ui.user_mgmt">ui.user_mgmt</a>
+ &#8226;   <a href="#ui.vat_settings">ui.vat_settings</a>
+ &#8226;   <a href="#utils.app_config">utils.app_config</a>
+ &#8226;   <a href="#utils.csv_io">utils.csv_io</a>
  &#8226;   <a href="#utils.images">utils.images</a>
  &#8226;   <a href="#utils.security">utils.security</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="utils.app_config"></a>
+  <a target="code" href="///C:/Users/ADMIN/Kiosk_Pos/utils/app_config.py" type="text/plain"><tt>utils.app_config</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#json">json</a>
+ &#8226;   <a href="#os">os</a>
+ &#8226;   <a href="#pathlib">pathlib</a>
+ &#8226;   <a href="#utils">utils</a>
+ &#8226;   <a href="#uuid">uuid</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#main">main</a>
+ &#8226;   <a href="#main.py">main.py</a>
 
   </div>
 
@@ -22878,7 +24417,8 @@ imports:
   </div>
   <div class="import">
 imported by:
-    <a href="#ui.inventory">ui.inventory</a>
+    <a href="#main.py">main.py</a>
+ &#8226;   <a href="#ui.inventory">ui.inventory</a>
 
   </div>
 
@@ -22900,7 +24440,10 @@ imports:
   </div>
   <div class="import">
 imported by:
-    <a href="#ui.inventory">ui.inventory</a>
+    <a href="#main.py">main.py</a>
+ &#8226;   <a href="#ui.cart">ui.cart</a>
+ &#8226;   <a href="#ui.inventory">ui.inventory</a>
+ &#8226;   <a href="#ui.pos">ui.pos</a>
 
   </div>
 
@@ -22922,13 +24465,45 @@ imports:
   </div>
   <div class="import">
 imported by:
-    <a href="#modules.expenses">modules.expenses</a>
+    <a href="#main.py">main.py</a>
+ &#8226;   <a href="#modules.expenses">modules.expenses</a>
+ &#8226;   <a href="#modules.receipts">modules.receipts</a>
  &#8226;   <a href="#modules.users">modules.users</a>
+ &#8226;   <a href="#ui.cart">ui.cart</a>
  &#8226;   <a href="#ui.dashboard">ui.dashboard</a>
  &#8226;   <a href="#ui.expenses">ui.expenses</a>
  &#8226;   <a href="#ui.inventory">ui.inventory</a>
+ &#8226;   <a href="#ui.order_history">ui.order_history</a>
  &#8226;   <a href="#ui.pos">ui.pos</a>
  &#8226;   <a href="#ui.reports">ui.reports</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="uuid"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/uuid.py" type="text/plain"><tt>uuid</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#_uuid">_uuid</a>
+ &#8226;   <a href="#argparse">argparse</a>
+ &#8226;   <a href="#enum">enum</a>
+ &#8226;   <a href="#hashlib">hashlib</a>
+ &#8226;   <a href="#io">io</a>
+ &#8226;   <a href="#os">os</a>
+ &#8226;   <a href="#platform">platform</a>
+ &#8226;   <a href="#random">random</a>
+ &#8226;   <a href="#shutil">shutil</a>
+ &#8226;   <a href="#socket">socket</a>
+ &#8226;   <a href="#subprocess">subprocess</a>
+ &#8226;   <a href="#sys">sys</a>
+ &#8226;   <a href="#time">time</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#utils.app_config">utils.app_config</a>
 
   </div>
 
@@ -22986,6 +24561,8 @@ imported by:
  &#8226;   <a href="#asyncio.streams">asyncio.streams</a>
  &#8226;   <a href="#asyncio.unix_events">asyncio.unix_events</a>
  &#8226;   <a href="#asyncio.windows_utils">asyncio.windows_utils</a>
+ &#8226;   <a href="#babel.dates">babel.dates</a>
+ &#8226;   <a href="#babel.numbers">babel.numbers</a>
  &#8226;   <a href="#calendar">calendar</a>
  &#8226;   <a href="#charset_normalizer.legacy">charset_normalizer.legacy</a>
  &#8226;   <a href="#codeop">codeop</a>
@@ -23086,6 +24663,7 @@ imported by:
  &#8226;   <a href="#urllib.request">urllib.request</a>
  &#8226;   <a href="#xml.etree.ElementTree">xml.etree.ElementTree</a>
  &#8226;   <a href="#zipfile">zipfile</a>
+ &#8226;   <a href="#zoneinfo._tzpath">zoneinfo._tzpath</a>
 
   </div>
 
@@ -23131,6 +24709,7 @@ imported by:
  &#8226;   <a href="#unittest.signals">unittest.signals</a>
  &#8226;   <a href="#xml.etree.ElementTree">xml.etree.ElementTree</a>
  &#8226;   <a href="#xml.sax.expatreader">xml.sax.expatreader</a>
+ &#8226;   <a href="#zoneinfo._zoneinfo">zoneinfo._zoneinfo</a>
 
   </div>
 
@@ -23176,7 +24755,8 @@ imported by:
   <a name="winreg"></a>
   <tt>winreg</tt> <span class="moduletype"><i>(builtin module)</i></span>  <div class="import">
 imported by:
-    <a href="#importlib._bootstrap_external">importlib._bootstrap_external</a>
+    <a href="#babel.localtime._win32">babel.localtime._win32</a>
+ &#8226;   <a href="#importlib._bootstrap_external">importlib._bootstrap_external</a>
  &#8226;   <a href="#mimetypes">mimetypes</a>
  &#8226;   <a href="#platform">platform</a>
  &#8226;   <a href="#urllib.request">urllib.request</a>
@@ -23665,6 +25245,100 @@ imported by:
  &#8226;   <a href="#tarfile">tarfile</a>
  &#8226;   <a href="#zipfile">zipfile</a>
  &#8226;   <a href="#zipimport">zipimport</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="zoneinfo"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/zoneinfo/__init__.py" type="text/plain"><tt>zoneinfo</tt></a>
+<span class="moduletype">Package</span>  <div class="import">
+imports:
+    <a href="#_zoneinfo">_zoneinfo</a>
+ &#8226;   <a href="#tzdata">tzdata</a>
+ &#8226;   <a href="#zoneinfo">zoneinfo</a>
+ &#8226;   <a href="#zoneinfo._common">zoneinfo._common</a>
+ &#8226;   <a href="#zoneinfo._tzpath">zoneinfo._tzpath</a>
+ &#8226;   <a href="#zoneinfo._zoneinfo">zoneinfo._zoneinfo</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#babel.dates">babel.dates</a>
+ &#8226;   <a href="#babel.localtime._helpers">babel.localtime._helpers</a>
+ &#8226;   <a href="#zoneinfo">zoneinfo</a>
+ &#8226;   <a href="#zoneinfo._common">zoneinfo._common</a>
+ &#8226;   <a href="#zoneinfo._tzpath">zoneinfo._tzpath</a>
+ &#8226;   <a href="#zoneinfo._zoneinfo">zoneinfo._zoneinfo</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="zoneinfo._common"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/zoneinfo/_common.py" type="text/plain"><tt>zoneinfo._common</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#importlib">importlib</a>
+ &#8226;   <a href="#importlib.resources">importlib.resources</a>
+ &#8226;   <a href="#struct">struct</a>
+ &#8226;   <a href="#zoneinfo">zoneinfo</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#zoneinfo">zoneinfo</a>
+ &#8226;   <a href="#zoneinfo._zoneinfo">zoneinfo._zoneinfo</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="zoneinfo._tzpath"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/zoneinfo/_tzpath.py" type="text/plain"><tt>zoneinfo._tzpath</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#importlib">importlib</a>
+ &#8226;   <a href="#importlib.resources">importlib.resources</a>
+ &#8226;   <a href="#os">os</a>
+ &#8226;   <a href="#sysconfig">sysconfig</a>
+ &#8226;   <a href="#warnings">warnings</a>
+ &#8226;   <a href="#zoneinfo">zoneinfo</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#zoneinfo">zoneinfo</a>
+ &#8226;   <a href="#zoneinfo._zoneinfo">zoneinfo._zoneinfo</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="zoneinfo._zoneinfo"></a>
+  <a target="code" href="///C:/Users/ADMIN/AppData/Local/Programs/Python/Python313/Lib/zoneinfo/_zoneinfo.py" type="text/plain"><tt>zoneinfo._zoneinfo</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#bisect">bisect</a>
+ &#8226;   <a href="#calendar">calendar</a>
+ &#8226;   <a href="#collections">collections</a>
+ &#8226;   <a href="#datetime">datetime</a>
+ &#8226;   <a href="#functools">functools</a>
+ &#8226;   <a href="#pickle">pickle</a>
+ &#8226;   <a href="#re">re</a>
+ &#8226;   <a href="#weakref">weakref</a>
+ &#8226;   <a href="#zoneinfo">zoneinfo</a>
+ &#8226;   <a href="#zoneinfo._common">zoneinfo._common</a>
+ &#8226;   <a href="#zoneinfo._tzpath">zoneinfo._tzpath</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#zoneinfo">zoneinfo</a>
 
   </div>
 

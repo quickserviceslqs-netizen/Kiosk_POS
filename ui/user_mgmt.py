@@ -5,6 +5,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 
 from modules import users
+from utils import set_window_icon
 
 
 class ChangePasswordDialog:
@@ -12,6 +13,7 @@ class ChangePasswordDialog:
         self.result = False
         dialog = tk.Toplevel(parent)
         dialog.title(f"Change password: {username}")
+        set_window_icon(dialog)
         dialog.transient(parent)
         dialog.grab_set()
         dialog.resizable(False, False)
@@ -66,7 +68,7 @@ class UserManagementFrame(ttk.Frame):
         ttk.Button(btns, text="Toggle Active", command=self._toggle_active).pack(side=tk.LEFT, padx=4)
 
         columns = ("username", "role", "active", "created_at")
-        tree = ttk.Treeview(self, columns=columns, show="headings", height=12)
+        tree = ttk.Treeview(self, columns=columns, show="headings", height=50)
         tree.grid(row=1, column=0, columnspan=2, sticky=tk.NSEW, pady=8)
 
         headings = {
@@ -77,9 +79,9 @@ class UserManagementFrame(ttk.Frame):
         }
         for col, label in headings.items():
             tree.heading(col, text=label)
-            tree.column(col, width=120, anchor=tk.W)
-        tree.column("username", width=160)
-        tree.column("created_at", width=160)
+            tree.column(col, width=160, minwidth=100, anchor=tk.W, stretch=True)
+        tree.column("username", width=220, minwidth=120)
+        tree.column("created_at", width=200, minwidth=120)
 
         scrollbar = ttk.Scrollbar(self, orient=tk.VERTICAL, command=tree.yview)
         tree.configure(yscroll=scrollbar.set)
@@ -89,6 +91,7 @@ class UserManagementFrame(ttk.Frame):
 
         self.columnconfigure(0, weight=1)
         self.rowconfigure(1, weight=1)
+        self.grid_propagate(True)  # Allow frame to expand
 
     def refresh(self) -> None:
         for row in self.tree.get_children():
@@ -113,6 +116,7 @@ class UserManagementFrame(ttk.Frame):
     def _add_user_dialog(self) -> None:
         dialog = tk.Toplevel(self)
         dialog.title("Add User")
+        set_window_icon(dialog)
         dialog.transient(self.winfo_toplevel())
         dialog.grab_set()
 
@@ -161,6 +165,7 @@ class UserManagementFrame(ttk.Frame):
             return
         dialog = tk.Toplevel(self)
         dialog.title(f"Reset password: {uname}")
+        set_window_icon(dialog)
         dialog.transient(self.winfo_toplevel())
         dialog.grab_set()
 
