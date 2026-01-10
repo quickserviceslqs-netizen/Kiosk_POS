@@ -1,5 +1,5 @@
 import sys
-sys.path.insert(0, r'c:\Users\ADMIN\Kiosk_Pos')
+sys.path.insert(0, '/workspaces/Kiosk_POS')
 from modules import items, units_of_measure as uom
 from decimal import Decimal
 

@@ -23,6 +23,8 @@ def create_sale(
     payment: float,
     payment_method: str | None = None,
     change: float = 0.0,
+    vat_amount: float = 0.0,
+    discount_amount: float = 0.0,
 ) -> int:
     """Insert a sale with line_items = [{item_id, quantity, price}], returns sale_id."""
     date_str, time_str = _now_date_time()
@@ -65,8 +67,8 @@ def create_sale(
                     raise InsufficientStock(f"Item {item_id} insufficient stock")
 
             cursor = conn.execute(
-                "INSERT INTO sales (date, time, total, payment, change) VALUES (?, ?, ?, ?, ?)",
-                (date_str, time_str, total, payment, change),
+                "INSERT INTO sales (date, time, total, payment, change, payment_method, vat_amount, discount_amount) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (date_str, time_str, total, payment, change, payment_method, vat_amount, discount_amount),
             )
             sale_id = cursor.lastrowid
 

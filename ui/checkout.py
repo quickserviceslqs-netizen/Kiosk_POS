@@ -195,10 +195,8 @@ class CheckoutDialog:
                     if e.get('is_special_volume'):
                         sale_lines.append({
                             'item_id': e['item_id'],
-                            'qty_ml': e.get('qty_ml') or e.get('quantity'),
-                            'price_per_ml': e.get('price_per_ml') or e.get('price'),
-                            'is_special_volume': True,
-                            'display_unit': e.get('display_unit'),
+                            'quantity': e.get('qty_ml') or e.get('quantity'),
+                            'price': e.get('price_per_ml') or e.get('price'),
                         })
                     else:
                         try:

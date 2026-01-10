@@ -6,6 +6,7 @@ from tkinter import ttk, messagebox
 
 from modules import items
 from modules import portions
+from modules import units_of_measure as uom
 from ui.checkout import CheckoutDialog
 from utils.security import get_currency_code
 from utils.images import load_thumbnail
