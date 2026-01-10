@@ -6,9 +6,35 @@ from typing import Optional
 
 from database.init_db import get_connection
 from utils.security import hash_password, verify_password
+from utils.audit import audit_logger
 
 
 VALID_ROLES = {"admin", "cashier"}
+
+
+def validate_password_strength(password: str) -> tuple[bool, str]:
+    """
+    Validate password strength requirements.
+    Returns (is_valid, error_message)
+    """
+    if len(password) < 8:
+        return False, "Password must be at least 8 characters long"
+
+    if not any(c.isupper() for c in password):
+        return False, "Password must contain at least one uppercase letter"
+
+    if not any(c.islower() for c in password):
+        return False, "Password must contain at least one lowercase letter"
+
+    if not any(c.isdigit() for c in password):
+        return False, "Password must contain at least one number"
+
+    # Check for common weak passwords
+    weak_passwords = ["password", "123456", "admin123", "password123", "qwerty", "letmein"]
+    if password.lower() in weak_passwords:
+        return False, "Password is too common and easily guessable"
+
+    return True, ""
 
 
 def _row_to_dict(row: sqlite3.Row) -> dict:
@@ -44,6 +70,11 @@ def create_user(username: str, password: str, role: str = "cashier", active: boo
     """Create a new user with hashed password. Raises on invalid role or duplicate username."""
     if role not in VALID_ROLES:
         raise ValueError(f"Invalid role: {role}")
+
+    # Validate password strength
+    is_valid, error_msg = validate_password_strength(password)
+    if not is_valid:
+        raise ValueError(f"Password validation failed: {error_msg}")
 
     salt_hex, hash_hex = hash_password(password)
     with get_connection() as conn:
@@ -84,31 +115,59 @@ def validate_credentials(username: str, password: str) -> Optional[dict]:
     """Return user dict on valid credentials; None otherwise."""
     user = get_user_by_username(username)
     if not user or not user.get("active"):
+        # Log failed login attempt
+        audit_logger.log_login(None, username, success=False)
         return None
 
     salt_hex = user.get("password_salt")
     hash_hex = user.get("password_hash")
     if not salt_hex or not hash_hex:
+        audit_logger.log_login(user.get("user_id"), username, success=False)
         return None
 
     if not verify_password(password, salt_hex, hash_hex):
+        audit_logger.log_login(user.get("user_id"), username, success=False)
         return None
 
+    # Log successful login
+    audit_logger.log_login(user.get("user_id"), username, success=True)
     return user
 
 
-def ensure_admin_user(username: str = "admin", password: str = "admin123") -> dict:
-    """Create a default admin if missing; returns the admin user."""
+def ensure_admin_user(username: str = "admin", password: str | None = None) -> dict:
+    """
+    Create a default admin if missing; returns the admin user.
+    If password is None, will prompt for a strong password during first setup.
+    """
     existing = get_user_by_username(username)
     if existing:
         return existing
+
+    if password is None:
+        raise ValueError("Admin password must be provided during initial setup. Please set a strong password.")
+
     return create_user(username=username, password=password, role="admin", active=True)
 
 
-def change_own_password(username: str, old_password: str, new_password: str) -> bool:
-    """Verify old password and set new one; returns True on success."""
+def change_own_password(username: str, old_password: str, new_password: str) -> tuple[bool, str]:
+    """Verify old password and set new one; returns (success, message)."""
     user = validate_credentials(username, old_password)
     if not user:
-        return False
+        return False, "Current password is incorrect"
+
+    # Validate new password strength
+    is_valid, error_msg = validate_password_strength(new_password)
+    if not is_valid:
+        return False, error_msg
+
     set_password(username, new_password)
-    return True
+    
+    # Audit logging
+    audit_logger.log_action("PASSWORD_CHANGE", user_id=user.get("user_id"), username=username)
+    
+    return True, "Password changed successfully"
+
+
+def log_user_logout(user_id: int, username: str) -> None:
+    """Log user logout event."""
+    audit_logger.log_logout(user_id, username)

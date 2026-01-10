@@ -1,8 +1,13 @@
 """SQLite schema initialization for the Kiosk POS app."""
 from pathlib import Path
 import sqlite3
+import threading
+from typing import Optional
 
 DB_PATH = Path(__file__).parent / "pos.db"
+
+# Thread-local storage for connection caching
+_local = threading.local()
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -534,16 +539,25 @@ import logging
 _logger = logging.getLogger(__name__)
 
 def get_connection(db_path: Path | None = None) -> sqlite3.Connection:
-    """Return a SQLite connection with foreign keys enabled.
+    """Return a SQLite connection with foreign keys enabled and connection caching.
 
-    If no explicit path is provided, try to use the configured/initialized
-    DB path. If that file does not exist, look for any previously initialized
-    `pos_*.db` file in the database folder and adopt it to avoid connecting to
-    a fresh `pos.db` when an initialized DB already exists.
+    Uses thread-local storage to cache connections and improve performance.
     """
     global DB_PATH
     resolved = Path(db_path) if db_path else DB_PATH
     resolved = Path(resolved)
+
+    # Check if we have a cached connection for this thread
+    cache_key = str(resolved.resolve())
+    if hasattr(_local, 'connections') and cache_key in _local.connections:
+        conn = _local.connections[cache_key]
+        # Verify connection is still valid
+        try:
+            conn.execute("SELECT 1")
+            return conn
+        except sqlite3.Error:
+            # Connection is stale, remove from cache
+            del _local.connections[cache_key]
 
     # If the resolved path exists but appears to be an empty or stale DB, prefer
     # an initialized `pos_*.db` candidate (created by installer or first run).
@@ -575,6 +589,14 @@ def get_connection(db_path: Path | None = None) -> sqlite3.Connection:
     resolved.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(resolved)
     conn.execute("PRAGMA foreign_keys = ON;")
+    conn.execute("PRAGMA journal_mode = WAL;")  # Enable WAL mode for better concurrency
+    conn.execute("PRAGMA synchronous = NORMAL;")  # Balance performance and safety
+
+    # Cache the connection
+    if not hasattr(_local, 'connections'):
+        _local.connections = {}
+    _local.connections[cache_key] = conn
+
     return conn
 
 

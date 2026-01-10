@@ -6,6 +6,8 @@ from typing import Iterable, List, Optional
 from functools import lru_cache
 
 from database.init_db import get_connection
+from utils.validation import sanitize_string, validate_numeric, validate_integer, validate_barcode, validate_path, ValidationError
+from utils.audit import audit_logger
 
 
 # Cache for unit conversions to improve performance
@@ -106,47 +108,41 @@ def create_item(
     unit_size_ml: int | None = None,
     price_per_ml: float | None = None,
 ) -> dict:
-    # Validation
-    if not name or not name.strip():
-        raise ValueError("Item name is required")
-    if len(name.strip()) > 100:
-        raise ValueError("Item name cannot exceed 100 characters")
+    # Input validation and sanitization
+    try:
+        name = sanitize_string(name, max_length=100, allow_empty=False)
+        category = sanitize_string(category, max_length=50) if category else None
     
-    if category and len(category.strip()) > 50:
-        raise ValueError("Category name cannot exceed 50 characters")
-    
-    if cost_price < 0 or selling_price < 0:
-        raise ValueError("Prices cannot be negative")
+        cost_price = validate_numeric(cost_price, min_value=0)
+        selling_price = validate_numeric(selling_price, min_value=0)
+        quantity = validate_integer(quantity, min_value=0, max_value=999999)
+        vat_rate = validate_numeric(vat_rate, min_value=0, max_value=100)
+        low_stock_threshold = validate_integer(low_stock_threshold, min_value=0, max_value=10000)
+
+        barcode = validate_barcode(barcode) if barcode else None
+        image_path = validate_path(image_path) if image_path else None
+        unit_of_measure = sanitize_string(unit_of_measure, max_length=20, allow_empty=False) or "pieces"
+
+        if unit_size_ml is not None:
+            unit_size_ml = validate_integer(unit_size_ml, min_value=1, max_value=1000000)
+        else:
+            unit_size_ml = _get_cached_default_unit_size(unit_of_measure)
+
+    except ValidationError as e:
+        raise ValueError(f"Validation error: {e}")
+
+    # Business logic validation
     if selling_price < cost_price:
         raise ValueError("Selling price cannot be less than cost price")
     if cost_price > 0 and selling_price > cost_price * 10:  # Reasonable markup check only when cost_price > 0
         raise ValueError("Selling price cannot be more than 10x cost price")
-    
-    if quantity < 0:
-        raise ValueError("Quantity cannot be negative")
-    if quantity > 999999:  # Reasonable upper limit
-        raise ValueError("Quantity cannot exceed 999,999")
-    
-    if barcode and len(barcode.strip()) > 50:
-        raise ValueError("Barcode cannot exceed 50 characters")
-    if barcode and len(barcode.strip()) > 0:
-        # Check unique barcode
+
+    # Check unique barcode
+    if barcode:
         with get_connection() as conn:
-            existing = conn.execute("SELECT item_id FROM items WHERE barcode = ?", (barcode.strip(),)).fetchone()
+            existing = conn.execute("SELECT item_id FROM items WHERE barcode = ?", (barcode,)).fetchone()
             if existing:
                 raise ValueError("Barcode already exists")
-    
-    if vat_rate < 0 or vat_rate > 100:
-        raise ValueError("VAT rate must be between 0 and 100")
-    
-    if low_stock_threshold < 0 or low_stock_threshold > 10000:
-        raise ValueError("Low stock threshold must be between 0 and 10,000")
-    
-    if unit_of_measure and len(unit_of_measure.strip()) > 20:
-        raise ValueError("Unit of measure name cannot exceed 20 characters")
-    
-    if unit_size_ml is not None and (unit_size_ml <= 0 or unit_size_ml > 1000000):
-        raise ValueError("Unit size must be between 1 and 1,000,000")
     
     if image_path and len(image_path.strip()) > 255:
         raise ValueError("Image path cannot exceed 255 characters")
@@ -188,7 +184,17 @@ def create_item(
             raise
         conn.row_factory = sqlite3.Row
         row = conn.execute("SELECT * FROM items WHERE rowid = last_insert_rowid();").fetchone()
-    return _row_to_dict(row)
+    
+    # Audit logging
+    item_dict = _row_to_dict(row)
+    audit_logger.log_data_change(
+        "CREATE",
+        "items",
+        item_dict["item_id"],
+        new_values=item_dict
+    )
+    
+    return item_dict
 
 
 def update_item(item_id: int, **fields) -> Optional[dict]:
@@ -276,6 +282,9 @@ def update_item(item_id: int, **fields) -> Optional[dict]:
             if not current:
                 raise ValueError(f"Item {item_id} not found")
             
+            # Store old values for audit logging
+            old_values = _row_to_dict(current)
+            
             # Determine values for per-unit price calculation
             unit_of_measure = updates.get("unit_of_measure", current["unit_of_measure"])
             unit_size = updates.get("unit_size_ml", current["unit_size_ml"]) or 1
@@ -301,13 +310,37 @@ def update_item(item_id: int, **fields) -> Optional[dict]:
             raise
         
         row = conn.execute("SELECT * FROM items WHERE item_id = ?", (item_id,)).fetchone()
+    
+    # Audit logging
+    if row:
+        new_values = _row_to_dict(row)
+        audit_logger.log_data_change(
+            "UPDATE",
+            "items",
+            item_id,
+            old_values=old_values,
+            new_values=new_values
+        )
+    
     return _row_to_dict(row) if row else None
 
 
 def delete_item(item_id: int) -> None:
+    # Get item details before deletion for audit logging
+    item = get_item(item_id)
+    
     with get_connection() as conn:
         conn.execute("DELETE FROM items WHERE item_id = ?", (item_id,))
         conn.commit()
+    
+    # Audit logging
+    if item:
+        audit_logger.log_data_change(
+            "DELETE",
+            "items",
+            item_id,
+            old_values=item
+        )
 
 
 def get_item(item_id: int) -> Optional[dict]:

@@ -1,0 +1,7 @@
+{
+  "id": "9bcd5e07",
+  "name": "add_performance_indexes",
+  "up_sql": "\n-- Add indexes for better query performance\nCREATE INDEX IF NOT EXISTS idx_items_name ON items(name);\nCREATE INDEX IF NOT EXISTS idx_items_category ON items(category);\nCREATE INDEX IF NOT EXISTS idx_items_barcode ON items(barcode);\nCREATE INDEX IF NOT EXISTS idx_sales_date ON sales(date);\nCREATE INDEX IF NOT EXISTS idx_sales_items_sale_id ON sales_items(sale_id);\nCREATE INDEX IF NOT EXISTS idx_sales_items_item_id ON sales_items(item_id);\n",
+  "down_sql": "\n-- Remove indexes\nDROP INDEX IF EXISTS idx_items_name;\nDROP INDEX IF EXISTS idx_items_category;\nDROP INDEX IF EXISTS idx_items_barcode;\nDROP INDEX IF EXISTS idx_sales_date;\nDROP INDEX IF EXISTS idx_sales_items_sale_id;\nDROP INDEX IF EXISTS idx_sales_items_item_id;\n",
+  "created_at": "/workspaces/Kiosk_POS/migrations/9bcd5e07.json"
+}
