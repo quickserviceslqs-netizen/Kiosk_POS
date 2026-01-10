@@ -1,5 +1,10 @@
 ; Kiosk POS Inno Setup Script
 ; Version 1.003 - Production Build
+;
+; IMPORTANT: Run this script from the project root directory containing dist/, assets/, etc.
+; Command: ISCC KioskPOS_Installer.iss
+
+#define SourceDir "."
 
 [Setup]
 AppName=Kiosk POS
@@ -8,12 +13,12 @@ AppPublisher=Kiosk POS
 AppPublisherURL=https://kioskpos.com
 DefaultDirName={autopf}\KioskPOS
 DefaultGroupName=Kiosk POS
-OutputDir=dist
+OutputDir={#SourceDir}\dist
 OutputBaseFilename=KioskPOS_Installer_v1.004
 Compression=lzma2
 SolidCompression=yes
 PrivilegesRequired=lowest
-SetupIconFile=dist\main.exe
+; SetupIconFile=dist\main.exe  ; Removed to avoid path issues
 UninstallDisplayIcon={app}\main.exe
 WizardStyle=modern
 DisableProgramGroupPage=yes
@@ -30,13 +35,13 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
  [Files]
 ; Main executable (contains all bundled code)
-Source: "dist\main.exe"; DestDir: "{app}"; Flags: ignoreversion restartreplace
+Source: "{#SourceDir}\dist\main.exe"; DestDir: "{app}"; Flags: ignoreversion restartreplace
 
 ; Assets folder
-Source: "assets\*"; DestDir: "{app}\assets"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#SourceDir}\assets\*"; DestDir: "{app}\assets"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; Email config template
-Source: "email_config.json"; DestDir: "{app}"; Flags: ignoreversion onlyifdoesntexist
+Source: "{#SourceDir}\email_config.json"; DestDir: "{app}"; Flags: ignoreversion onlyifdoesntexist
 
 [Code]
 var
