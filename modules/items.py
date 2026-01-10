@@ -56,6 +56,24 @@ def create_item(
     unit_size_ml: int | None = None,
     price_per_ml: float | None = None,
 ) -> dict:
+    # Validation
+    if not name or not name.strip():
+        raise ValueError("Item name is required")
+    if cost_price < 0 or selling_price < 0:
+        raise ValueError("Prices cannot be negative")
+    if selling_price < cost_price:
+        raise ValueError("Selling price cannot be less than cost price")
+    if quantity < 0:
+        raise ValueError("Quantity cannot be negative")
+    if barcode and len(barcode.strip()) > 0:
+        # Check unique barcode
+        with get_connection() as conn:
+            existing = conn.execute("SELECT item_id FROM items WHERE barcode = ?", (barcode.strip(),)).fetchone()
+            if existing:
+                raise ValueError("Barcode already exists")
+    if vat_rate < 0 or vat_rate > 100:
+        raise ValueError("VAT rate must be between 0 and 100")
+    
     with get_connection() as conn:
         if category:
             conn.execute("INSERT OR IGNORE INTO inventory_categories (name) VALUES (?)", (category,))
@@ -93,6 +111,27 @@ def update_item(item_id: int, **fields) -> Optional[dict]:
     updates = {k: v for k, v in fields.items() if k in allowed}
     if not updates:
         return get_item(item_id)
+
+    # Validation
+    if "name" in updates and (not updates["name"] or not updates["name"].strip()):
+        raise ValueError("Item name is required")
+    if "cost_price" in updates and updates["cost_price"] < 0:
+        raise ValueError("Cost price cannot be negative")
+    if "selling_price" in updates and updates["selling_price"] < 0:
+        raise ValueError("Selling price cannot be negative")
+    if "quantity" in updates and updates["quantity"] < 0:
+        raise ValueError("Quantity cannot be negative")
+    if "vat_rate" in updates and (updates["vat_rate"] < 0 or updates["vat_rate"] > 100):
+        raise ValueError("VAT rate must be between 0 and 100")
+    # Check barcode uniqueness if updating barcode
+    if "barcode" in updates and updates["barcode"] and len(updates["barcode"].strip()) > 0:
+        with get_connection() as conn:
+            existing = conn.execute("SELECT item_id FROM items WHERE barcode = ? AND item_id != ?", (updates["barcode"].strip(), item_id)).fetchone()
+            if existing:
+                raise ValueError("Barcode already exists")
+    # Check selling price >= cost price if both are being updated
+    if "selling_price" in updates and "cost_price" in updates and updates["selling_price"] < updates["cost_price"]:
+        raise ValueError("Selling price cannot be less than cost price")
 
     with get_connection() as conn:
         if "category" in updates and updates["category"]:

@@ -576,9 +576,17 @@ class InventoryFrame(ttk.Frame):
                 return
 
             if existing:
-                items.update_item(existing["item_id"], **payload)
+                try:
+                    items.update_item(existing["item_id"], **payload)
+                except ValueError as e:
+                    messagebox.showerror("Validation Error", str(e))
+                    return
             else:
-                items.create_item(**payload)
+                try:
+                    items.create_item(**payload)
+                except ValueError as e:
+                    messagebox.showerror("Validation Error", str(e))
+                    return
             self.refresh()
             dialog.destroy()
 
