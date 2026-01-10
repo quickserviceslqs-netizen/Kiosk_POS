@@ -32,7 +32,8 @@ PrivilegesRequired=lowest
 ; SetupIconFile=dist\main.exe  ; Removed to avoid path issues
 UninstallDisplayIcon={app}\main.exe
 WizardStyle=modern
-DisableProgramGroupPage=yesSourceDir=.
+DisableProgramGroupPage=yes
+SourceDir=.
 [Dirs]
 Name: "{app}\database"
 
