@@ -6,6 +6,7 @@ from tkinter import ttk, messagebox, filedialog
 from pathlib import Path
 
 from modules import backup
+from utils import set_window_icon
 
 
 class BackupFrame(ttk.Frame):
@@ -17,13 +18,14 @@ class BackupFrame(ttk.Frame):
     def _build_ui(self) -> None:
         self.columnconfigure(0, weight=1)
         self.rowconfigure(2, weight=1)
+        self.grid_propagate(True)  # Allow frame to expand
 
         # Top bar
         top = ttk.Frame(self)
         top.grid(row=0, column=0, sticky=tk.EW, pady=(0, 8))
         ttk.Label(top, text="Database Backup & Restore", font=("Segoe UI", 14, "bold")).pack(side=tk.LEFT)
         if self.on_home:
-            ttk.Button(top, text="← Home", command=self.on_home).pack(side=tk.RIGHT, padx=4)
+            ttk.Button(top, text="🏠 Home", command=self.on_home).pack(side=tk.RIGHT, padx=4)
 
         # Controls
         controls = ttk.Frame(self)
@@ -43,7 +45,7 @@ class BackupFrame(ttk.Frame):
 
         # Treeview
         columns = ("name", "size", "created")
-        self.tree = ttk.Treeview(list_frame, columns=columns, show="headings", selectmode=tk.BROWSE)
+        self.tree = ttk.Treeview(list_frame, columns=columns, show="headings", selectmode=tk.BROWSE, height=50)
         self.tree.grid(row=0, column=0, sticky=tk.NSEW)
 
         self.tree.heading("name", text="Backup Name")
@@ -92,18 +94,21 @@ class BackupFrame(ttk.Frame):
         # Ask for custom name (optional)
         dialog = tk.Toplevel(self)
         dialog.title("Create Backup")
-        dialog.geometry("400x150")
+        set_window_icon(dialog)
+        dialog.geometry("420x200+200+120")
+        dialog.minsize(380, 180)
         dialog.transient(self)
         dialog.grab_set()
+        dialog.columnconfigure(0, weight=1)
 
-        ttk.Label(dialog, text="Backup Name (optional):", padding=12).pack()
+        ttk.Label(dialog, text="Backup Name (optional):", padding=12).pack(fill=tk.X)
         name_var = tk.StringVar()
         entry = ttk.Entry(dialog, textvariable=name_var, width=40)
-        entry.pack(padx=12, pady=8)
+        entry.pack(padx=12, pady=8, fill=tk.X)
         entry.focus()
 
         ttk.Label(dialog, text="Leave empty for auto-generated timestamp name", 
-                 foreground="gray", font=("Segoe UI", 8)).pack()
+             foreground="gray", font=("Segoe UI", 8)).pack(fill=tk.X)
 
         def do_backup():
             try:
@@ -117,8 +122,8 @@ class BackupFrame(ttk.Frame):
 
         btn_frame = ttk.Frame(dialog)
         btn_frame.pack(pady=12)
-        ttk.Button(btn_frame, text="Create", command=do_backup).pack(side=tk.LEFT, padx=4)
-        ttk.Button(btn_frame, text="Cancel", command=dialog.destroy).pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_frame, text="Create", width=12, command=do_backup).pack(side=tk.LEFT, padx=6)
+        ttk.Button(btn_frame, text="Cancel", width=12, command=dialog.destroy).pack(side=tk.LEFT, padx=6)
 
         dialog.bind("<Return>", lambda e: do_backup())
         dialog.bind("<Escape>", lambda e: dialog.destroy())
@@ -190,15 +195,18 @@ class BackupFrame(ttk.Frame):
         """Show auto-backup settings dialog."""
         dialog = tk.Toplevel(self)
         dialog.title("Auto-Backup Settings")
-        dialog.geometry("450x280")
+        set_window_icon(dialog)
+        dialog.geometry("520x360+220+140")
+        dialog.minsize(480, 320)
         dialog.transient(self)
         dialog.grab_set()
+        dialog.columnconfigure(0, weight=1)
 
         # Load current config
         config = backup.get_backup_config()
 
         ttk.Label(dialog, text="Automatic Backup Settings", 
-                 font=("Segoe UI", 12, "bold"), padding=12).pack()
+             font=("Segoe UI", 12, "bold"), padding=12).pack(fill=tk.X)
 
         # Enabled checkbox
         frame1 = ttk.Frame(dialog, padding=12)
@@ -245,6 +253,6 @@ class BackupFrame(ttk.Frame):
         # Buttons
         btn_frame = ttk.Frame(dialog, padding=12)
         btn_frame.pack()
-        ttk.Button(btn_frame, text="Save", command=save_settings).pack(side=tk.LEFT, padx=4)
-        ttk.Button(btn_frame, text="Cancel", command=dialog.destroy).pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_frame, text="Save", width=12, command=save_settings).pack(side=tk.LEFT, padx=6)
+        ttk.Button(btn_frame, text="Cancel", width=12, command=dialog.destroy).pack(side=tk.LEFT, padx=6)
 

@@ -41,6 +41,10 @@ class CurrencySettingsFrame(ttk.Frame):
             if row:
                 self.currency_var.set(row[0])
 
+    def refresh(self):
+        """Reload currency settings from database."""
+        self.load_currency()
+
     def save_currency(self):
         symbol_entry = self.currency_var.get().strip()
         # Extract symbol from combobox selection if formatted
@@ -53,12 +57,8 @@ class CurrencySettingsFrame(ttk.Frame):
             conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", ("currency", symbol_entry))
             conn.commit()
         messagebox.showinfo("Saved", f"Currency set to {symbol_entry}")
-        parent = self.parent
-        for child in parent.winfo_children():
-            child.destroy()
-        from main import show_home
-        user = getattr(parent, "current_user", {})
-        show_home(parent, user)
+        # Stay on the currency settings page and refresh the displayed value
+        self.load_currency()
 
     def _go_home(self):
         root = self.winfo_toplevel()

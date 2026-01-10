@@ -5,6 +5,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 
 from modules import vat_rates
+from utils import set_window_icon
 
 
 class VatSettingsFrame(ttk.Frame):
@@ -18,13 +19,14 @@ class VatSettingsFrame(ttk.Frame):
     def _build_ui(self) -> None:
         self.columnconfigure(0, weight=1)
         self.rowconfigure(1, weight=1)
+        self.grid_propagate(True)  # Allow frame to expand
 
         # Top bar
         top = ttk.Frame(self)
         top.grid(row=0, column=0, sticky=tk.EW, pady=(0, 8))
         ttk.Label(top, text="VAT Rate Settings", font=("Segoe UI", 14, "bold")).pack(side=tk.LEFT)
         if self.on_home:
-            ttk.Button(top, text="← Home", command=self.on_home).pack(side=tk.RIGHT, padx=4)
+            ttk.Button(top, text="🏠 Home", command=self.on_home).pack(side=tk.RIGHT, padx=4)
         ttk.Button(top, text="Add VAT Rate", command=self._add_rate).pack(side=tk.RIGHT, padx=4)
 
         # Tree view
@@ -37,7 +39,7 @@ class VatSettingsFrame(ttk.Frame):
             tree_frame,
             columns=("rate", "description", "active"),
             show="headings",
-            height=15
+            height=50
         )
         self.tree.heading("rate", text="Rate (%)")
         self.tree.heading("description", text="Description")
@@ -117,6 +119,7 @@ class VatSettingsFrame(ttk.Frame):
     def _open_dialog(self, *, title: str, existing: dict | None) -> None:
         dialog = tk.Toplevel(self)
         dialog.title(title)
+        set_window_icon(dialog)
         dialog.transient(self.winfo_toplevel())
         dialog.grab_set()
         dialog.geometry("400x200")

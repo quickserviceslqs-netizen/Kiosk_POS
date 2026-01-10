@@ -127,9 +127,10 @@ The following items are running low on stock and need attention:
     
     for item in low_stock:
         item_threshold = item.get("threshold", threshold)
-        quantity = item["quantity"]
+        # Use actual_volume for comparison (works for both fractional and regular items)
+        actual = item.get("actual_volume", item["quantity"])
         
-        if quantity <= item_threshold / 2:
+        if actual <= item_threshold / 2:
             critical_items.append(item)
         else:
             warning_items.append(item)
@@ -140,8 +141,10 @@ The following items are running low on stock and need attention:
         body += "-" * 50 + "\n"
         for item in critical_items:
             item_threshold = item.get("threshold", threshold)
+            actual = item.get("actual_volume", item["quantity"])
+            display_unit = item.get("display_unit", "units")
             body += f"  • {item['name']}\n"
-            body += f"    Current: {item['quantity']} units | Threshold: {item_threshold} units\n"
+            body += f"    Current: {actual:.1f} {display_unit} | Threshold: {item_threshold} {display_unit}\n"
         body += "\n"
     
     # Warning items
@@ -150,8 +153,10 @@ The following items are running low on stock and need attention:
         body += "-" * 50 + "\n"
         for item in warning_items:
             item_threshold = item.get("threshold", threshold)
+            actual = item.get("actual_volume", item["quantity"])
+            display_unit = item.get("display_unit", "units")
             body += f"  • {item['name']}\n"
-            body += f"    Current: {item['quantity']} units | Threshold: {item_threshold} units\n"
+            body += f"    Current: {actual:.1f} {display_unit} | Threshold: {item_threshold} {display_unit}\n"
         body += "\n"
     
     body += f"""

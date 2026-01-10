@@ -17,16 +17,17 @@ class EmailSettingsFrame(ttk.Frame):
     def _build_ui(self) -> None:
         self.columnconfigure(0, weight=1)
         self.rowconfigure(1, weight=1)
+        self.grid_propagate(True)  # Allow frame to expand
 
         # Top bar
         top = ttk.Frame(self)
         top.grid(row=0, column=0, sticky=tk.EW, pady=(0, 8))
         ttk.Label(top, text="📧 Email Notifications", font=("Segoe UI", 14, "bold")).pack(side=tk.LEFT)
         if self.on_home:
-            ttk.Button(top, text="← Home", command=self.on_home).pack(side=tk.RIGHT, padx=4)
+            ttk.Button(top, text="🏠 Home", command=self.on_home).pack(side=tk.RIGHT, padx=4)
 
         # Scrollable content area
-        canvas = tk.Canvas(self, highlightthickness=0, bg="white", width=500)
+        canvas = tk.Canvas(self, highlightthickness=0, bg="white")
         canvas.grid(row=1, column=0, sticky=tk.NSEW)
         
         scrollbar = ttk.Scrollbar(self, orient=tk.VERTICAL, command=canvas.yview)
@@ -147,6 +148,22 @@ class EmailSettingsFrame(ttk.Frame):
             var.trace_add("write", lambda *args: self._validate_fields())
         
         # Initial validation
+        self._validate_fields()
+
+    def refresh(self) -> None:
+        """Reload email settings from database."""
+        self.config = notifications.get_email_config()
+        # Update all form fields with fresh data
+        self.enabled_var.set(self.config["enabled"])
+        self.smtp_server_var.set(self.config["smtp_server"])
+        self.smtp_port_var.set(str(self.config["smtp_port"]))
+        self.smtp_username_var.set(self.config["smtp_username"])
+        self.smtp_password_var.set(self.config["smtp_password"])
+        self.from_email_var.set(self.config["from_email"])
+        self.to_emails_var.set(", ".join(self.config["to_emails"]))
+        self.daily_report_var.set(self.config["daily_report_enabled"])
+        self.low_stock_var.set(self.config["low_stock_alerts_enabled"])
+        self.threshold_var.set(self.config["low_stock_threshold"])
         self._validate_fields()
 
     def _validate_fields(self) -> None:
