@@ -216,11 +216,63 @@ def test_email_configuration(config: dict) -> tuple[bool, str]:
     if not config.get("to_emails"):
         return False, "No recipient email addresses configured"
     
+    # Validate email formats
+    import re
+    email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    invalid_emails = []
+    for email in config['to_emails']:
+        if not re.match(email_pattern, email):
+            invalid_emails.append(email)
+    
+    if invalid_emails:
+        return False, f"Invalid email format(s): {', '.join(invalid_emails)}"
+    
+    # Test SMTP connectivity first
+    try:
+        import socket
+        import smtplib
+        
+        # Test basic connectivity to SMTP server
+        smtp_server = config['smtp_server']
+        smtp_port = config['smtp_port']
+        
+        # Try to resolve the hostname
+        try:
+            socket.gethostbyname(smtp_server)
+        except socket.gaierror:
+            return False, f"Cannot resolve SMTP server hostname: {smtp_server}"
+        
+        # Try to connect to SMTP server
+        try:
+            server = smtplib.SMTP(smtp_server, smtp_port, timeout=10)
+            server.ehlo()
+            
+            # Try STARTTLS if available
+            if server.has_extn('STARTTLS'):
+                server.starttls()
+                server.ehlo()
+            
+            server.quit()
+        except (smtplib.SMTPConnectError, smtplib.SMTPHeloError) as e:
+            return False, f"Cannot connect to SMTP server {smtp_server}:{smtp_port} - {str(e)}"
+        except socket.timeout:
+            return False, f"Connection timeout to SMTP server {smtp_server}:{smtp_port}"
+        except Exception as e:
+            return False, f"SMTP connection error: {str(e)}"
+            
+    except ImportError:
+        return False, "Socket module not available for connectivity testing"
+    
     subject = "Test Email from Kiosk POS"
     body = f"""
 This is a test email from your Kiosk POS system.
 
 If you're receiving this, your email configuration is working correctly!
+
+Configuration Details:
+- SMTP Server: {config['smtp_server']}:{config['smtp_port']}
+- From: {config['from_email']}
+- To: {', '.join(config['to_emails'])}
 
 Sent at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 """
@@ -228,8 +280,8 @@ Sent at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
     try:
         success = send_email(subject, body, config['to_emails'], config)
         if success:
-            return True, "Test email sent successfully!"
+            return True, "Test email sent successfully! Check your inbox."
         else:
-            return False, "Failed to send test email. Check your configuration."
+            return False, "Failed to send test email. Check your SMTP credentials and server settings."
     except Exception as e:
-        return False, f"Error: {str(e)}"
+        return False, f"Error sending test email: {str(e)}"

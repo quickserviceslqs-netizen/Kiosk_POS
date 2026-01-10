@@ -46,6 +46,60 @@ def _default_db_path() -> Path:
     return Path(config["db_path"])
 
 
+def validate_setup_health() -> tuple[bool, str]:
+    """
+    Perform comprehensive health checks on the system setup.
+    
+    Returns:
+        Tuple of (healthy: bool, message: str)
+    """
+    issues = []
+    
+    try:
+        # Check database connectivity
+        from database.init_db import get_connection
+        with get_connection() as conn:
+            # Check if required tables exist
+            cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            existing_tables = {row[0] for row in cursor.fetchall()}
+            required_tables = {'users', 'items', 'sales', 'sales_items', 'settings'}
+            
+            missing_tables = required_tables - existing_tables
+            if missing_tables:
+                issues.append(f"Missing database tables: {', '.join(missing_tables)}")
+            
+            # Check if admin user exists
+            cursor = conn.execute("SELECT COUNT(*) FROM users WHERE role = 'admin' AND active = 1")
+            admin_count = cursor.fetchone()[0]
+            if admin_count == 0:
+                issues.append("No active admin user found")
+            
+            # Check settings table has basic config
+            cursor = conn.execute("SELECT COUNT(*) FROM settings")
+            settings_count = cursor.fetchone()[0]
+            if settings_count == 0:
+                issues.append("No system settings configured")
+                
+    except Exception as e:
+        issues.append(f"Database connectivity issue: {e}")
+    
+    # Check configuration files
+    config_files = ['email_config.json']
+    for config_file in config_files:
+        if not Path(__file__).parent.joinpath(config_file).exists():
+            issues.append(f"Configuration file missing: {config_file}")
+    
+    # Check assets directory
+    assets_dir = Path(__file__).parent / "assets"
+    if not assets_dir.exists():
+        issues.append("Assets directory missing")
+    
+    if issues:
+        return False, "Setup health check failed:\n" + "\n".join(f"• {issue}" for issue in issues)
+    
+    return True, "System setup is healthy and ready to use!"
+
+
 def bootstrap_database(*, create_default_admin: bool = True) -> Path:
     """Create the database file and schema if missing, returning the resolved path."""
     db_path = _default_db_path()
@@ -489,8 +543,27 @@ def main() -> None:
             raise
         return
 
-    # Command line support: recalculate per-unit prices (run after install or on demand)
-    if "--recalc-prices" in sys.argv:
+    # Command line support: run setup health check
+    if "--health-check" in sys.argv:
+        try:
+            root = tk.Tk()
+            root.withdraw()
+            
+            healthy, message = validate_setup_health()
+            
+            if healthy:
+                messagebox.showinfo("Health Check Passed", message)
+            else:
+                messagebox.showerror("Health Check Failed", message)
+            
+            root.destroy()
+        except Exception as e:
+            root = tk.Tk()
+            root.withdraw()
+            messagebox.showerror("Health Check Error", f"Failed to run health check: {e}")
+            root.destroy()
+            raise
+        return
         try:
             root = tk.Tk()
             root.withdraw()

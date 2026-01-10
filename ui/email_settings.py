@@ -174,10 +174,20 @@ class EmailSettingsFrame(ttk.Frame):
         smtp_password = self.smtp_password_var.get().strip()
         from_email = self.from_email_var.get().strip()
         to_emails = self.to_emails_var.get().strip()
-        port_valid = smtp_port.isdigit()
         
-        # Check if all required fields are filled
-        all_filled = all([smtp_server, smtp_port, smtp_username, smtp_password, from_email, to_emails]) and port_valid
+        # Validate port
+        port_valid = smtp_port.isdigit() and 1 <= int(smtp_port) <= 65535
+        
+        # Validate email formats
+        import re
+        email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        from_email_valid = bool(re.match(email_pattern, from_email)) if from_email else False
+        
+        to_emails_list = [email.strip() for email in to_emails.split(",") if email.strip()]
+        to_emails_valid = all(re.match(email_pattern, email) for email in to_emails_list) and len(to_emails_list) > 0
+        
+        # Check if all required fields are filled and valid
+        all_filled = all([smtp_server, smtp_port, smtp_username, smtp_password, from_email, to_emails]) and port_valid and from_email_valid and to_emails_valid
         
         # Enable/Disable action buttons based on field validation
         state = tk.NORMAL if all_filled else tk.DISABLED

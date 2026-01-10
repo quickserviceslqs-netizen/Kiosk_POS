@@ -19,6 +19,7 @@ class AdminSetupFrame(ttk.Frame):
             "Database Setup", 
             "Admin Account",
             "System Configuration",
+            "Demo Data",
             "Complete"
         ]
         self._build_ui()
@@ -86,6 +87,8 @@ class AdminSetupFrame(ttk.Frame):
         elif step_index == 3:
             self._show_system_config()
         elif step_index == 4:
+            self._show_demo_data()
+        elif step_index == 5:
             self._show_complete()
 
     def _show_welcome(self):
@@ -181,17 +184,40 @@ class AdminSetupFrame(ttk.Frame):
         ttk.Label(form_container, text="Currency:").grid(row=1, column=0, sticky=tk.W, padx=6, pady=8)
         self.currency = tk.StringVar(value="USD")
         currency_combo = ttk.Combobox(form_container, textvariable=self.currency, 
-                                    values=["USD", "EUR", "GBP", "KES", "ZAR"], width=27, state="readonly")
+                                    values=["USD", "EUR", "GBP", "KES", "ZAR", "CAD", "AUD", "JPY", "CNY"], width=27, state="readonly")
         currency_combo.grid(row=1, column=1, padx=6, pady=8)
         currency_combo.current(0)
 
-    def _show_complete(self):
-        ttk.Label(self.content_frame, text="✅ Setup Complete!", 
-                  font=("Segoe UI", 20, "bold")).pack(pady=(20, 8))
-        ttk.Label(self.content_frame, text="Your Kiosk POS system is ready to use.",
-                  font=("Segoe UI", 12)).pack(pady=(0, 20))
-        ttk.Label(self.content_frame, text="You can now log in with your administrator account.",
-                  font=("Segoe UI", 10)).pack(pady=(0, 10))
+        # Currency description
+        ttk.Label(form_container, text="Select your primary currency for transactions and reports",
+                 font=("Segoe UI", 9), foreground="gray").grid(row=2, column=0, columnspan=2, pady=(4, 0))
+
+    def _show_demo_data(self):
+        ttk.Label(self.content_frame, text="Demo Data (Optional)", 
+                  font=("Segoe UI", 16, "bold")).pack(pady=(20, 8))
+        ttk.Label(self.content_frame, text="Would you like to add sample data to explore the system?",
+                  font=("Segoe UI", 10)).pack(pady=(0, 20))
+
+        # Demo data options
+        options_frame = ttk.Frame(self.content_frame)
+        options_frame.pack(pady=10)
+
+        self.seed_demo_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(options_frame, text="Add demo items and sample sales", 
+                       variable=self.seed_demo_var).pack(anchor=tk.W, pady=5)
+
+        ttk.Label(options_frame, text="This will create:", font=("Segoe UI", 9, "bold")).pack(anchor=tk.W, pady=(10, 5))
+        demo_items = [
+            "• Sample products (Bananas, Milk, Bread)",
+            "• Demo cashier user account",
+            "• Sample sales transactions",
+            "• Dashboard data for testing"
+        ]
+        for item in demo_items:
+            ttk.Label(options_frame, text=item, font=("Segoe UI", 9)).pack(anchor=tk.W, padx=20)
+
+        ttk.Label(options_frame, text="\nYou can remove demo data later from the admin panel.", 
+                 font=("Segoe UI", 9), foreground="gray").pack(anchor=tk.W, pady=(10, 0))
 
     def _go_back(self):
         if self.current_step > 0:
@@ -210,6 +236,8 @@ class AdminSetupFrame(ttk.Frame):
             return self._validate_admin_form()
         elif self.current_step == 3:  # System config
             return True  # Basic validation
+        elif self.current_step == 4:  # Demo data
+            return True  # Always valid (optional)
         return True
 
     def _validate_admin_form(self):
@@ -235,12 +263,80 @@ class AdminSetupFrame(ttk.Frame):
             return False
         return True
 
+    def _seed_demo_data(self):
+        """Seed demo data into the database."""
+        try:
+            from modules import items, pos, users
+            
+            # Create a test cashier user
+            try:
+                users.create_user('cashier', 'cashier123', role='cashier')
+            except Exception:
+                pass  # User may already exist
+            
+            # Create demo items
+            demo_items = [
+                dict(name='Bananas', category='Fruit', cost_price=20.0, selling_price=35.0, quantity=100, unit_of_measure='pieces', is_special_volume=0),
+                dict(name='Milk 1L', category='Dairy', cost_price=40.0, selling_price=60.0, quantity=200, unit_of_measure='L', is_special_volume=1, unit_size_ml=1000),
+                dict(name='Bread Loaf', category='Bakery', cost_price=25.0, selling_price=45.0, quantity=80, unit_of_measure='pieces', is_special_volume=0),
+            ]
+            
+            created_items = []
+            for item_data in demo_items:
+                try:
+                    item = items.create_item(**item_data)
+                    created_items.append(item)
+                except Exception:
+                    pass  # Item may already exist
+            
+            # Create demo sales if items were created
+            if created_items:
+                try:
+                    # Sale 1: 2 bananas
+                    if len(created_items) > 0:
+                        line_items = [{'item_id': created_items[0]['item_id'], 'quantity': 2, 'price': 35.0}]
+                        pos.create_sale(line_items, payment=70.0)
+                except Exception:
+                    pass
+                
+                try:
+                    # Sale 2: 1 liter milk
+                    if len(created_items) > 1:
+                        line_items = [{'item_id': created_items[1]['item_id'], 'quantity': 1, 'price': 60.0}]
+                        pos.create_sale(line_items, payment=60.0)
+                except Exception:
+                    pass
+                    
+        except Exception as e:
+            # Don't fail setup if demo data seeding fails
+            print(f"Warning: Failed to seed demo data: {e}")
+
+    def _save_currency_setting(self):
+        """Save the selected currency to the database."""
+        try:
+            from database.init_db import get_connection
+            currency = self.currency.get()
+            with get_connection() as conn:
+                conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", 
+                           ("currency", currency))
+                conn.commit()
+        except Exception as e:
+            # Don't fail setup if currency save fails
+            print(f"Warning: Failed to save currency setting: {e}")
+
     def _finish_setup(self):
         try:
             # Create admin user
             username = self.username.get().strip()
             password = self.password.get()
             create_user(username=username, password=password, role="admin", active=True)
+            
+            # Save currency setting
+            self._save_currency_setting()
+            
+            # Seed demo data if requested
+            if self.seed_demo_var.get():
+                self._seed_demo_data()
             
             # Save basic config (could be expanded)
             # For now, just show success
