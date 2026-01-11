@@ -6,7 +6,7 @@ from typing import Iterable, List, Optional
 from functools import lru_cache
 
 from database.init_db import get_connection
-from utils.validation import sanitize_string, validate_numeric, validate_integer, validate_barcode, validate_path, ValidationError
+from utils.validation import sanitize_string, validate_numeric, validate_integer, validate_barcode, validate_path, ValidationError, validate_item_name, validate_item_category, validate_item_barcode, validate_item_price, validate_item_cost, validate_item_quantity, validate_item_vat_rate, validate_item_low_stock_threshold, validate_item_unit_of_measure, validate_item_package_size
 from utils.audit import audit_logger
 
 
@@ -110,21 +110,21 @@ def create_item(
 ) -> dict:
     # Input validation and sanitization
     try:
-        name = sanitize_string(name, max_length=100, allow_empty=False)
-        category = sanitize_string(category, max_length=50) if category else None
+        name = validate_item_name(name)
+        category = validate_item_category(category)
     
-        cost_price = validate_numeric(cost_price, min_value=0)
-        selling_price = validate_numeric(selling_price, min_value=0)
-        quantity = validate_integer(quantity, min_value=0, max_value=999999)
-        vat_rate = validate_numeric(vat_rate, min_value=0, max_value=100)
-        low_stock_threshold = validate_integer(low_stock_threshold, min_value=0, max_value=10000)
+        cost_price = validate_item_cost(cost_price)
+        selling_price = validate_item_price(selling_price)
+        quantity = validate_item_quantity(quantity)
+        vat_rate = validate_item_vat_rate(vat_rate)
+        low_stock_threshold = validate_item_low_stock_threshold(low_stock_threshold)
 
-        barcode = validate_barcode(barcode) if barcode else None
+        barcode = validate_item_barcode(barcode)
         image_path = validate_path(image_path) if image_path else None
-        unit_of_measure = sanitize_string(unit_of_measure, max_length=20, allow_empty=False) or "pieces"
+        unit_of_measure = validate_item_unit_of_measure(unit_of_measure)
 
         if unit_size_ml is not None:
-            unit_size_ml = validate_integer(unit_size_ml, min_value=1, max_value=1000000)
+            unit_size_ml = validate_item_package_size(unit_size_ml)
         else:
             unit_size_ml = _get_cached_default_unit_size(unit_of_measure)
 
@@ -207,37 +207,28 @@ def update_item(item_id: int, **fields) -> Optional[dict]:
         return get_item(item_id)
 
     # Validation
-    if "name" in updates and (not updates["name"] or not updates["name"].strip()):
-        raise ValueError("Item name is required")
-    if "name" in updates and len(updates["name"].strip()) > 100:
-        raise ValueError("Item name cannot exceed 100 characters")
-    
-    if "category" in updates and updates["category"] and len(updates["category"].strip()) > 50:
-        raise ValueError("Category name cannot exceed 50 characters")
-    
-    if "cost_price" in updates and updates["cost_price"] < 0:
-        raise ValueError("Cost price cannot be negative")
-    if "selling_price" in updates and updates["selling_price"] < 0:
-        raise ValueError("Selling price cannot be negative")
-    if "quantity" in updates and updates["quantity"] < 0:
-        raise ValueError("Quantity cannot be negative")
-    if "quantity" in updates and updates["quantity"] > 999999:
-        raise ValueError("Quantity cannot exceed 999,999")
-    
-    if "vat_rate" in updates and (updates["vat_rate"] < 0 or updates["vat_rate"] > 100):
-        raise ValueError("VAT rate must be between 0 and 100")
-    
-    if "low_stock_threshold" in updates and (updates["low_stock_threshold"] < 0 or updates["low_stock_threshold"] > 10000):
-        raise ValueError("Low stock threshold must be between 0 and 10,000")
-    
-    if "unit_of_measure" in updates and updates["unit_of_measure"] and len(updates["unit_of_measure"].strip()) > 20:
-        raise ValueError("Unit of measure name cannot exceed 20 characters")
-    
-    if "unit_size_ml" in updates and updates["unit_size_ml"] is not None and (updates["unit_size_ml"] <= 0 or updates["unit_size_ml"] > 1000000):
-        raise ValueError("Unit size must be between 1 and 1,000,000")
-    
-    if "image_path" in updates and updates["image_path"] and len(updates["image_path"].strip()) > 255:
-        raise ValueError("Image path cannot exceed 255 characters")
+    if "name" in updates:
+        updates["name"] = validate_item_name(updates["name"])
+    if "category" in updates:
+        updates["category"] = validate_item_category(updates["category"])
+    if "cost_price" in updates:
+        updates["cost_price"] = validate_item_cost(updates["cost_price"])
+    if "selling_price" in updates:
+        updates["selling_price"] = validate_item_price(updates["selling_price"])
+    if "quantity" in updates:
+        updates["quantity"] = validate_item_quantity(updates["quantity"])
+    if "vat_rate" in updates:
+        updates["vat_rate"] = validate_item_vat_rate(updates["vat_rate"])
+    if "low_stock_threshold" in updates:
+        updates["low_stock_threshold"] = validate_item_low_stock_threshold(updates["low_stock_threshold"])
+    if "unit_of_measure" in updates:
+        updates["unit_of_measure"] = validate_item_unit_of_measure(updates["unit_of_measure"])
+    if "unit_size_ml" in updates and updates["unit_size_ml"] is not None:
+        updates["unit_size_ml"] = validate_item_package_size(updates["unit_size_ml"])
+    if "barcode" in updates:
+        updates["barcode"] = validate_item_barcode(updates["barcode"])
+    if "image_path" in updates and updates["image_path"]:
+        updates["image_path"] = validate_path(updates["image_path"])
     
     # Check barcode uniqueness if updating barcode
     if "barcode" in updates and updates["barcode"] and len(updates["barcode"].strip()) > 0:
@@ -260,18 +251,6 @@ def update_item(item_id: int, **fields) -> Optional[dict]:
     with get_connection() as conn:
         conn.execute("BEGIN")
         try:
-            # Sanitize updates
-            if "name" in updates:
-                updates["name"] = updates["name"].strip()
-            if "category" in updates and updates["category"]:
-                updates["category"] = updates["category"].strip()
-            if "barcode" in updates and updates["barcode"]:
-                updates["barcode"] = updates["barcode"].strip()
-            if "unit_of_measure" in updates and updates["unit_of_measure"]:
-                updates["unit_of_measure"] = updates["unit_of_measure"].strip()
-            if "image_path" in updates and updates["image_path"]:
-                updates["image_path"] = updates["image_path"].strip()
-            
             # Insert category if provided (atomic with item update)
             if "category" in updates and updates["category"]:
                 conn.execute("INSERT OR IGNORE INTO inventory_categories (name) VALUES (?)", (updates["category"],))

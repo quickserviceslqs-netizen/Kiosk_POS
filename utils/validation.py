@@ -227,3 +227,171 @@ def validate_path(path: str, must_exist: bool = False) -> Optional[str]:
             raise ValidationError("File does not exist")
 
     return path
+
+
+# Item-specific validation functions
+
+def validate_item_name(name: str) -> str:
+    """
+    Validate item name.
+
+    Args:
+        name: Item name to validate
+
+    Returns:
+        Validated item name
+
+    Raises:
+        ValidationError: If validation fails
+    """
+    return sanitize_string(name, max_length=100, allow_empty=False)
+
+
+def validate_item_category(category: str) -> Optional[str]:
+    """
+    Validate item category.
+
+    Args:
+        category: Item category to validate
+
+    Returns:
+        Validated category or None
+
+    Raises:
+        ValidationError: If validation fails
+    """
+    if not category:
+        return None
+    return sanitize_string(category, max_length=50, allow_empty=True)
+
+
+def validate_item_barcode(barcode: str) -> Optional[str]:
+    """
+    Validate item barcode.
+
+    Args:
+        barcode: Barcode to validate
+
+    Returns:
+        Validated barcode or None
+
+    Raises:
+        ValidationError: If validation fails
+    """
+    return validate_barcode(barcode)
+
+
+def validate_item_price(price: Any) -> float:
+    """
+    Validate item price.
+
+    Args:
+        price: Price to validate
+
+    Returns:
+        Validated price
+
+    Raises:
+        ValidationError: If validation fails
+    """
+    return validate_numeric(price, min_value=0, max_value=999999.99)
+
+
+def validate_item_cost(cost: Any) -> float:
+    """
+    Validate item cost.
+
+    Args:
+        cost: Cost to validate
+
+    Returns:
+        Validated cost
+
+    Raises:
+        ValidationError: If validation fails
+    """
+    return validate_numeric(cost, min_value=0, max_value=999999.99)
+
+
+def validate_item_quantity(quantity: Any) -> float:
+    """
+    Validate item quantity.
+
+    Args:
+        quantity: Quantity to validate
+
+    Returns:
+        Validated quantity
+
+    Raises:
+        ValidationError: If validation fails
+    """
+    return validate_numeric(quantity, min_value=0, max_value=999999.99)
+
+
+def validate_item_vat_rate(vat_rate: Any) -> float:
+    """
+    Validate VAT rate.
+
+    Args:
+        vat_rate: VAT rate to validate
+
+    Returns:
+        Validated VAT rate
+
+    Raises:
+        ValidationError: If validation fails
+    """
+    return validate_numeric(vat_rate, min_value=0, max_value=100)
+
+
+def validate_item_low_stock_threshold(threshold: Any) -> int:
+    """
+    Validate low stock threshold.
+
+    Args:
+        threshold: Threshold to validate
+
+    Returns:
+        Validated threshold
+
+    Raises:
+        ValidationError: If validation fails
+    """
+    return validate_integer(threshold, min_value=0, max_value=10000)
+
+
+def validate_item_unit_of_measure(unit: str) -> str:
+    """
+    Validate unit of measure.
+
+    Args:
+        unit: Unit to validate
+
+    Returns:
+        Validated unit
+
+    Raises:
+        ValidationError: If validation fails
+    """
+    valid_units = ["pieces", "liters", "kilograms", "meters", "grams", "milliliters"]
+    unit = sanitize_string(unit, max_length=20, allow_empty=False)
+    if unit not in valid_units:
+        raise ValidationError(f"Invalid unit of measure. Must be one of: {', '.join(valid_units)}")
+    return unit
+
+
+def validate_item_package_size(size: Any) -> int:
+    """
+    Validate package size.
+
+    Args:
+        size: Package size to validate
+
+    Returns:
+        Validated package size
+
+    Raises:
+        ValidationError: If validation fails
+    """
+    return validate_integer(size, min_value=1, max_value=1000000)

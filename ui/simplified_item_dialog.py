@@ -103,7 +103,7 @@ class SimplifiedItemDialog:
         self.fields["quantity"] = tk.StringVar(value=str(self.existing.get("quantity", 0) if self.existing else 0))
 
         # Error labels for each field
-        for key in ["name", "base_price", "cost_price", "quantity", "barcode", "category", "vat_rate", "unit_of_measure", "package_size"]:
+        for key in ["name", "base_price", "cost_price", "quantity", "barcode", "category", "vat_rate", "unit_of_measure", "package_size", "low_stock_threshold"]:
             self.error_labels[key] = None
 
         # Set initial values based on existing item
@@ -220,11 +220,39 @@ class SimplifiedItemDialog:
         unit_combo['values'] = ["pieces", "liters", "kilograms", "meters", "grams", "milliliters"]
         unit_combo.grid(row=row, column=1, sticky=tk.EW, pady=5, padx=(0, 10))
         unit_combo.bind("<<ComboboxSelected>>", lambda e: self._on_unit_change())
-        row += 1
+        self.error_labels["unit_of_measure"] = ttk.Label(scrollable_frame, text="", foreground="red", font=("Segoe UI", 8))
+        self.error_labels["unit_of_measure"].grid(row=row+1, column=1, sticky=tk.W, padx=(0, 10))
+        def validate_unit_of_measure(*_):
+            value = self.fields["unit_of_measure"].get().strip()
+            if not value:
+                self.error_labels["unit_of_measure"].config(text="Required")
+            else:
+                self.error_labels["unit_of_measure"].config(text="")
+        self.fields["unit_of_measure"].trace_add("write", validate_unit_of_measure)
+        validate_unit_of_measure()
+        row += 2
 
         # Package Size (shown for bulk_package and fractional types)
         self.fields["package_size_label"] = ttk.Label(scrollable_frame, text="Package Size", font=("Segoe UI", 9))
         self.fields["package_size_entry"] = ttk.Entry(scrollable_frame, textvariable=self.fields["package_size"], width=50)
+        self.error_labels["package_size"] = ttk.Label(scrollable_frame, text="", foreground="red", font=("Segoe UI", 8))
+        def validate_package_size(*_):
+            value = self.fields["package_size"].get().strip()
+            if not value:
+                self.error_labels["package_size"].config(text="")
+                return
+            try:
+                v = int(float(value))
+                if v <= 0:
+                    self.error_labels["package_size"].config(text="Must be > 0")
+                elif v > 1000000:
+                    self.error_labels["package_size"].config(text="Max 1,000,000")
+                else:
+                    self.error_labels["package_size"].config(text="")
+            except Exception:
+                self.error_labels["package_size"].config(text="Invalid number")
+        self.fields["package_size"].trace_add("write", validate_package_size)
+        validate_package_size()
 
         # Image
         ttk.Label(scrollable_frame, text="Image", font=("Segoe UI", 9)).grid(row=row, column=0, sticky=tk.W, pady=5, padx=10)
@@ -373,12 +401,50 @@ class SimplifiedItemDialog:
         row += 1
 
         ttk.Label(scrollable_frame, text="Current Quantity", font=("Segoe UI", 9)).grid(row=row, column=0, sticky=tk.W, pady=5, padx=10)
-        ttk.Entry(scrollable_frame, textvariable=self.fields["quantity"], width=20).grid(row=row, column=1, sticky=tk.W, pady=5, padx=(0, 10))
-        row += 1
+        qty_entry = ttk.Entry(scrollable_frame, textvariable=self.fields["quantity"], width=20)
+        qty_entry.grid(row=row, column=1, sticky=tk.W, pady=5, padx=(0, 10))
+        self.error_labels["quantity"] = ttk.Label(scrollable_frame, text="", foreground="red", font=("Segoe UI", 8))
+        self.error_labels["quantity"].grid(row=row+1, column=1, sticky=tk.W, padx=(0, 10))
+        def validate_quantity(*_):
+            value = self.fields["quantity"].get().strip()
+            if not value:
+                self.error_labels["quantity"].config(text="")
+                return
+            try:
+                v = float(value)
+                if v < 0:
+                    self.error_labels["quantity"].config(text="Must be >= 0")
+                else:
+                    self.error_labels["quantity"].config(text="")
+            except Exception:
+                self.error_labels["quantity"].config(text="Invalid number")
+        self.fields["quantity"].trace_add("write", validate_quantity)
+        validate_quantity()
+        row += 2
 
         ttk.Label(scrollable_frame, text="Low Stock Alert Threshold", font=("Segoe UI", 9)).grid(row=row, column=0, sticky=tk.W, pady=5, padx=10)
-        ttk.Entry(scrollable_frame, textvariable=self.fields["low_stock_threshold"], width=20).grid(row=row, column=1, sticky=tk.W, pady=5, padx=(0, 10))
-        row += 1
+        low_stock_entry = ttk.Entry(scrollable_frame, textvariable=self.fields["low_stock_threshold"], width=20)
+        low_stock_entry.grid(row=row, column=1, sticky=tk.W, pady=5, padx=(0, 10))
+        self.error_labels["low_stock_threshold"] = ttk.Label(scrollable_frame, text="", foreground="red", font=("Segoe UI", 8))
+        self.error_labels["low_stock_threshold"].grid(row=row+1, column=1, sticky=tk.W, padx=(0, 10))
+        def validate_low_stock(*_):
+            value = self.fields["low_stock_threshold"].get().strip()
+            if not value:
+                self.error_labels["low_stock_threshold"].config(text="")
+                return
+            try:
+                v = int(float(value))
+                if v < 0:
+                    self.error_labels["low_stock_threshold"].config(text="Must be >= 0")
+                elif v > 10000:
+                    self.error_labels["low_stock_threshold"].config(text="Max 10000")
+                else:
+                    self.error_labels["low_stock_threshold"].config(text="")
+            except Exception:
+                self.error_labels["low_stock_threshold"].config(text="Invalid number")
+        self.fields["low_stock_threshold"].trace_add("write", validate_low_stock)
+        validate_low_stock()
+        row += 2
 
         # Tax settings
         ttk.Label(scrollable_frame, text="Tax Settings", font=("Segoe UI", 10, "bold")).grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=(20, 5), padx=10)
@@ -387,9 +453,29 @@ class SimplifiedItemDialog:
         ttk.Label(scrollable_frame, text="VAT Rate (%)", font=("Segoe UI", 9)).grid(row=row, column=0, sticky=tk.W, pady=5, padx=10)
         vat_frame = ttk.Frame(scrollable_frame)
         vat_frame.grid(row=row, column=1, sticky=tk.W, pady=5, padx=(0, 10))
-        ttk.Entry(vat_frame, textvariable=self.fields["vat_rate"], width=10).pack(side=tk.LEFT)
+        vat_entry = ttk.Entry(vat_frame, textvariable=self.fields["vat_rate"], width=10)
+        vat_entry.pack(side=tk.LEFT)
         ttk.Label(vat_frame, text="(e.g., 16.0 for 16%)", font=("Segoe UI", 8), foreground="gray").pack(side=tk.LEFT, padx=(10, 0))
-        row += 1
+        self.error_labels["vat_rate"] = ttk.Label(scrollable_frame, text="", foreground="red", font=("Segoe UI", 8))
+        self.error_labels["vat_rate"].grid(row=row+1, column=1, sticky=tk.W, padx=(0, 10))
+        def validate_vat_rate(*_):
+            value = self.fields["vat_rate"].get().strip()
+            if not value:
+                self.error_labels["vat_rate"].config(text="")
+                return
+            try:
+                v = float(value)
+                if v < 0:
+                    self.error_labels["vat_rate"].config(text="Must be >= 0")
+                elif v > 100:
+                    self.error_labels["vat_rate"].config(text="Max 100%")
+                else:
+                    self.error_labels["vat_rate"].config(text="")
+            except Exception:
+                self.error_labels["vat_rate"].config(text="Invalid number")
+        self.fields["vat_rate"].trace_add("write", validate_vat_rate)
+        validate_vat_rate()
+        row += 2
 
         # Configure grid weights
         scrollable_frame.columnconfigure(1, weight=1)
@@ -402,6 +488,7 @@ class SimplifiedItemDialog:
             # Standard items: hide package size, price per piece
             self.fields["package_size_label"].grid_remove()
             self.fields["package_size_entry"].grid_remove()
+            self.error_labels["package_size"].grid_remove()
             self.fields["price_unit_label"].config(text="(per piece)")
             self.fields["cost_unit_label"].config(text="(per piece)")
 
@@ -409,6 +496,7 @@ class SimplifiedItemDialog:
             # Bulk packages: show package size, price per package
             self.fields["package_size_label"].grid()
             self.fields["package_size_entry"].grid()
+            self.error_labels["package_size"].grid()
             self.fields["price_unit_label"].config(text="(per package)")
             self.fields["cost_unit_label"].config(text="(per package)")
 
@@ -416,6 +504,7 @@ class SimplifiedItemDialog:
             # Fractional items: show package size, price per base unit
             self.fields["package_size_label"].grid()
             self.fields["package_size_entry"].grid()
+            self.error_labels["package_size"].grid()
             unit = self.fields["unit_of_measure"].get().lower()
             if "liter" in unit or "l" == unit:
                 self.fields["price_unit_label"].config(text="(per liter)")
@@ -448,16 +537,12 @@ class SimplifiedItemDialog:
 
     def _on_save(self) -> None:
         """Save the item with validation."""
+        # Clear all error labels first
+        for label in self.error_labels.values():
+            if label:
+                label.config(text="")
+
         try:
-            # Validate required fields
-            if not self.fields["name"].get().strip():
-                messagebox.showerror("Validation Error", "Item name is required")
-                return
-
-            if not self.fields["base_price"].get().strip():
-                messagebox.showerror("Validation Error", "Selling price is required")
-                return
-
             # Parse and validate numeric fields
             item_data = self._parse_item_data()
 
@@ -475,9 +560,49 @@ class SimplifiedItemDialog:
             # Note: Parent refresh should be handled by the caller
 
         except ValidationError as e:
-            messagebox.showerror("Validation Error", str(e))
+            # Surface validation errors next to fields
+            error_msg = str(e)
+            if "name" in error_msg.lower():
+                self.error_labels["name"].config(text=error_msg)
+            elif "price" in error_msg.lower() or "selling" in error_msg.lower():
+                self.error_labels["base_price"].config(text=error_msg)
+            elif "cost" in error_msg.lower():
+                self.error_labels["cost_price"].config(text=error_msg)
+            elif "quantity" in error_msg.lower():
+                self.error_labels["quantity"].config(text=error_msg)
+            elif "barcode" in error_msg.lower():
+                self.error_labels["barcode"].config(text=error_msg)
+            elif "category" in error_msg.lower():
+                self.error_labels["category"].config(text=error_msg)
+            elif "vat" in error_msg.lower():
+                self.error_labels["vat_rate"].config(text=error_msg)
+            elif "unit" in error_msg.lower():
+                self.error_labels["unit_of_measure"].config(text=error_msg)
+            elif "package" in error_msg.lower() or "size" in error_msg.lower():
+                self.error_labels["package_size"].config(text=error_msg)
+            elif "threshold" in error_msg.lower():
+                self.error_labels["low_stock_threshold"].config(text=error_msg)
+            else:
+                messagebox.showerror("Validation Error", error_msg)
         except ValueError as e:
-            messagebox.showerror("Invalid Input", f"Please check your input values: {e}")
+            # Surface value errors next to fields
+            error_msg = str(e)
+            if "name" in error_msg.lower():
+                self.error_labels["name"].config(text="Invalid name")
+            elif "price" in error_msg.lower() or "selling" in error_msg.lower():
+                self.error_labels["base_price"].config(text="Invalid price")
+            elif "cost" in error_msg.lower():
+                self.error_labels["cost_price"].config(text="Invalid cost")
+            elif "quantity" in error_msg.lower():
+                self.error_labels["quantity"].config(text="Invalid quantity")
+            elif "vat" in error_msg.lower():
+                self.error_labels["vat_rate"].config(text="Invalid VAT rate")
+            elif "threshold" in error_msg.lower():
+                self.error_labels["low_stock_threshold"].config(text="Invalid threshold")
+            elif "package" in error_msg.lower():
+                self.error_labels["package_size"].config(text="Invalid package size")
+            else:
+                messagebox.showerror("Invalid Input", f"Please check your input values: {e}")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to save item: {e}")
 
