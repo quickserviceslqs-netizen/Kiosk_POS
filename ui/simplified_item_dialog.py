@@ -8,6 +8,7 @@ import logging
 from modules import items
 from utils import set_window_icon
 from utils.validation import ValidationError, validate_numeric, validate_integer
+from utils.i18n import get_currency_symbol
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +20,7 @@ class SimplifiedItemDialog:
         self.parent = parent
         self.existing = existing
         self.is_admin = is_admin
-        self.currency_symbol = "$"  # TODO: Get from config
+        self.currency_symbol = get_currency_symbol()
         self.fields: Dict[str, Any] = {}
         self.dialog: Optional[tk.Toplevel] = None
 
