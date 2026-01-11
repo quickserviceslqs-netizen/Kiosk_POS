@@ -78,8 +78,9 @@ class SimplifiedItemDialog:
         save_btn.pack(side=tk.RIGHT)
 
     def _init_form_fields(self) -> None:
-        """Initialize form fields with defaults and existing values."""
+        """Initialize form fields with defaults and existing values, and error labels."""
         self.fields = {}
+        self.error_labels = {}
 
         # Basic fields
         self.fields["name"] = tk.StringVar(value=self.existing.get("name", "") if self.existing else "")
@@ -100,6 +101,10 @@ class SimplifiedItemDialog:
         self.fields["vat_rate"] = tk.StringVar(value=str(self.existing.get("vat_rate", 16.0) if self.existing else 16.0))
         self.fields["low_stock_threshold"] = tk.StringVar(value=str(self.existing.get("low_stock_threshold", 10) if self.existing else 10))
         self.fields["quantity"] = tk.StringVar(value=str(self.existing.get("quantity", 0) if self.existing else 0))
+
+        # Error labels for each field
+        for key in ["name", "base_price", "cost_price", "quantity", "barcode", "category", "vat_rate", "unit_of_measure", "package_size"]:
+            self.error_labels[key] = None
 
         # Set initial values based on existing item
         if self.existing:
@@ -127,36 +132,56 @@ class SimplifiedItemDialog:
         self.fields["package_size"].set(str(self.existing.get("unit_size_ml", 1)))
 
     def _build_basic_info_tab(self, parent: ttk.Frame) -> None:
-        """Build the basic information tab."""
-        # Scrollable frame for content
+        """Build the basic information tab with error labels and real-time validation."""
         canvas = tk.Canvas(parent)
         scrollbar = ttk.Scrollbar(parent, orient=tk.VERTICAL, command=canvas.yview)
         scrollable_frame = ttk.Frame(canvas)
-
         scrollable_frame.bind(
             "<Configure>",
             lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
         )
-
         canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
-
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
         row = 0
 
         # Item Name
         ttk.Label(scrollable_frame, text="Item Name *", font=("Segoe UI", 10, "bold")).grid(row=row, column=0, sticky=tk.W, pady=(10, 5), padx=10)
-        ttk.Entry(scrollable_frame, textvariable=self.fields["name"], width=50).grid(row=row, column=1, sticky=tk.EW, pady=(10, 5), padx=(0, 10))
-        row += 1
+        name_entry = ttk.Entry(scrollable_frame, textvariable=self.fields["name"], width=50)
+        name_entry.grid(row=row, column=1, sticky=tk.EW, pady=(10, 5), padx=(0, 10))
+        self.error_labels["name"] = ttk.Label(scrollable_frame, text="", foreground="red", font=("Segoe UI", 8))
+        self.error_labels["name"].grid(row=row+1, column=1, sticky=tk.W, padx=(0, 10))
+        def validate_name(*_):
+            value = self.fields["name"].get().strip()
+            if not value:
+                self.error_labels["name"].config(text="Name is required")
+            elif len(value) > 100:
+                self.error_labels["name"].config(text="Max 100 characters")
+            else:
+                self.error_labels["name"].config(text="")
+        self.fields["name"].trace_add("write", validate_name)
+        validate_name()
+        row += 2
+
+        # ...existing code for other fields...
 
         # Category
         ttk.Label(scrollable_frame, text="Category", font=("Segoe UI", 9)).grid(row=row, column=0, sticky=tk.W, pady=5, padx=10)
         category_combo = ttk.Combobox(scrollable_frame, textvariable=self.fields["category"], width=47)
         category_combo['values'] = self._get_category_list()
         category_combo.grid(row=row, column=1, sticky=tk.EW, pady=5, padx=(0, 10))
-        row += 1
+        self.error_labels["category"] = ttk.Label(scrollable_frame, text="", foreground="red", font=("Segoe UI", 8))
+        self.error_labels["category"].grid(row=row+1, column=1, sticky=tk.W, padx=(0, 10))
+        def validate_category(*_):
+            value = self.fields["category"].get().strip()
+            if len(value) > 50:
+                self.error_labels["category"].config(text="Max 50 characters")
+            else:
+                self.error_labels["category"].config(text="")
+        self.fields["category"].trace_add("write", validate_category)
+        validate_category()
+        row += 2
 
         # Barcode
         ttk.Label(scrollable_frame, text="Barcode", font=("Segoe UI", 9)).grid(row=row, column=0, sticky=tk.W, pady=5, padx=10)
@@ -164,7 +189,17 @@ class SimplifiedItemDialog:
         barcode_frame.grid(row=row, column=1, sticky=tk.EW, pady=5, padx=(0, 10))
         ttk.Entry(barcode_frame, textvariable=self.fields["barcode"], width=35).pack(side=tk.LEFT, fill=tk.X, expand=True)
         ttk.Button(barcode_frame, text="Scan", width=10, command=self._scan_barcode).pack(side=tk.RIGHT, padx=(5, 0))
-        row += 1
+        self.error_labels["barcode"] = ttk.Label(scrollable_frame, text="", foreground="red", font=("Segoe UI", 8))
+        self.error_labels["barcode"].grid(row=row+1, column=1, sticky=tk.W, padx=(0, 10))
+        def validate_barcode(*_):
+            value = self.fields["barcode"].get().strip()
+            if value and len(value) > 50:
+                self.error_labels["barcode"].config(text="Max 50 characters")
+            else:
+                self.error_labels["barcode"].config(text="")
+        self.fields["barcode"].trace_add("write", validate_barcode)
+        validate_barcode()
+        row += 2
 
         # Item Type Selection
         ttk.Label(scrollable_frame, text="Item Type", font=("Segoe UI", 10, "bold")).grid(row=row, column=0, sticky=tk.W, pady=(15, 5), padx=10)
@@ -237,21 +272,56 @@ class SimplifiedItemDialog:
         price_frame = ttk.Frame(scrollable_frame)
         price_frame.grid(row=row, column=1, sticky=tk.EW, pady=5, padx=(0, 10))
         ttk.Label(price_frame, text=f"{self.currency_symbol}", font=("Segoe UI", 9)).pack(side=tk.LEFT)
-        ttk.Entry(price_frame, textvariable=self.fields["base_price"], width=20).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        base_price_entry = ttk.Entry(price_frame, textvariable=self.fields["base_price"], width=20)
+        base_price_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.fields["price_unit_label"] = ttk.Label(price_frame, text="(per piece)", font=("Segoe UI", 8), foreground="gray")
         self.fields["price_unit_label"].pack(side=tk.RIGHT, padx=(10, 0))
-        row += 1
+        self.error_labels["base_price"] = ttk.Label(scrollable_frame, text="", foreground="red", font=("Segoe UI", 8))
+        self.error_labels["base_price"].grid(row=row+1, column=1, sticky=tk.W, padx=(0, 10))
+        def validate_base_price(*_):
+            value = self.fields["base_price"].get().strip()
+            try:
+                v = float(value)
+                if v < 0:
+                    self.error_labels["base_price"].config(text="Must be >= 0")
+                else:
+                    self.error_labels["base_price"].config(text="")
+            except Exception:
+                if value:
+                    self.error_labels["base_price"].config(text="Invalid number")
+                else:
+                    self.error_labels["base_price"].config(text="Required")
+        self.fields["base_price"].trace_add("write", validate_base_price)
+        validate_base_price()
+        row += 2
 
         # Cost price
         ttk.Label(scrollable_frame, text="Cost Price", font=("Segoe UI", 9)).grid(row=row, column=0, sticky=tk.W, pady=5, padx=10)
         cost_frame = ttk.Frame(scrollable_frame)
         cost_frame.grid(row=row, column=1, sticky=tk.EW, pady=5, padx=(0, 10))
         ttk.Label(cost_frame, text=f"{self.currency_symbol}", font=("Segoe UI", 9)).pack(side=tk.LEFT)
-        cost_entry = ttk.Entry(cost_frame, textvariable=self.fields["cost_price"], width=20, state="normal" if self.is_admin else "readonly")
-        cost_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        cost_price_entry = ttk.Entry(cost_frame, textvariable=self.fields["cost_price"], width=20, state="normal" if self.is_admin else "readonly")
+        cost_price_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.fields["cost_unit_label"] = ttk.Label(cost_frame, text="(per piece)", font=("Segoe UI", 8), foreground="gray")
         self.fields["cost_unit_label"].pack(side=tk.RIGHT, padx=(10, 0))
-        row += 1
+        self.error_labels["cost_price"] = ttk.Label(scrollable_frame, text="", foreground="red", font=("Segoe UI", 8))
+        self.error_labels["cost_price"].grid(row=row+1, column=1, sticky=tk.W, padx=(0, 10))
+        def validate_cost_price(*_):
+            value = self.fields["cost_price"].get().strip()
+            try:
+                v = float(value)
+                if v < 0:
+                    self.error_labels["cost_price"].config(text="Must be >= 0")
+                else:
+                    self.error_labels["cost_price"].config(text="")
+            except Exception:
+                if value:
+                    self.error_labels["cost_price"].config(text="Invalid number")
+                else:
+                    self.error_labels["cost_price"].config(text="")
+        self.fields["cost_price"].trace_add("write", validate_cost_price)
+        validate_cost_price()
+        row += 2
 
         # Profit margin display
         ttk.Label(scrollable_frame, text="Profit Margin", font=("Segoe UI", 9)).grid(row=row, column=0, sticky=tk.W, pady=5, padx=10)

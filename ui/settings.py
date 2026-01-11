@@ -39,7 +39,7 @@ class CurrencySettingsFrame(ttk.Frame):
             cursor = conn.execute("SELECT value FROM settings WHERE key = 'currency'")
             row = cursor.fetchone()
             if row:
-                self.currency_var.set(row[0])
+                self.currency_var.set(row['value'] if isinstance(row, dict) else row[0])
 
     def refresh(self):
         """Reload currency settings from database."""

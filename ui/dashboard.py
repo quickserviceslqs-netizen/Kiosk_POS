@@ -4,6 +4,8 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 from datetime import datetime, timedelta
+import matplotlib
+matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
@@ -347,7 +349,7 @@ class DashboardFrame(ttk.Frame):
             self.hourly_canvas.draw()
             return
         
-        hours = [f"{d['hour']:02d}:00" for d in data]
+        hours = [f"{int(d['hour']):02d}:00" for d in data]
         revenues = [d["revenue"] for d in data]
         
         self.hourly_ax.clear()

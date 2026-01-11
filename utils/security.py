@@ -7,7 +7,9 @@ def get_currency_code():
     with get_connection() as conn:
         cursor = conn.execute("SELECT value FROM settings WHERE key = 'currency'")
         row = cursor.fetchone()
-        return row[0] if row else "USD"
+        if row:
+            return row['value'] if isinstance(row, dict) else row[0]
+        return "USD"
  
 import hashlib
 import hmac
