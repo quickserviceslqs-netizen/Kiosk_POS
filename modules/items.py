@@ -8,6 +8,7 @@ from functools import lru_cache
 from database.init_db import get_connection
 from utils.validation import sanitize_string, validate_numeric, validate_integer, validate_barcode, validate_path, ValidationError, validate_item_name, validate_item_category, validate_item_barcode, validate_item_price, validate_item_cost, validate_item_quantity, validate_item_vat_rate, validate_item_low_stock_threshold, validate_item_unit_of_measure, validate_item_package_size
 from utils.audit import audit_logger
+from utils.performance import profile_function
 
 
 # Cache for unit conversions to improve performance
@@ -92,6 +93,7 @@ def _normalize_prices(cost_price: float, selling_price: float, unit_size: int, m
     }
 
 
+@profile_function
 def create_item(
     *,
     name: str,
@@ -239,6 +241,7 @@ def create_item(
     return item_dict
 
 
+@profile_function
 def update_item(item_id: int, **fields) -> Optional[dict]:
     """Update an existing inventory item.
 
@@ -405,6 +408,7 @@ def delete_item(item_id: int) -> None:
         )
 
 
+@profile_function
 def get_item(item_id: int) -> Optional[dict]:
     """Retrieve a single item by ID.
 
