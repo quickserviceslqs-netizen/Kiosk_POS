@@ -113,6 +113,8 @@ class PermissionManagementFrame(ttk.Frame):
         perm_btn_frame = ttk.Frame(right_frame)
         perm_btn_frame.pack(fill=tk.X, pady=(10, 0))
 
+        ttk.Button(perm_btn_frame, text="💾 Save Changes",
+                  command=self._save_permission_changes).pack(side=tk.LEFT, padx=(0, 5))
         ttk.Button(perm_btn_frame, text="Grant Selected",
                   command=self._grant_selected_permissions).pack(side=tk.LEFT, padx=(0, 5))
         ttk.Button(perm_btn_frame, text="Revoke Selected",
@@ -275,8 +277,89 @@ class PermissionManagementFrame(ttk.Frame):
                 selected_perms.append(perm_key)
         return selected_perms
 
+    def _save_permission_changes(self) -> None:
+        """Save all permission changes based on current checkbox states."""
+        if not self.selected_user:
+            messagebox.showerror("Error", "No user selected")
+            return
+
+        # Get current checkbox states
+        checked_permissions = set(self._get_selected_permissions())
+
+        # Get currently granted permissions
+        current_permissions = set(permissions.get_user_permissions(self.selected_user['user_id']))
+
+        # Determine what needs to be granted and revoked
+        to_grant = checked_permissions - current_permissions
+        to_revoke = current_permissions - checked_permissions
+
+        if not to_grant and not to_revoke:
+            messagebox.showinfo("No Changes", "No permission changes detected")
+            return
+
+        # Show summary and confirm
+        changes_summary = []
+        if to_grant:
+            changes_summary.append(f"Grant: {len(to_grant)} permission(s)")
+        if to_revoke:
+            changes_summary.append(f"Revoke: {len(to_revoke)} permission(s)")
+
+        confirm = messagebox.askyesno(
+            "Save Permission Changes",
+            f"Save permission changes for {self.selected_user['username']}?\n\n"
+            f"{' | '.join(changes_summary)}\n\n"
+            "This will update the user's permissions to match the current checkbox selections."
+        )
+
+        if not confirm:
+            return
+
+        try:
+            current_user_id = self.current_user.get('user_id')
+            changes_made = 0
+
+            # Grant new permissions
+            for perm in to_grant:
+                permissions.grant_permission(self.selected_user['user_id'], perm, current_user_id)
+                changes_made += 1
+
+            # Revoke removed permissions
+            for perm in to_revoke:
+                permissions.revoke_permission(self.selected_user['user_id'], perm, current_user_id)
+                changes_made += 1
+
+            messagebox.showinfo("Success", f"Saved {changes_made} permission change(s)")
+            self._load_user_permissions()
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to save permission changes: {e}")
+
+    def _grant_all_permissions(self) -> None:
+        """Grant all permissions to the selected user."""
+        if not self.selected_user:
+            messagebox.showerror("Error", "No user selected")
+            return
+
+        all_perms = list(permissions.get_all_permissions().keys())
+        confirm = messagebox.askyesno(
+            "Grant All Permissions",
+            f"Grant ALL {len(all_perms)} permissions to {self.selected_user['username']}?\n\n"
+            "This will give the user access to all system features."
+        )
+
+        if confirm:
+            try:
+                current_user_id = self.current_user.get('user_id')
+                for perm in all_perms:
+                    permissions.grant_permission(self.selected_user['user_id'], perm, current_user_id)
+
+                messagebox.showinfo("Success", f"Granted all {len(all_perms)} permissions")
+                self._load_user_permissions()
+
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to grant all permissions: {e}")
+
     def _grant_selected_permissions(self) -> None:
-        """Grant selected permissions to current user."""
         if not self.selected_user:
             messagebox.showerror("Error", "No user selected")
             return
