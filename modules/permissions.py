@@ -130,13 +130,18 @@ def get_role_permissions(role: str) -> Set[str]:
 
 
 def get_effective_permissions(user: dict) -> Set[str]:
-    """Get effective permissions for a user (only explicitly granted permissions)."""
+    """Get effective permissions for a user."""
     if not user:
         return set()
 
     user_id = user.get('user_id')
+    role = user.get('role', 'cashier')
 
-    # Only return explicitly granted permissions - no automatic role defaults
+    # Admin users automatically get all permissions
+    if role == 'admin':
+        return set(PERMISSIONS.keys())
+
+    # For non-admin users, only return explicitly granted permissions
     if user_id:
         return get_user_permissions(user_id)
 
