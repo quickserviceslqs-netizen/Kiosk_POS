@@ -130,23 +130,17 @@ def get_role_permissions(role: str) -> Set[str]:
 
 
 def get_effective_permissions(user: dict) -> Set[str]:
-    """Get effective permissions for a user (role defaults + user-specific overrides)."""
+    """Get effective permissions for a user (only explicitly granted permissions)."""
     if not user:
         return set()
 
     user_id = user.get('user_id')
-    role = user.get('role', 'cashier')
 
-    # Start with role defaults
-    effective_perms = get_role_permissions(role)
-
-    # Apply user-specific overrides
+    # Only return explicitly granted permissions - no automatic role defaults
     if user_id:
-        user_perms = get_user_permissions(user_id)
-        # User-specific permissions override role defaults
-        effective_perms = effective_perms.union(user_perms)
+        return get_user_permissions(user_id)
 
-    return effective_perms
+    return set()
 
 
 def has_permission(user: dict, permission: str) -> bool:
@@ -199,10 +193,10 @@ def revoke_permission(user_id: int, permission: str, revoked_by: int = None) -> 
 
 
 def reset_user_permissions(user_id: int, role: str, reset_by: int = None) -> None:
-    """Reset user permissions to role defaults."""
+    """Reset user permissions by revoking all permissions (no automatic granting)."""
     _ensure_permissions_table()
 
-    # Remove all user-specific permissions
+    # Remove all user-specific permissions (no automatic role defaults)
     with get_connection() as conn:
         conn.execute("DELETE FROM user_permissions WHERE user_id = ?", (user_id,))
         conn.commit()
@@ -217,31 +211,14 @@ def reset_user_permissions(user_id: int, role: str, reset_by: int = None) -> Non
 
 
 def seed_default_permissions() -> None:
-    """Seed default permissions for existing users based on their roles."""
-    from modules import users
+    """Initialize permission system without automatically granting permissions.
 
+    This function now only ensures the permissions table exists.
+    Permissions should be explicitly granted by admins through the UI.
+    """
     _ensure_permissions_table()
-
-    all_users = users.list_users()
-    seeded_count = 0
-
-    for user in all_users:
-        user_id = user['user_id']
-        role = user['role']
-
-        # Check if user already has permissions
-        existing_perms = get_user_permissions(user_id)
-        if existing_perms:
-            continue  # Skip users who already have custom permissions
-
-        # Grant role default permissions
-        role_perms = get_role_permissions(role)
-        for perm in role_perms:
-            grant_permission(user_id, perm)
-
-        seeded_count += 1
-
-    print(f"Seeded default permissions for {seeded_count} users")
+    print("Permission system initialized. No automatic permissions granted.")
+    print("Use the Permission Management UI to grant permissions to users.")
 
 
 def get_all_permissions() -> Dict[str, str]:

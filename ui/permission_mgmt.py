@@ -34,7 +34,13 @@ class PermissionManagementFrame(ttk.Frame):
         # Title
         title_label = ttk.Label(main_frame, text="Permission Management",
                                font=("Segoe UI", 16, "bold"))
-        title_label.pack(pady=(0, 20))
+        title_label.pack(pady=(0, 5))
+
+        # Subtitle with guidance
+        subtitle_label = ttk.Label(main_frame,
+                                 text="Manage user permissions explicitly. No permissions are granted automatically - admins must approve all access.",
+                                 font=("Segoe UI", 9), foreground="#666")
+        subtitle_label.pack(pady=(0, 20))
 
         # Create paned window for split layout
         paned = ttk.PanedWindow(main_frame, orient=tk.HORIZONTAL)
@@ -68,7 +74,7 @@ class PermissionManagementFrame(ttk.Frame):
         user_btn_frame = ttk.Frame(left_frame)
         user_btn_frame.pack(fill=tk.X, pady=(10, 0))
 
-        ttk.Button(user_btn_frame, text="Reset to Role Defaults",
+        ttk.Button(user_btn_frame, text="Revoke All Permissions",
                   command=self._reset_user_permissions).pack(side=tk.LEFT, padx=(0, 5))
         ttk.Button(user_btn_frame, text="Refresh", command=self._load_users).pack(side=tk.RIGHT)
 
@@ -111,6 +117,8 @@ class PermissionManagementFrame(ttk.Frame):
                   command=self._grant_selected_permissions).pack(side=tk.LEFT, padx=(0, 5))
         ttk.Button(perm_btn_frame, text="Revoke Selected",
                   command=self._revoke_selected_permissions).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(perm_btn_frame, text="Apply Role Suggestions",
+                  command=self._apply_role_suggestions).pack(side=tk.LEFT, padx=(0, 5))
         ttk.Button(perm_btn_frame, text="Select All",
                   command=self._select_all_permissions).pack(side=tk.LEFT, padx=(0, 5))
         ttk.Button(perm_btn_frame, text="Select None",
@@ -231,15 +239,18 @@ class PermissionManagementFrame(ttk.Frame):
                     if perm_key in user_specific_perms:
                         status = "Granted (User)"
                         bg_color = "#e8f5e8"  # Light green
+                        checkbox_state = True
                     elif perm_key in role_perms:
-                        status = "Granted (Role)"
+                        status = "Suggested (Role)"
                         bg_color = "#fff3cd"  # Light yellow
+                        checkbox_state = False  # Don't auto-check role suggestions
                     else:
                         status = "Not Granted"
                         bg_color = "#f8d7da"  # Light red
+                        checkbox_state = False
 
                     # Create checkbox variable
-                    var = tk.BooleanVar()
+                    var = tk.BooleanVar(value=checkbox_state)
                     self.permission_vars[perm_key] = var
 
                     # Create checkbox with description
@@ -356,29 +367,59 @@ class PermissionManagementFrame(ttk.Frame):
         for var in self.permission_vars.values():
             var.set(False)
 
-    def _reset_user_permissions(self) -> None:
-        """Reset user permissions to role defaults."""
+    def _apply_role_suggestions(self) -> None:
+        """Apply role-based permission suggestions for the selected user."""
         if not self.selected_user:
             messagebox.showerror("Error", "No user selected")
             return
 
         role = self.selected_user['role']
+        role_perms = permissions.get_role_permissions(role)
+
+        if not role_perms:
+            messagebox.showinfo("Info", f"No permissions suggested for {role} role")
+            return
+
         confirm = messagebox.askyesno(
-            "Confirm Reset",
-            f"Reset {self.selected_user['username']}'s permissions to {role} role defaults?\n\n"
-            "This will remove all user-specific permission overrides."
+            "Apply Role Suggestions",
+            f"Grant {len(role_perms)} suggested permissions for {role} role to {self.selected_user['username']}?\n\n"
+            f"This will grant permissions typically associated with the {role} role."
         )
 
         if confirm:
             try:
                 current_user_id = self.current_user.get('user_id')
-                permissions.reset_user_permissions(self.selected_user['user_id'], role, current_user_id)
+                for perm in role_perms:
+                    permissions.grant_permission(self.selected_user['user_id'], perm, current_user_id)
 
-                messagebox.showinfo("Success", f"Reset permissions to {role} defaults")
+                messagebox.showinfo("Success", f"Applied {len(role_perms)} role suggestions")
                 self._load_user_permissions()
 
             except Exception as e:
-                messagebox.showerror("Error", f"Failed to reset permissions: {e}")
+                messagebox.showerror("Error", f"Failed to apply role suggestions: {e}")
+
+    def _reset_user_permissions(self) -> None:
+        """Revoke all permissions from the selected user."""
+        if not self.selected_user:
+            messagebox.showerror("Error", "No user selected")
+            return
+
+        confirm = messagebox.askyesno(
+            "Confirm Revoke All",
+            f"Revoke ALL permissions from {self.selected_user['username']}?\n\n"
+            "This will remove all granted permissions. Use 'Apply Role Suggestions' to grant permissions again."
+        )
+
+        if confirm:
+            try:
+                current_user_id = self.current_user.get('user_id')
+                permissions.reset_user_permissions(self.selected_user['user_id'], self.selected_user['role'], current_user_id)
+
+                messagebox.showinfo("Success", f"Revoked all permissions from {self.selected_user['username']}")
+                self._load_user_permissions()
+
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to revoke permissions: {e}")
 
     def refresh(self) -> None:
         """Refresh the permission management interface."""
