@@ -82,16 +82,20 @@ class PermissionManagementFrame(ttk.Frame):
         right_frame = ttk.LabelFrame(paned, text="Permissions", padding=10)
         paned.add(right_frame, weight=2)
 
-        # Permission controls
+        # Permission controls - use vertical layout to ensure buttons are visible
         perm_frame = ttk.Frame(right_frame)
         perm_frame.pack(fill=tk.BOTH, expand=True)
 
+        # Permission list in scrollable frame - don't let it expand fully
+        list_frame = ttk.Frame(perm_frame)
+        list_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+
         # Scrollable frame for permissions
-        self.permission_frame = ttk.Frame(perm_frame)
+        self.permission_frame = ttk.Frame(list_frame)
         self.permission_frame.pack(fill=tk.BOTH, expand=True)
 
         # Canvas and scrollbar for permissions
-        canvas = tk.Canvas(self.permission_frame, height=400)
+        canvas = tk.Canvas(self.permission_frame, height=300)  # Fixed height to leave room for buttons
         scrollbar = ttk.Scrollbar(self.permission_frame, orient="vertical", command=canvas.yview)
         scrollable_frame = ttk.Frame(canvas)
 
@@ -110,8 +114,8 @@ class PermissionManagementFrame(ttk.Frame):
         scrollbar.pack(side="right", fill="y")
 
         # Permission action buttons - arrange in a grid for better visibility
-        perm_btn_frame = ttk.Frame(right_frame)
-        perm_btn_frame.pack(fill=tk.X, pady=(10, 0))
+        perm_btn_frame = ttk.Frame(perm_frame)
+        perm_btn_frame.pack(fill=tk.X, side=tk.BOTTOM, pady=(10, 0))  # Place at bottom
 
         # First row of buttons
         first_row = ttk.Frame(perm_btn_frame)
