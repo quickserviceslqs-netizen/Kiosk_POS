@@ -7,6 +7,7 @@ import string
 from datetime import datetime
 from database.init_db import get_connection
 from modules import items
+from modules import reports
 
 
 class RefundError(Exception):
@@ -212,6 +213,9 @@ def create_refund(
         except Exception as e:
             conn.rollback()
             raise RefundError(str(e))
+        finally:
+            # Invalidate report cache after refund creation
+            reports.invalidate_cache()
 
 
 def get_refund(refund_id: int) -> dict | None:

@@ -1,0 +1,6 @@
+{
+  "id": "b089cd45",
+  "name": "add_reports_indexes",
+  "up_sql": "\n-- Add indexes for better reports query performance\nCREATE INDEX IF NOT EXISTS idx_refunds_sale_id ON refunds(original_sale_id);\nCREATE INDEX IF NOT EXISTS idx_refunds_created_at ON refunds(created_at);\nCREATE INDEX IF NOT EXISTS idx_refunds_items_refund_id ON refunds_items(refund_id);\nCREATE INDEX IF NOT EXISTS idx_refunds_items_sale_id ON refunds_items(sale_id);\nCREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(date);\n",
+  "down_sql": "\n-- Remove reports indexes\nDROP INDEX IF EXISTS idx_refunds_sale_id;\nDROP INDEX IF EXISTS idx_refunds_created_at;\nDROP INDEX IF EXISTS idx_refunds_items_refund_id;\nDROP INDEX IF EXISTS idx_refunds_items_sale_id;\nDROP INDEX IF EXISTS idx_expenses_date;\n"
+}

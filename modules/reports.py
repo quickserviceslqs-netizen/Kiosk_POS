@@ -13,6 +13,12 @@ _cache = {}
 _CACHE_TTL = 300  # 5 minutes
 
 
+def invalidate_cache():
+    """Clear all cached report data."""
+    global _cache
+    _cache.clear()
+
+
 def _get_cached(key: str, func, *args, **kwargs):
     """Get from cache or compute and cache."""
     now = time.time()
@@ -132,18 +138,18 @@ def _get_best_selling_items_uncached(start_date: str, end_date: str, limit: int 
                 i.unit_multiplier,
                 i.unit_of_measure,
                 SUM(si.quantity) as total_sold_raw,
-                -- Revenue: for special (fractional) items, si.price is per-small-unit and si.quantity is small units
-                -- For non-special items, ensure we account per-unit by dividing by unit_size_ml when price is bulk/package price
-                SUM(CASE WHEN i.is_special_volume = 1 THEN si.quantity * si.price
-                         ELSE si.quantity * (CASE WHEN si.price = i.selling_price THEN (si.price / CASE WHEN COALESCE(i.unit_size_ml,1) = 0 THEN 1 ELSE i.unit_size_ml END) ELSE si.price END) END) as revenue,
-                SUM(CASE WHEN i.is_special_volume = 1 THEN si.quantity * (si.price - si.cost_price)
-                         ELSE si.quantity * ((CASE WHEN si.price = i.selling_price THEN (si.price / CASE WHEN COALESCE(i.unit_size_ml,1) = 0 THEN 1 ELSE i.unit_size_ml END) ELSE si.price END) - (CASE WHEN si.cost_price = i.cost_price THEN (si.cost_price / CASE WHEN COALESCE(i.unit_size_ml,1) = 0 THEN 1 ELSE i.unit_size_ml END) ELSE si.cost_price END)) END) as profit
+                -- Revenue: account for refunds by subtracting refunded quantities
+                SUM(CASE WHEN i.is_special_volume = 1 THEN (si.quantity - COALESCE(ri.quantity, 0)) * si.price
+                         ELSE (si.quantity - COALESCE(ri.quantity, 0)) * (CASE WHEN si.price = i.selling_price THEN (si.price / CASE WHEN COALESCE(i.unit_size_ml,1) = 0 THEN 1 ELSE i.unit_size_ml END) ELSE si.price END) END) as revenue,
+                SUM(CASE WHEN i.is_special_volume = 1 THEN (si.quantity - COALESCE(ri.quantity, 0)) * (si.price - si.cost_price)
+                         ELSE (si.quantity - COALESCE(ri.quantity, 0)) * ((CASE WHEN si.price = i.selling_price THEN (si.price / CASE WHEN COALESCE(i.unit_size_ml,1) = 0 THEN 1 ELSE i.unit_size_ml END) ELSE si.price END) - (CASE WHEN si.cost_price = i.cost_price THEN (si.cost_price / CASE WHEN COALESCE(i.unit_size_ml,1) = 0 THEN 1 ELSE i.unit_size_ml END) ELSE si.cost_price END)) END) as profit
             FROM sales_items si
             JOIN items i ON si.item_id = i.item_id
             JOIN sales s ON si.sale_id = s.sale_id
-            LEFT JOIN refunds r ON s.sale_id = r.original_sale_id
-            WHERE s.date BETWEEN ? AND ? AND r.refund_id IS NULL
+            LEFT JOIN refunds_items ri ON si.sale_item_id = ri.sale_item_id
+            WHERE s.date BETWEEN ? AND ?
             GROUP BY i.item_id
+            HAVING total_sold_raw > 0
             ORDER BY total_sold_raw DESC
             LIMIT ?
             """,

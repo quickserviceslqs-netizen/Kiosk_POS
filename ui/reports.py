@@ -263,59 +263,143 @@ class ReportsFrame(ttk.Frame):
             messagebox.showwarning("No Report", "Please generate a report first")
             return
         
-        # Determine if it's a tabular report (has headers like "Rank" or "Date")
-        is_tabular = "Rank" in content or "Date" in content or "Item Name" in content
+        # Determine report type from current selection
+        report_type = self.report_type.get()
+        start = self.start_date.get()
+        end = self.end_date.get()
         
-        filetypes = [("Text files", "*.txt")]
-        defaultextension = ".txt"
-        if is_tabular:
-            filetypes.insert(0, ("CSV files", "*.csv"))
-            defaultextension = ".csv"
-        filetypes.append(("All files", "*.*"))
+        filetypes = [("Text files", "*.txt"), ("CSV files", "*.csv"), ("All files", "*.*")]
         
         filename = filedialog.asksaveasfilename(
             title="Download Report",
-            defaultextension=defaultextension,
+            defaultextension=".csv",
             filetypes=filetypes,
         )
         if not filename:
             return
         
         try:
-            if filename.endswith(".csv") and is_tabular:
-                # Convert text report to CSV
-                csv_content = self._convert_to_csv(content)
-                with open(filename, 'w', newline='') as f:
+            if filename.endswith(".csv"):
+                # Generate CSV from data
+                csv_content = self._generate_csv_data(report_type, start, end)
+                with open(filename, 'w', newline='', encoding='utf-8') as f:
                     f.write(csv_content)
             else:
-                with open(filename, 'w') as f:
+                with open(filename, 'w', encoding='utf-8') as f:
                     f.write(content)
             messagebox.showinfo("Download", f"Report downloaded to {filename}")
         except Exception as exc:
             messagebox.showerror("Download Error", str(exc))
 
-    def _convert_to_csv(self, text_content: str) -> str:
-        """Convert text report to CSV format."""
-        lines = text_content.split('\n')
-        csv_lines = []
-        in_table = False
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
-            if line.startswith('=') or line.startswith('-'):
-                continue
-            if '|' in line or '\t' in line:
-                # Assume table row
-                parts = [p.strip() for p in line.replace('|', '\t').split('\t') if p.strip()]
-                csv_lines.append(','.join(f'"{p}"' for p in parts))
-                in_table = True
-            elif in_table and line:
-                # Header or data
-                parts = line.split()
-                if len(parts) > 1:
-                    csv_lines.append(','.join(f'"{p}"' for p in parts))
-        return '\n'.join(csv_lines)
+    def _generate_csv_data(self, report_type: str, start: str, end: str) -> str:
+        """Generate CSV data from report data structures."""
+        import csv
+        import io
+        
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        try:
+            if report_type == "daily":
+                sales = reports.get_daily_sales(start)
+                summary = reports.get_sales_summary(start, start)
+                refunds = reports.get_refunds(start, start)
+                
+                # Write summary
+                writer.writerow(["Daily Sales Report", start])
+                writer.writerow([])
+                writer.writerow(["Total Transactions", summary.get('total_transactions', 0) or 0])
+                writer.writerow(["Total Sales", summary.get('total_sales', 0) or 0])
+                writer.writerow(["Refunds Issued", len(refunds)])
+                writer.writerow(["Refund Amount", sum(r['refund_amount'] for r in refunds)])
+                writer.writerow(["Average Transaction", summary.get('avg_transaction', 0) or 0])
+                writer.writerow([])
+                
+                # Write sales table
+                writer.writerow(["Time", "Receipt Number", "Items", "Total"])
+                for sale in sales:
+                    receipt = sale.get('receipt_number', f"#{sale['sale_id']}")
+                    writer.writerow([sale['time'], receipt, sale['item_count'], sale['total']])
+                
+                # Write refunds
+                if refunds:
+                    writer.writerow([])
+                    writer.writerow(["Refunds"])
+                    writer.writerow(["Time", "Refund Code", "Original Receipt", "Refund Amount"])
+                    for r in refunds:
+                        receipt = r.get('receipt_number', f"#{r['original_sale_id']}")
+                        time_part = r['created_at'].split()[1] if ' ' in r['created_at'] else r['created_at']
+                        writer.writerow([time_part, r.get('refund_code',''), receipt, r['refund_amount']])
+                        
+            elif report_type == "range":
+                daily_sales = reports.get_date_range_sales(start, end)
+                summary = reports.get_sales_summary(start, end)
+                refunds = reports.get_refunds(start, end)
+                
+                writer.writerow(["Date Range Sales Report"])
+                writer.writerow([f"Period: {start} to {end}"])
+                writer.writerow([])
+                writer.writerow(["Total Transactions", summary.get('total_transactions', 0) or 0])
+                writer.writerow(["Total Sales", summary.get('total_sales', 0) or 0])
+                writer.writerow(["Refunds Issued", len(refunds)])
+                writer.writerow(["Refund Amount", sum(r['refund_amount'] for r in refunds)])
+                writer.writerow(["Average Transaction", summary.get('avg_transaction', 0) or 0])
+                writer.writerow([])
+                
+                writer.writerow(["Date", "Transactions", "Total Sales", "Average Sale"])
+                for day in daily_sales:
+                    writer.writerow([day['date'], day['transactions'], day['total_sales'], day['avg_sale']])
+                
+                if refunds:
+                    writer.writerow([])
+                    writer.writerow(["Refunds"])
+                    writer.writerow(["Date", "Refund Code", "Original Receipt", "Refund Amount"])
+                    for r in refunds:
+                        date_part = r['created_at'].split()[0] if ' ' in r['created_at'] else r['created_at']
+                        receipt = r.get('receipt_number', f"#{r['original_sale_id']}")
+                        writer.writerow([date_part, r.get('refund_code',''), receipt, r['refund_amount']])
+                        
+            elif report_type == "bestsellers":
+                items = reports.get_best_selling_items(start, end, limit=50)
+                
+                writer.writerow(["Best-Selling Items Report"])
+                writer.writerow([f"Period: {start} to {end}"])
+                writer.writerow([])
+                writer.writerow(["Rank", "Item Name", "Category", "Quantity Sold", "Revenue", "Profit"])
+                
+                for idx, item in enumerate(items, 1):
+                    cat = item.get('category') or 'N/A'
+                    qty_display = item.get('qty_display', str(item.get('total_sold', 0)))
+                    writer.writerow([idx, item['name'], cat, qty_display, item['revenue'], item.get('profit', 0) or 0])
+                    
+            elif report_type == "profit":
+                analysis = reports.get_profit_analysis(start, end)
+                
+                writer.writerow(["Profit & Loss Analysis"])
+                writer.writerow([f"Period: {start} to {end}"])
+                writer.writerow([])
+                writer.writerow(["Total Revenue", analysis.get('total_revenue', 0) or 0])
+                writer.writerow(["Cost of Goods Sold", analysis.get('total_cost', 0) or 0])
+                writer.writerow(["Gross Profit", analysis.get('gross_profit', 0) or 0])
+                writer.writerow(["Total Expenses", analysis.get('total_expenses', 0) or 0])
+                writer.writerow(["Net Profit", analysis.get('net_profit', 0) or 0])
+                writer.writerow(["Profit Margin (%)", analysis.get('profit_margin', 0) or 0])
+                
+            elif report_type == "category":
+                categories = reports.get_category_sales(start, end)
+                
+                writer.writerow(["Sales by Category Report"])
+                writer.writerow([f"Period: {start} to {end}"])
+                writer.writerow([])
+                writer.writerow(["Category", "Items Sold", "Revenue", "Transactions"])
+                
+                for cat in categories:
+                    writer.writerow([cat['category'], cat['total_quantity'], cat['total_revenue'], cat['transactions']])
+                    
+        except Exception as e:
+            writer.writerow(["Error generating CSV", str(e)])
+        
+        return output.getvalue()
 
     def _pick_start_date(self) -> None:
         """Open calendar picker for start date."""

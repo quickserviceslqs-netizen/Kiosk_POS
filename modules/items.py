@@ -9,6 +9,7 @@ from database.init_db import get_connection
 from utils.validation import sanitize_string, validate_numeric, validate_integer, validate_barcode, validate_path, ValidationError, validate_item_name, validate_item_category, validate_item_barcode, validate_item_price, validate_item_cost, validate_item_quantity, validate_item_vat_rate, validate_item_low_stock_threshold, validate_item_unit_of_measure, validate_item_package_size
 from utils.audit import audit_logger
 from utils.performance import profile_function
+from modules import reports
 
 
 # Cache for unit conversions to improve performance
@@ -238,6 +239,9 @@ def create_item(
         new_values=item_dict
     )
     
+    # Invalidate report cache after item creation
+    reports.invalidate_cache()
+    
     return item_dict
 
 
@@ -376,6 +380,9 @@ def update_item(item_id: int, **fields) -> Optional[dict]:
             old_values=old_values,
             new_values=new_values
         )
+    
+    # Invalidate report cache after item update
+    reports.invalidate_cache()
     
     return _row_to_dict(row) if row else None
 

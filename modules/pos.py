@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Iterable, List
 
 from database.init_db import get_connection
+from modules import reports
 
 
 class InsufficientStock(Exception):
@@ -181,3 +182,6 @@ def create_sale(
         except Exception:
             conn.rollback()
             raise
+        finally:
+            # Invalidate report cache after sale creation
+            reports.invalidate_cache()
