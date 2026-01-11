@@ -250,10 +250,17 @@ class PermissionManagementFrame(ttk.Frame):
 
                 # Permission checkboxes
                 for perm_key, description in group_perms:
-                    # Determine permission status
-                    if perm_key in user_specific_perms:
-                        status = "Granted (User)"
-                        bg_color = "#e8f5e8"  # Light green
+                    # Determine permission status based on effective permissions
+                    if perm_key in effective_perms:
+                        if perm_key in user_specific_perms:
+                            status = "Granted (User)"
+                            bg_color = "#e8f5e8"  # Light green
+                        elif self.selected_user.get('role') == 'admin':
+                            status = "Granted (Admin)"
+                            bg_color = "#e8f5e8"  # Light green
+                        else:
+                            status = "Granted (Role)"
+                            bg_color = "#e8f5e8"  # Light green
                         checkbox_state = True
                     elif perm_key in role_perms:
                         status = "Suggested (Role)"
@@ -299,12 +306,12 @@ class PermissionManagementFrame(ttk.Frame):
         # Get current checkbox states
         checked_permissions = set(self._get_selected_permissions())
 
-        # Get currently granted permissions
-        current_permissions = set(permissions.get_user_permissions(self.selected_user['user_id']))
+        # Get currently effective permissions (what the user actually has access to)
+        current_effective_permissions = set(permissions.get_effective_permissions(self.selected_user))
 
         # Determine what needs to be granted and revoked
-        to_grant = checked_permissions - current_permissions
-        to_revoke = current_permissions - checked_permissions
+        to_grant = checked_permissions - current_effective_permissions
+        to_revoke = current_effective_permissions - checked_permissions
 
         if not to_grant and not to_revoke:
             messagebox.showinfo("No Changes", "No permission changes detected")
