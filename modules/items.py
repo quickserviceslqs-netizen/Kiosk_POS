@@ -108,6 +108,48 @@ def create_item(
     unit_size_ml: int | None = None,
     price_per_ml: float | None = None,
 ) -> dict:
+    """Create a new inventory item.
+
+    This function creates a new item in the inventory system with comprehensive validation
+    and automatic price calculations for different item types.
+
+    Args:
+        name: Item name (required, max 100 characters)
+        category: Item category (optional, max 50 characters)
+        cost_price: Purchase cost per unit (default: 0.0)
+        selling_price: Selling price as displayed (default: 0.0)
+        quantity: Current stock quantity (default: 0)
+        image_path: Path to item image file (optional)
+        barcode: Unique barcode for the item (optional, max 50 characters)
+        vat_rate: VAT rate as percentage (default: 16.0, range: 0-100)
+        low_stock_threshold: Alert threshold for low stock (default: 10, range: 0-10000)
+        unit_of_measure: Unit type (pieces, liters, kilograms, etc.) (default: "pieces")
+        is_special_volume: Whether item supports fractional quantities (0 or 1) (default: 0)
+        unit_size_ml: Size of one package/unit in base units (optional)
+        price_per_ml: Legacy price per ml field (optional, for backward compatibility)
+
+    Returns:
+        dict: Created item data including calculated fields like price_per_ml, unit_multiplier, etc.
+
+    Raises:
+        ValueError: If validation fails or business rules are violated (e.g., selling price < cost price)
+
+    Examples:
+        # Create a simple item
+        item = create_item(name="Apple", selling_price=2.50, quantity=100)
+
+        # Create a bulk item with fractional support
+        item = create_item(
+            name="Milk",
+            category="Dairy",
+            selling_price=5.00,
+            cost_price=3.50,
+            quantity=50,
+            unit_of_measure="liters",
+            unit_size_ml=1000,
+            is_special_volume=1
+        )
+    """
     # Input validation and sanitization
     try:
         name = validate_item_name(name)
@@ -198,13 +240,44 @@ def create_item(
 
 
 def update_item(item_id: int, **fields) -> Optional[dict]:
-    if not fields:
-        return get_item(item_id)
+    """Update an existing inventory item.
 
-    allowed = {"name", "category", "cost_price", "selling_price", "quantity", "image_path", "barcode", "vat_rate", "low_stock_threshold", "unit_of_measure", "is_special_volume", "unit_size_ml", "price_per_ml", "cost_price_per_unit", "unit_multiplier", "selling_price_per_unit"}
-    updates = {k: v for k, v in fields.items() if k in allowed}
-    if not updates:
-        return get_item(item_id)
+    This function updates specified fields of an existing item with validation
+    and automatic recalculation of derived price fields.
+
+    Args:
+        item_id: The ID of the item to update
+        **fields: Keyword arguments for fields to update. Valid fields include:
+            - name: Item name (max 100 characters)
+            - category: Item category (max 50 characters)
+            - cost_price: Purchase cost per unit
+            - selling_price: Selling price
+            - quantity: Current stock quantity
+            - image_path: Path to item image
+            - barcode: Unique barcode (must not conflict with existing items)
+            - vat_rate: VAT rate as percentage (0-100)
+            - low_stock_threshold: Low stock alert threshold (0-10000)
+            - unit_of_measure: Unit type
+            - is_special_volume: Fractional quantity support flag
+            - unit_size_ml: Package size in base units
+            - price_per_ml: Price per ml (calculated automatically)
+            - cost_price_per_unit: Cost per unit (calculated automatically)
+            - unit_multiplier: Unit conversion multiplier (calculated automatically)
+            - selling_price_per_unit: Selling price per unit (calculated automatically)
+
+    Returns:
+        dict: Updated item data, or None if item doesn't exist
+
+    Raises:
+        ValueError: If validation fails or business rules are violated
+
+    Examples:
+        # Update item name and price
+        updated = update_item(123, name="New Name", selling_price=15.99)
+
+        # Update stock quantity
+        updated = update_item(123, quantity=50)
+    """
 
     # Validation
     if "name" in updates:
@@ -305,6 +378,16 @@ def update_item(item_id: int, **fields) -> Optional[dict]:
 
 
 def delete_item(item_id: int) -> None:
+    """Delete an item from inventory.
+
+    This permanently removes an item from the database. Use with caution.
+
+    Args:
+        item_id: The ID of the item to delete
+
+    Examples:
+        delete_item(123)  # Permanently removes item with ID 123
+    """
     # Get item details before deletion for audit logging
     item = get_item(item_id)
     
@@ -323,6 +406,19 @@ def delete_item(item_id: int) -> None:
 
 
 def get_item(item_id: int) -> Optional[dict]:
+    """Retrieve a single item by ID.
+
+    Args:
+        item_id: The ID of the item to retrieve
+
+    Returns:
+        dict: Item data if found, None otherwise
+
+    Examples:
+        item = get_item(123)
+        if item:
+            print(f"Item: {item['name']}")
+    """
     with get_connection() as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute("SELECT * FROM items WHERE item_id = ?", (item_id,)).fetchone()
