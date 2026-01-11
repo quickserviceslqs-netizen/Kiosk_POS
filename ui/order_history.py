@@ -5,10 +5,28 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from datetime import datetime, timedelta
 import tkcalendar
+import logging
+import os
 
 from modules import receipts, refunds
 from utils import set_window_icon
 from utils.security import get_currency_code
+
+
+# Setup audit logging
+AUDIT_LOG_FILE = os.path.join(os.path.dirname(__file__), '..', 'logs', 'order_history_audit.log')
+os.makedirs(os.path.dirname(AUDIT_LOG_FILE), exist_ok=True)
+
+audit_logger = logging.getLogger('order_history_audit')
+audit_logger.setLevel(logging.INFO)
+handler = logging.FileHandler(AUDIT_LOG_FILE)
+handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+audit_logger.addHandler(handler)
+
+
+def log_audit_action(action: str, sale_id: int, user: str = "Unknown", details: str = "") -> None:
+    """Log an audit action for order history operations."""
+    audit_logger.info(f"ACTION={action}, SALE_ID={sale_id}, USER={user}, DETAILS={details}")
 
 
 class OrderHistoryFrame(ttk.Frame):
@@ -19,6 +37,8 @@ class OrderHistoryFrame(ttk.Frame):
         self.on_home = on_home
         self.tree = None
         self._build_ui()
+        # Populate dynamic filter lists
+        self._load_filter_lists()
         self.refresh()
     
     def _build_ui(self):
@@ -49,6 +69,26 @@ class OrderHistoryFrame(ttk.Frame):
         ttk.Label(filter_frame, text="Search Receipt #:").pack(side=tk.LEFT, padx=(8, 4))
         self.search_term = tk.StringVar()
         ttk.Entry(filter_frame, textvariable=self.search_term, width=12).pack(side=tk.LEFT, padx=2)
+                # Advanced filters: Payment method, Refund status, User (cashier), Customer
+        self.payment_method_var = tk.StringVar(value="Any")
+        ttk.Label(filter_frame, text="Payment:").pack(side=tk.LEFT, padx=(8, 2))
+        self.payment_method_cb = ttk.Combobox(filter_frame, textvariable=self.payment_method_var, values=["Any", "Cash", "Card"], width=10, state='readonly')
+        self.payment_method_cb.pack(side=tk.LEFT, padx=2)
+        
+        self.refund_status_var = tk.StringVar(value="Any")
+        ttk.Label(filter_frame, text="Refund:").pack(side=tk.LEFT, padx=(8, 2))
+        self.refund_status_cb = ttk.Combobox(filter_frame, textvariable=self.refund_status_var, values=["Any", "Not Refunded", "Partially Refunded", "Fully Refunded"], width=15, state='readonly')
+        self.refund_status_cb.pack(side=tk.LEFT, padx=2)
+        
+        self.user_var = tk.StringVar(value="Any")
+        ttk.Label(filter_frame, text="Cashier:").pack(side=tk.LEFT, padx=(8, 2))
+        self.user_cb = ttk.Combobox(filter_frame, textvariable=self.user_var, values=["Any"], width=12)
+        self.user_cb.pack(side=tk.LEFT, padx=2)
+        
+        self.customer_var = tk.StringVar(value="Any")
+        ttk.Label(filter_frame, text="Customer:").pack(side=tk.LEFT, padx=(8, 2))
+        self.customer_cb = ttk.Combobox(filter_frame, textvariable=self.customer_var, values=["Any"], width=12)
+        self.customer_cb.pack(side=tk.LEFT, padx=2)
         
         ttk.Button(filter_frame, text="🔍 Filter", command=self._filter_orders).pack(side=tk.LEFT, padx=4)
         ttk.Button(filter_frame, text="Clear", command=self._clear_filter).pack(side=tk.LEFT, padx=2)
@@ -59,14 +99,18 @@ class OrderHistoryFrame(ttk.Frame):
         ttk.Button(button_frame, text="📄 View Receipt", command=self._view_receipt, width=15).pack(side=tk.LEFT, padx=4)
         ttk.Button(button_frame, text="🖨️ Print Receipt", command=self._print_receipt, width=15).pack(side=tk.LEFT, padx=4)
         ttk.Button(button_frame, text="💰 Refund", command=self._refund_order, width=15).pack(side=tk.LEFT, padx=4)
-        ttk.Button(button_frame, text="💾 Export", command=self._export_receipt, width=15).pack(side=tk.LEFT, padx=4)
+        ttk.Button(button_frame, text="💾 Export Receipt", command=self._export_receipt, width=15).pack(side=tk.LEFT, padx=4)
+        ttk.Button(button_frame, text="📊 Export All", command=self._export_all_orders, width=15).pack(side=tk.LEFT, padx=4)
+        ttk.Button(button_frame, text="📋 Order Details", command=self._view_order_details, width=15).pack(side=tk.LEFT, padx=4)
         
-        # Order list table
-        columns = ("sale_id", "date", "time", "total", "payment_method", "refunded")
+        # Order list table (include customer and cashier columns)
+        columns = ("sale_id", "date", "time", "customer", "user", "total", "payment_method", "refunded")
         self.tree = ttk.Treeview(self, columns=columns, show="headings", height=25)
         self.tree.heading("sale_id", text="Receipt #")
         self.tree.heading("date", text="Date")
         self.tree.heading("time", text="Time")
+        self.tree.heading("customer", text="Customer")
+        self.tree.heading("user", text="Cashier")
         self.tree.heading("total", text="Total")
         self.tree.heading("payment_method", text="Payment Method")
         self.tree.heading("refunded", text="Status")
@@ -74,6 +118,8 @@ class OrderHistoryFrame(ttk.Frame):
         self.tree.column("sale_id", width=80, minwidth=60, anchor=tk.CENTER)
         self.tree.column("date", width=100, minwidth=80)
         self.tree.column("time", width=80, minwidth=70)
+        self.tree.column("customer", width=140, minwidth=100)
+        self.tree.column("user", width=100, minwidth=80)
         self.tree.column("total", width=100, minwidth=80, anchor=tk.E)
         self.tree.column("payment_method", width=120, minwidth=100)
         self.tree.column("refunded", width=80, minwidth=70, anchor=tk.CENTER)
@@ -95,6 +141,8 @@ class OrderHistoryFrame(ttk.Frame):
     
     def refresh(self) -> None:
         """Refresh the order list."""
+        # Refresh available filter lists (users/customers may change)
+        self._load_filter_lists()
         self._filter_orders()
     
     def _filter_orders(self) -> None:
@@ -108,18 +156,43 @@ class OrderHistoryFrame(ttk.Frame):
         start = self.start_date.get().strip() or None
         end = self.end_date.get().strip() or None
         search = self.search_term.get().strip() or None
+        payment_filter = self.payment_method_var.get() if hasattr(self, 'payment_method_var') else 'Any'
+        refund_filter = self.refund_status_var.get() if hasattr(self, 'refund_status_var') else 'Any'
+        user_filter = self.user_var.get() if hasattr(self, 'user_var') else 'Any'
+        customer_filter = self.customer_var.get() if hasattr(self, 'customer_var') else 'Any'
         
         sales = receipts.list_sales_with_search(start, end, search, limit=500)
         
         total = 0.0
+        displayed = 0
         for sale in sales:
             sid = sale["sale_id"]
+            # Determine refund status
             if refunds.is_sale_fully_refunded(sid):
-                refund_status = "✓ Refunded"
+                refund_status = "Fully Refunded"
             elif refunds.get_refunded_quantities_for_sale(sid):
                 refund_status = "Partially Refunded"
             else:
-                refund_status = "Paid"
+                refund_status = "Not Refunded"
+            
+            # Apply payment method filter
+            if payment_filter and payment_filter != 'Any' and sale.get('payment_method') != payment_filter:
+                continue
+            # Apply refund filter
+            if refund_filter and refund_filter != 'Any':
+                if refund_filter == 'Not Refunded' and refund_status != 'Not Refunded':
+                    continue
+                if refund_filter == 'Fully Refunded' and refund_status != 'Fully Refunded':
+                    continue
+                if refund_filter == 'Partially Refunded' and refund_status != 'Partially Refunded':
+                    continue
+            # Apply user filter
+            if user_filter and user_filter != 'Any' and sale.get('username') != user_filter:
+                continue
+            # Apply customer filter
+            if customer_filter and customer_filter != 'Any' and sale.get('customer_name') != customer_filter:
+                continue
+            
             receipt_num = sale.get("receipt_number", f"#{sale['sale_id']}")
             self.tree.insert(
                 "",
@@ -129,23 +202,63 @@ class OrderHistoryFrame(ttk.Frame):
                     receipt_num,
                     sale["date"],
                     sale["time"],
+                    sale.get("customer_name", ""),
+                    sale.get("username", ""),
                     f"{currency} {sale['total']:.2f}",
                     sale.get("payment_method", "Cash"),
-                    refund_status
+                    ("✓ Refunded" if refund_status == 'Fully Refunded' else ("Partially Refunded" if refund_status == 'Partially Refunded' else "Paid"))
                 ),
-                tags=("refunded",) if refund_status.startswith("✓") else ()
+                tags=("refunded",) if refund_status == 'Fully Refunded' else ()
             )
             total += sale["total"]
+            displayed += 1
         
         self.tree.tag_configure("refunded", background="#FFE5E5")
-        self.count_label.config(text=f"Orders: {len(sales)}")
+        self.count_label.config(text=f"Orders: {displayed}")
         self.total_label.config(text=f"Total: {currency} {total:.2f}")
+    
+    def _load_filter_lists(self) -> None:
+        """Load dynamic filter lists for users and customers."""
+        try:
+            from database.init_db import get_connection
+            
+            with get_connection() as conn:
+                # Load users (cashiers)
+                users = conn.execute("SELECT username FROM users WHERE active = 1 ORDER BY username").fetchall()
+                user_list = ["Any"] + [row[0] for row in users]
+                if hasattr(self, 'user_cb'):
+                    self.user_cb['values'] = user_list
+                    if self.user_var.get() not in user_list:
+                        self.user_var.set("Any")
+                
+                # Load customers
+                customers = conn.execute("SELECT name FROM customers ORDER BY name").fetchall()
+                customer_list = ["Any"] + [row[0] for row in customers]
+                if hasattr(self, 'customer_cb'):
+                    self.customer_cb['values'] = customer_list
+                    if self.customer_var.get() not in customer_list:
+                        self.customer_var.set("Any")
+                        
+        except Exception as e:
+            # If loading fails, just use "Any" as fallback
+            if hasattr(self, 'user_cb'):
+                self.user_cb['values'] = ["Any"]
+            if hasattr(self, 'customer_cb'):
+                self.customer_cb['values'] = ["Any"]
     
     def _clear_filter(self) -> None:
         """Clear all filters."""
         self.start_date.set((datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d"))
         self.end_date.set(datetime.now().strftime("%Y-%m-%d"))
         self.search_term.set("")
+        if hasattr(self, 'payment_method_var'):
+            self.payment_method_var.set("Any")
+        if hasattr(self, 'refund_status_var'):
+            self.refund_status_var.set("Any")
+        if hasattr(self, 'user_var'):
+            self.user_var.set("Any")
+        if hasattr(self, 'customer_var'):
+            self.customer_var.set("Any")
         self._filter_orders()
     
     def _selected_sale_id(self) -> int | None:
@@ -230,32 +343,262 @@ class OrderHistoryFrame(ttk.Frame):
         except Exception as e:
             messagebox.showerror("Error", f"Failed to print: {e}")
     
-    def _export_receipt(self) -> None:
-        """Export receipt as text file."""
+    def _export_all_orders(self) -> None:
+        """Export all filtered orders to CSV with detailed line items."""
+        try:
+            # Get current filters
+            start = self.start_date.get().strip() or None
+            end = self.end_date.get().strip() or None
+            search = self.search_term.get().strip() or None
+            payment_filter = self.payment_method_var.get() if hasattr(self, 'payment_method_var') else 'Any'
+            refund_filter = self.refund_status_var.get() if hasattr(self, 'refund_status_var') else 'Any'
+            user_filter = self.user_var.get() if hasattr(self, 'user_var') else 'Any'
+            customer_filter = self.customer_var.get() if hasattr(self, 'customer_var') else 'Any'
+            
+            # Get filtered sales
+            sales = receipts.list_sales_with_search(start, end, search, limit=10000)  # Higher limit for export
+            
+            # Apply additional filters
+            filtered_sales = []
+            for sale in sales:
+                sid = sale["sale_id"]
+                # Determine refund status
+                if refunds.is_sale_fully_refunded(sid):
+                    refund_status = "Fully Refunded"
+                elif refunds.get_refunded_quantities_for_sale(sid):
+                    refund_status = "Partially Refunded"
+                else:
+                    refund_status = "Not Refunded"
+                
+                # Apply filters
+                if payment_filter and payment_filter != 'Any' and sale.get('payment_method') != payment_filter:
+                    continue
+                if refund_filter and refund_filter != 'Any':
+                    if refund_filter == 'Not Refunded' and refund_status != 'Not Refunded':
+                        continue
+                    if refund_filter == 'Fully Refunded' and refund_status != 'Fully Refunded':
+                        continue
+                    if refund_filter == 'Partially Refunded' and refund_status != 'Partially Refunded':
+                        continue
+                if user_filter and user_filter != 'Any' and sale.get('username') != user_filter:
+                    continue
+                if customer_filter and customer_filter != 'Any' and sale.get('customer_name') != customer_filter:
+                    continue
+                
+                filtered_sales.append((sale, refund_status))
+            
+            if not filtered_sales:
+                messagebox.showinfo("No Data", "No orders match the current filters")
+                return
+            
+            # Ask for save location
+            filename = filedialog.asksaveasfilename(
+                title="Export All Orders",
+                defaultextension=".csv",
+                filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+                initialfile=f"orders_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+            )
+            if not filename:
+                return
+            
+            # Generate CSV
+            import csv
+            with open(filename, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                
+                # Header
+                writer.writerow([
+                    "Receipt Number", "Date", "Time", "Customer", "Cashier", 
+                    "Item Name", "Category", "Quantity", "Unit Price", "Line Total",
+                    "Payment Method", "Refund Status", "Order Total", "Subtotal", "VAT", "Discount"
+                ])
+                
+                # Write each sale's line items
+                for sale, refund_status in filtered_sales:
+                    # Get full sale details with items
+                    sale_details = receipts.get_sale_with_items(sale["sale_id"])
+                    if not sale_details:
+                        continue
+                    
+                    receipt_num = sale.get("receipt_number", f"#{sale['sale_id']}")
+                    
+                    # Write each line item
+                    for item in sale_details["items"]:
+                        writer.writerow([
+                            receipt_num,
+                            sale_details["date"],
+                            sale_details["time"],
+                            sale.get("customer_name", ""),
+                            sale.get("username", ""),
+                            item.get("name", "Unknown"),
+                            item.get("category", ""),
+                            item["quantity"],
+                            item["price"],
+                            item["price"] * item["quantity"],
+                            sale_details.get("payment_method", "Cash"),
+                            refund_status,
+                            sale_details["total"],
+                            sale_details.get("subtotal", 0),
+                            sale_details.get("vat_amount", 0),
+                            sale_details.get("discount_amount", 0)
+                        ])
+            
+            messagebox.showinfo("Exported", f"Exported {len(filtered_sales)} orders to {filename}")
+            
+            # Log the bulk export action
+            current_user = getattr(self.master, 'current_user', {}).get('username', 'Unknown')
+            log_audit_action("EXPORT_BULK", 0, current_user, f"Orders: {len(filtered_sales)}, File: {filename}, Filters: payment={payment_filter}, refund={refund_filter}, user={user_filter}, customer={customer_filter}")
+            
+        except Exception as e:
+            messagebox.showerror("Export Error", f"Failed to export orders: {e}")
+    
+    def _view_order_details(self) -> None:
+        """Show detailed order information in a popup dialog."""
         try:
             sale_id = self._selected_sale_id()
             if not sale_id:
                 return
             
-            receipt_text = receipts.get_receipt_by_id(sale_id)
-            if not receipt_text:
-                messagebox.showerror("Error", "Receipt not found")
+            # Get full sale details
+            sale_data = receipts.get_sale_with_items(sale_id)
+            if not sale_data:
+                messagebox.showerror("Error", "Order not found")
                 return
             
-            filename = filedialog.asksaveasfilename(
-                title="Save Receipt",
-                defaultextension=".txt",
-                filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
-                initialfile=f"Receipt_{sale_id}.txt"
-            )
-            if not filename:
-                return
+            # Create popup window
+            popup = tk.Toplevel(self)
+            popup.withdraw()  # Hide until fully built
+            popup.title(f"Order Details - {sale_data.get('receipt_number', f'#{sale_id}')}")
+            set_window_icon(popup)
+            popup.transient(self.winfo_toplevel())
+            popup.columnconfigure(0, weight=1)
+            popup.rowconfigure(1, weight=1)
             
-            with open(filename, 'w') as f:
-                f.write(receipt_text)
-            messagebox.showinfo("Exported", f"Receipt saved to {filename}")
+            currency = get_currency_code()
+            
+            # Header frame
+            header_frame = ttk.Frame(popup, padding=10)
+            header_frame.grid(row=0, column=0, sticky=tk.EW)
+            
+            ttk.Label(header_frame, text=f"Order #{sale_data.get('receipt_number', sale_id)}", 
+                     font=("Segoe UI", 14, "bold")).grid(row=0, column=0, columnspan=4, sticky=tk.W, pady=(0, 10))
+            
+            # Order info
+            ttk.Label(header_frame, text="Date:").grid(row=1, column=0, sticky=tk.W)
+            ttk.Label(header_frame, text=f"{sale_data['date']} {sale_data['time']}").grid(row=1, column=1, sticky=tk.W, padx=(10, 20))
+            
+            ttk.Label(header_frame, text="Customer:").grid(row=1, column=2, sticky=tk.W)
+            ttk.Label(header_frame, text=sale_data.get('customer_name', 'Walk-in')).grid(row=1, column=3, sticky=tk.W, padx=(10, 0))
+            
+            ttk.Label(header_frame, text="Cashier:").grid(row=2, column=0, sticky=tk.W)
+            ttk.Label(header_frame, text=sale_data.get('username', 'Unknown')).grid(row=2, column=1, sticky=tk.W, padx=(10, 20))
+            
+            ttk.Label(header_frame, text="Payment:").grid(row=2, column=2, sticky=tk.W)
+            ttk.Label(header_frame, text=sale_data.get('payment_method', 'Cash')).grid(row=2, column=3, sticky=tk.W, padx=(10, 0))
+            
+            # Items frame
+            items_frame = ttk.Frame(popup, padding=10)
+            items_frame.grid(row=1, column=0, sticky=tk.NSEW, padx=10, pady=(0, 10))
+            items_frame.columnconfigure(0, weight=1)
+            items_frame.rowconfigure(0, weight=1)
+            
+            ttk.Label(items_frame, text="Items:", font=("Segoe UI", 11, "bold")).grid(row=0, column=0, sticky=tk.W, pady=(0, 5))
+            
+            # Items treeview
+            columns = ("item", "qty", "price", "total")
+            items_tree = ttk.Treeview(items_frame, columns=columns, show="headings", height=8)
+            items_tree.heading("item", text="Item")
+            items_tree.heading("qty", text="Quantity")
+            items_tree.heading("price", text="Unit Price")
+            items_tree.heading("total", text="Total")
+            
+            items_tree.column("item", width=200, minwidth=150)
+            items_tree.column("qty", width=80, minwidth=60, anchor=tk.CENTER)
+            items_tree.column("price", width=100, minwidth=80, anchor=tk.E)
+            items_tree.column("total", width=100, minwidth=80, anchor=tk.E)
+            
+            items_tree.grid(row=1, column=0, sticky=tk.NSEW)
+            
+            # Scrollbar for items
+            items_scroll = ttk.Scrollbar(items_frame, orient=tk.VERTICAL, command=items_tree.yview)
+            items_scroll.grid(row=1, column=1, sticky=tk.NS)
+            items_tree.configure(yscrollcommand=items_scroll.set)
+            
+            # Populate items
+            for item in sale_data["items"]:
+                item_name = item.get("name", "Unknown")
+                qty = item["quantity"]
+                price = item["price"]
+                total = price * qty
+                
+                items_tree.insert("", tk.END, values=(
+                    item_name,
+                    f"{qty:.2f}",
+                    f"{currency} {price:.2f}",
+                    f"{currency} {total:.2f}"
+                ))
+            
+            # Summary frame
+            summary_frame = ttk.Frame(popup, padding=10)
+            summary_frame.grid(row=2, column=0, sticky=tk.EW)
+            
+            ttk.Label(summary_frame, text="Order Summary:", font=("Segoe UI", 11, "bold")).grid(row=0, column=0, columnspan=2, sticky=tk.W, pady=(0, 10))
+            
+            # Summary details
+            subtotal = sale_data.get("subtotal", sum(item["price"] * item["quantity"] for item in sale_data["items"]))
+            vat_amount = sale_data.get("vat_amount", 0)
+            discount_amount = sale_data.get("discount_amount", 0)
+            total = sale_data["total"]
+            
+            ttk.Label(summary_frame, text="Subtotal:").grid(row=1, column=0, sticky=tk.W)
+            ttk.Label(summary_frame, text=f"{currency} {subtotal:.2f}").grid(row=1, column=1, sticky=tk.E, padx=(10, 0))
+            
+            if vat_amount > 0:
+                ttk.Label(summary_frame, text="VAT:").grid(row=2, column=0, sticky=tk.W)
+                ttk.Label(summary_frame, text=f"{currency} {vat_amount:.2f}").grid(row=2, column=1, sticky=tk.E, padx=(10, 0))
+            
+            if discount_amount > 0:
+                ttk.Label(summary_frame, text="Discount:").grid(row=3, column=0, sticky=tk.W)
+                ttk.Label(summary_frame, text=f"{currency} {discount_amount:.2f}").grid(row=3, column=1, sticky=tk.E, padx=(10, 0))
+            
+            ttk.Label(summary_frame, text="Total:", font=("Segoe UI", 10, "bold")).grid(row=4, column=0, sticky=tk.W, pady=(10, 0))
+            ttk.Label(summary_frame, text=f"{currency} {total:.2f}", font=("Segoe UI", 10, "bold")).grid(row=4, column=1, sticky=tk.E, padx=(10, 0), pady=(10, 0))
+            
+            # Payment info
+            ttk.Label(summary_frame, text="Amount Paid:").grid(row=5, column=0, sticky=tk.W)
+            ttk.Label(summary_frame, text=f"{currency} {sale_data.get('payment_received', total):.2f}").grid(row=5, column=1, sticky=tk.E, padx=(10, 0))
+            
+            change = sale_data.get("change", 0)
+            if change > 0:
+                ttk.Label(summary_frame, text="Change:").grid(row=6, column=0, sticky=tk.W)
+                ttk.Label(summary_frame, text=f"{currency} {change:.2f}").grid(row=6, column=1, sticky=tk.E, padx=(10, 0))
+            
+            # Refund status
+            sid = sale_data["sale_id"]
+            if refunds.is_sale_fully_refunded(sid):
+                refund_status = "Fully Refunded"
+                status_color = "red"
+            elif refunds.get_refunded_quantities_for_sale(sid):
+                refund_status = "Partially Refunded"
+                status_color = "orange"
+            else:
+                refund_status = "Not Refunded"
+                status_color = "green"
+            
+            ttk.Label(summary_frame, text="Status:").grid(row=7, column=0, sticky=tk.W, pady=(10, 0))
+            status_label = ttk.Label(summary_frame, text=refund_status, foreground=status_color)
+            status_label.grid(row=7, column=1, sticky=tk.E, padx=(10, 0), pady=(10, 0))
+            
+            # Close button
+            ttk.Button(popup, text="Close", command=popup.destroy).grid(row=3, column=0, pady=10)
+            
+            # Set geometry and show
+            popup.update_idletasks()
+            popup.geometry("700x600")
+            popup.deiconify()
+            
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to export: {e}")
+            messagebox.showerror("Error", f"Failed to view order details: {e}")
     
     def _refund_order(self) -> None:
         """Process a refund for selected order."""
@@ -441,6 +784,11 @@ class OrderHistoryFrame(ttk.Frame):
                     reason = reason_var.get() or "Customer Request"
                     refund_record = refunds.create_refund(sale_id, selected_items, reason, refund_amount)
                     messagebox.showinfo("Refund Processed", f"Refund of {currency} {refund_record['refund_amount']:.2f} processed successfully")
+                    
+                    # Log the refund action
+                    current_user = getattr(self.master, 'current_user', {}).get('username', 'Unknown')
+                    log_audit_action("REFUND", sale_id, current_user, f"Amount: {currency} {refund_record['refund_amount']:.2f}, Reason: {reason}")
+                    
                     dialog.destroy()
                     self._filter_orders()
                 except refunds.RefundError as e:
@@ -457,3 +805,35 @@ class OrderHistoryFrame(ttk.Frame):
             dialog.deiconify()  # Show after fully built
         except Exception as e:
             messagebox.showerror("Error", f"Failed to process refund: {e}")
+    
+    def _export_receipt(self) -> None:
+        """Export receipt as text file."""
+        try:
+            sale_id = self._selected_sale_id()
+            if not sale_id:
+                return
+            
+            receipt_text = receipts.get_receipt_by_id(sale_id)
+            if not receipt_text:
+                messagebox.showerror("Error", "Receipt not found")
+                return
+            
+            filename = filedialog.asksaveasfilename(
+                title="Save Receipt",
+                defaultextension=".txt",
+                filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
+                initialfile=f"Receipt_{sale_id}.txt"
+            )
+            if not filename:
+                return
+            
+            with open(filename, 'w') as f:
+                f.write(receipt_text)
+            messagebox.showinfo("Exported", f"Receipt saved to {filename}")
+            
+            # Log the export action
+            current_user = getattr(self.master, 'current_user', {}).get('username', 'Unknown')
+            log_audit_action("EXPORT_RECEIPT", sale_id, current_user, f"File: {filename}")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to export: {e}")

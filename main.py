@@ -266,10 +266,11 @@ def _show_settings_menu(root: tk.Tk, user: dict) -> None:
         buttons = [
             ("👤 User Management", lambda: show_user_mgmt(root)),
             ("📊 VAT Settings", lambda: show_vat_settings(root)),
-            ("� Units of Measure", lambda: show_uom_settings(root)),
-            ("�📧 Email Notifications", lambda: show_email_settings(root)),
-            ("� System Info", lambda: show_system_info(root)),
-            ("�🔑 Change Password", lambda: show_change_password(root, user)),
+            ("⚖️ Units of Measure", lambda: show_uom_settings(root)),
+            ("📧 Email Notifications", lambda: show_email_settings(root)),
+            ("🔧 System Info", lambda: show_system_info(root)),
+            ("📋 Audit Logs", lambda: show_audit_logs(root)),
+            ("🔑 Change Password", lambda: show_change_password(root, user)),
             ("💱 Currency Settings", lambda: show_currency_settings(root)),
         ]
         for idx, (label, cmd) in enumerate(buttons):
@@ -293,6 +294,18 @@ def show_system_info(root: tk.Tk) -> None:
     shell = _ensure_shell(root)
     if shell and frame:
         _activate_settings_subpage(shell, "system_info")
+        _set_back_button(shell, root)
+
+
+def show_audit_logs(root: tk.Tk) -> None:
+    if not _require_admin(root):
+        return
+    from ui.audit_logs import AuditLogsFrame
+
+    frame = _render(root, title="Audit Logs", subtitle="System activity and user actions", builder=lambda parent: AuditLogsFrame(parent))
+    shell = _ensure_shell(root)
+    if shell and frame:
+        _activate_settings_subpage(shell, "audit_logs")
         _set_back_button(shell, root)
 
 

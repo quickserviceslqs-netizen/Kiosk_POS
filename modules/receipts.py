@@ -11,8 +11,28 @@ def get_sale_with_items(sale_id: int) -> dict | None:
     with get_connection() as conn:
         conn.row_factory = sqlite3.Row
         
-        # Get sale header
-        sale = conn.execute("SELECT * FROM sales WHERE sale_id = ?", (sale_id,)).fetchone()
+        # Check if customers table exists
+        tables = [row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+        has_customers = 'customers' in tables
+        
+        # Get sale header with user and customer info
+        if has_customers:
+            sale = conn.execute(
+                "SELECT s.*, u.username AS username, c.name AS customer_name, c.phone AS customer_phone, c.email AS customer_email "
+                "FROM sales s "
+                "LEFT JOIN users u ON s.user_id = u.user_id "
+                "LEFT JOIN customers c ON s.customer_id = c.customer_id "
+                "WHERE s.sale_id = ?",
+                (sale_id,)
+            ).fetchone()
+        else:
+            sale = conn.execute(
+                "SELECT s.*, u.username AS username, NULL AS customer_name, NULL AS customer_phone, NULL AS customer_email "
+                "FROM sales s "
+                "LEFT JOIN users u ON s.user_id = u.user_id "
+                "WHERE s.sale_id = ?",
+                (sale_id,)
+            ).fetchone()
         if not sale:
             return None
         
@@ -42,6 +62,11 @@ def get_sale_with_items(sale_id: int) -> dict | None:
             "change": sale_dict.get("change", 0),
             "payment_method": sale_dict.get("payment_method", "Cash"),
             "user_id": sale_dict.get("user_id"),
+            "username": sale_dict.get("username"),
+            "customer_id": sale_dict.get("customer_id"),
+            "customer_name": sale_dict.get("customer_name"),
+            "customer_phone": sale_dict.get("customer_phone"),
+            "customer_email": sale_dict.get("customer_email"),
             "items": [dict(item) for item in items],
         }
 
@@ -143,28 +168,51 @@ def list_sales_with_search(
     with get_connection() as conn:
         conn.row_factory = sqlite3.Row
         
-        query = "SELECT * FROM sales WHERE 1=1"
+        # Check if customers table exists
+        tables = [row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+        has_customers = 'customers' in tables
+        
+        # Select sales with user and customer info for easier display
+        if has_customers:
+            query = (
+                "SELECT s.*, u.username AS username, c.name AS customer_name "
+                "FROM sales s "
+                "LEFT JOIN users u ON s.user_id = u.user_id "
+                "LEFT JOIN customers c ON s.customer_id = c.customer_id "
+                "WHERE 1=1"
+            )
+        else:
+            query = (
+                "SELECT s.*, u.username AS username, NULL AS customer_name "
+                "FROM sales s "
+                "LEFT JOIN users u ON s.user_id = u.user_id "
+                "WHERE 1=1"
+            )
         params = []
         
         if start_date:
-            query += " AND date >= ?"
+            query += " AND s.date >= ?"
             params.append(start_date)
         if end_date:
-            query += " AND date <= ?"
+            query += " AND s.date <= ?"
             params.append(end_date)
         
-        # Search by sale_id, receipt_number, or user_id
+        # Search by sale_id, receipt_number, username, or customer name
         if search_term:
             try:
                 search_id = int(search_term)
-                query += " AND (sale_id = ? OR user_id = ?)"
+                query += " AND (s.sale_id = ? OR s.user_id = ?)"
                 params.extend([search_id, search_id])
             except ValueError:
-                # Try searching by receipt_number (case-insensitive)
-                query += " AND UPPER(receipt_number) LIKE UPPER(?)"
-                params.append(f"%{search_term}%")
+                # Try searching by receipt_number or username or customer name (case-insensitive)
+                if has_customers:
+                    query += " AND (UPPER(s.receipt_number) LIKE UPPER(?) OR UPPER(u.username) LIKE UPPER(?) OR UPPER(c.name) LIKE UPPER(?))"
+                    params.extend([f"%{search_term}%"] * 3)
+                else:
+                    query += " AND (UPPER(s.receipt_number) LIKE UPPER(?) OR UPPER(u.username) LIKE UPPER(?))"
+                    params.extend([f"%{search_term}%"] * 2)
         
-        query += " ORDER BY date DESC, time DESC LIMIT ?"
+        query += " ORDER BY s.date DESC, s.time DESC LIMIT ?"
         params.append(limit)
         
         rows = conn.execute(query, params).fetchall()

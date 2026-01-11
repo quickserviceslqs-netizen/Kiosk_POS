@@ -433,6 +433,10 @@ def _ensure_sales_columns(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE sales ADD COLUMN vat_amount REAL DEFAULT 0")
     if "discount_amount" not in existing:
         conn.execute("ALTER TABLE sales ADD COLUMN discount_amount REAL DEFAULT 0")
+    # Add user tracking column if missing (who processed the sale)
+    if "user_id" not in existing:
+        conn.execute("ALTER TABLE sales ADD COLUMN user_id INTEGER")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_sales_user_id ON sales(user_id)")
     conn.commit()
 
 

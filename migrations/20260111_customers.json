@@ -1,0 +1,6 @@
+{
+  "id": "20260111_customers",
+  "name": "Add customers table and customer_id to sales",
+  "up_sql": "CREATE TABLE IF NOT EXISTS customers (\n    customer_id INTEGER PRIMARY KEY AUTOINCREMENT,\n    name TEXT NOT NULL,\n    phone TEXT,\n    email TEXT,\n    address TEXT,\n    created_at TEXT DEFAULT CURRENT_TIMESTAMP\n);\n\n-- Add customer_id to sales if it doesn't exist\nPRAGMA foreign_keys=OFF;\nBEGIN TRANSACTION;\n-- SQLite does not support conditional ALTER TABLE ADD COLUMN, but adding the column will be ignored if it exists\nALTER TABLE sales ADD COLUMN customer_id INTEGER REFERENCES customers(customer_id);\nCOMMIT;\nPRAGMA foreign_keys=ON;",
+  "down_sql": "DROP TABLE IF EXISTS customers;"
+}

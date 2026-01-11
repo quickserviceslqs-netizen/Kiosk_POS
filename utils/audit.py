@@ -31,13 +31,28 @@ class AuditLogger:
     """Audit logger for tracking system activities."""
 
     def __init__(self):
-        self._ensure_table()
+        self._table_created = False
 
     def _ensure_table(self):
         """Ensure audit table exists."""
-        with get_connection() as conn:
-            conn.execute(AUDIT_TABLE)
-            conn.commit()
+        if self._table_created:
+            return
+
+        try:
+            with get_connection() as conn:
+                conn.execute(AUDIT_TABLE)
+                conn.commit()
+                self._table_created = True
+        except Exception as e:
+            # If table creation fails, log but don't crash
+            print(f"Warning: Could not create audit table: {e}")
+            # Try to check if table exists anyway
+            try:
+                with get_connection() as conn:
+                    conn.execute("SELECT 1 FROM audit_log LIMIT 1")
+                    self._table_created = True
+            except:
+                pass
 
     def log_action(self,
                    action: str,
@@ -66,6 +81,7 @@ class AuditLogger:
             session_id: Session identifier
         """
         try:
+            self._ensure_table()
             with get_connection() as conn:
                 conn.execute(
                     """
@@ -120,6 +136,7 @@ class AuditLogger:
                        limit: int = 100,
                        offset: int = 0) -> list[Dict[str, Any]]:
         """Retrieve audit trail entries with optional filtering."""
+        self._ensure_table()
         query = "SELECT * FROM audit_log WHERE 1=1"
         params = []
 
@@ -156,6 +173,7 @@ class AuditLogger:
 
     def cleanup_old_entries(self, days_to_keep: int = 365) -> int:
         """Remove audit entries older than specified days. Returns number of deleted entries."""
+        self._ensure_table()
         cutoff_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         cutoff_date = cutoff_date.replace(day=cutoff_date.day - days_to_keep)
 
