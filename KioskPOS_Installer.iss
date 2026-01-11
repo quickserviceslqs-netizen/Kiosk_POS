@@ -8,19 +8,10 @@
 ;   cd C:\path\to\Kiosk_POS
 ;   ISCC KioskPOS_Installer.iss
 ;
-; Or use the provided build_installer.bat file
+; Or use the provided build_installer.bat file (RECOMMENDED)
+;   build_installer.bat
 ;
-; If you get "source file does not exist" errors, you are NOT in the correct directory!
-;
-; Alternative: Use ISCC with explicit source directory:
-;   ISCC /dSourceDir="C:\path\to\Kiosk_POS" KioskPOS_Installer.iss
-;
-; Or define SourceDir at compile time:
-;   ISCC /dSourceDir="C:\path\to\Kiosk_POS" KioskPOS_Installer.iss
-
-#ifndef SourceDir
-#define SourceDir "."
-#endif
+; The script uses relative paths and must be run from the project root!
 
 ; #define SourceDir "."  ; Removed - using direct relative paths
 
@@ -53,13 +44,13 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
  [Files]
 ; Main executable (contains all bundled code)
-Source: "{#SourceDir}\dist\main.exe"; DestDir: "{app}"; Flags: ignoreversion restartreplace
+Source: "dist/main.exe"; DestDir: "{app}"; Flags: ignoreversion restartreplace
 
 ; Assets folder
-Source: "{#SourceDir}\assets\*"; DestDir: "{app}\assets"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "assets/*"; DestDir: "{app}/assets"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; Email config template
-Source: "{#SourceDir}\email_config.json"; DestDir: "{app}"; Flags: ignoreversion onlyifdoesntexist
+Source: "email_config.json"; DestDir: "{app}"; Flags: ignoreversion onlyifdoesntexist
 
 [Code]
 var
