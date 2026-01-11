@@ -14,6 +14,13 @@
 ;
 ; Alternative: Use ISCC with explicit source directory:
 ;   ISCC /dSourceDir="C:\path\to\Kiosk_POS" KioskPOS_Installer.iss
+;
+; Or define SourceDir at compile time:
+;   ISCC /dSourceDir="C:\path\to\Kiosk_POS" KioskPOS_Installer.iss
+
+#ifndef SourceDir
+#define SourceDir "."
+#endif
 
 ; #define SourceDir "."  ; Removed - using direct relative paths
 
@@ -33,7 +40,7 @@ PrivilegesRequired=lowest
 UninstallDisplayIcon={app}\main.exe
 WizardStyle=modern
 DisableProgramGroupPage=yes
-SourceDir=.
+; SourceDir=.  ; Removed - trying explicit paths
 [Dirs]
 Name: "{app}\database"
 
@@ -46,13 +53,13 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
  [Files]
 ; Main executable (contains all bundled code)
-Source: "dist/main.exe"; DestDir: "{app}"; Flags: ignoreversion restartreplace
+Source: "{#SourceDir}\dist\main.exe"; DestDir: "{app}"; Flags: ignoreversion restartreplace
 
 ; Assets folder
-Source: "assets/*"; DestDir: "{app}/assets"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#SourceDir}\assets\*"; DestDir: "{app}\assets"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; Email config template
-Source: "email_config.json"; DestDir: "{app}"; Flags: ignoreversion onlyifdoesntexist
+Source: "{#SourceDir}\email_config.json"; DestDir: "{app}"; Flags: ignoreversion onlyifdoesntexist
 
 [Code]
 var
