@@ -290,7 +290,7 @@ class InventoryFrame(ttk.Frame):
         # Refresh the inventory list after dialog closes
         self.refresh()
 
-    def _update_preview(self) -> None:
+    def _manage_categories(self) -> None:
         dialog = tk.Toplevel(self)
         dialog.withdraw()  # Hide until configured
         dialog.title("Inventory Categories")

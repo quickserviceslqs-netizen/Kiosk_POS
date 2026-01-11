@@ -324,3 +324,134 @@ def get_refunds(start_date: str, end_date: str) -> list[dict]:
             (start_date, end_date)
         ).fetchall()
     return [_row_to_dict(r) for r in rows]
+
+
+def get_detailed_sales_transactions(start_date: str, end_date: str) -> list[dict]:
+    """Get detailed sales transactions with all line items."""
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT 
+                s.sale_id,
+                s.receipt_number,
+                s.date,
+                s.time,
+                s.total,
+                s.payment,
+                s.payment_method,
+                s.subtotal,
+                s.vat_amount,
+                s.discount_amount,
+                i.name as item_name,
+                i.category,
+                si.quantity,
+                si.price,
+                si.cost_price,
+                (si.quantity * si.price) as line_total,
+                (si.quantity * (si.price - si.cost_price)) as line_profit
+            FROM sales s
+            JOIN sales_items si ON s.sale_id = si.sale_id
+            JOIN items i ON si.item_id = i.item_id
+            WHERE s.date BETWEEN ? AND ?
+            ORDER BY s.date DESC, s.time DESC, s.sale_id
+            """,
+            (start_date, end_date)
+        ).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+def get_sales_by_payment_method(start_date: str, end_date: str) -> list[dict]:
+    """Get sales breakdown by payment method."""
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT 
+                COALESCE(payment_method, 'Cash') as payment_method,
+                COUNT(*) as transaction_count,
+                SUM(total) as total_sales,
+                AVG(total) as avg_transaction,
+                MIN(total) as min_transaction,
+                MAX(total) as max_transaction
+            FROM sales
+            WHERE date BETWEEN ? AND ?
+            GROUP BY payment_method
+            ORDER BY total_sales DESC
+            """,
+            (start_date, end_date)
+        ).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+def get_sales_performance_trends(start_date: str, end_date: str, group_by: str = 'day') -> list[dict]:
+    """Get sales performance trends over time.
+    
+    Args:
+        group_by: 'day', 'week', or 'month'
+    """
+    if group_by == 'week':
+        date_format = "strftime('%Y-%W', date)"
+        group_label = "strftime('%Y Week %W', date)"
+    elif group_by == 'month':
+        date_format = "strftime('%Y-%m', date)"
+        group_label = "strftime('%Y-%m', date)"
+    else:  # day
+        date_format = "date"
+        group_label = "date"
+    
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            f"""
+            SELECT 
+                {date_format} as period,
+                {group_label} as period_label,
+                COUNT(*) as transactions,
+                SUM(total) as total_sales,
+                AVG(total) as avg_sale,
+                SUM(subtotal) as subtotal,
+                SUM(vat_amount) as total_vat,
+                SUM(discount_amount) as total_discounts
+            FROM sales
+            WHERE date BETWEEN ? AND ?
+            GROUP BY {date_format}
+            ORDER BY {date_format}
+            """,
+            (start_date, end_date)
+        ).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+def get_item_sales_details(start_date: str, end_date: str, item_id: int = None) -> list[dict]:
+    """Get detailed sales information for specific items or all items."""
+    query = """
+        SELECT 
+            i.item_id,
+            i.name,
+            i.category,
+            i.cost_price,
+            i.selling_price,
+            SUM(si.quantity) as total_quantity,
+            COUNT(DISTINCT si.sale_id) as sales_count,
+            SUM(si.quantity * si.price) as total_revenue,
+            SUM(si.quantity * si.cost_price) as total_cost,
+            SUM(si.quantity * (si.price - si.cost_price)) as total_profit,
+            AVG(si.price) as avg_selling_price
+        FROM sales_items si
+        JOIN items i ON si.item_id = i.item_id
+        JOIN sales s ON si.sale_id = s.sale_id
+        WHERE s.date BETWEEN ? AND ?
+    """
+    params = [start_date, end_date]
+    
+    if item_id:
+        query += " AND i.item_id = ?"
+        params.append(item_id)
+    
+    query += " GROUP BY i.item_id ORDER BY total_revenue DESC"
+    
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(query, params).fetchall()
+    return [_row_to_dict(r) for r in rows]

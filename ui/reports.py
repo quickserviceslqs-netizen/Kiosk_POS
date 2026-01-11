@@ -42,6 +42,9 @@ class ReportsFrame(ttk.Frame):
         ttk.Radiobutton(controls, text="Best Sellers", variable=self.report_type, value="bestsellers").grid(row=0, column=3, padx=4)
         ttk.Radiobutton(controls, text="Profit Analysis", variable=self.report_type, value="profit").grid(row=0, column=4, padx=4)
         ttk.Radiobutton(controls, text="By Category", variable=self.report_type, value="category").grid(row=0, column=5, padx=4)
+        ttk.Radiobutton(controls, text="Transactions", variable=self.report_type, value="transactions").grid(row=0, column=6, padx=4)
+        ttk.Radiobutton(controls, text="Payment Methods", variable=self.report_type, value="payment_methods").grid(row=0, column=7, padx=4)
+        ttk.Radiobutton(controls, text="Trends", variable=self.report_type, value="trends").grid(row=0, column=8, padx=4)
 
         ttk.Label(controls, text="Start Date:").grid(row=1, column=0, padx=4, pady=(8, 0), sticky=tk.W)
         start_frame = ttk.Frame(controls)
@@ -111,6 +114,12 @@ class ReportsFrame(ttk.Frame):
                 self._show_profit_report(start, end)
             elif report_type == "category":
                 self._show_category_report(start, end)
+            elif report_type == "transactions":
+                self._show_transactions_report(start, end)
+            elif report_type == "payment_methods":
+                self._show_payment_methods_report(start, end)
+            elif report_type == "trends":
+                self._show_trends_report(start, end)
         except Exception as e:
             messagebox.showerror("Error", f"Failed to generate report: {e}")
 
@@ -236,6 +245,91 @@ class ReportsFrame(ttk.Frame):
         
         self.report_text.insert("1.0", output)
 
+    def _show_transactions_report(self, start: str, end: str) -> None:
+        """Show detailed sales transactions with line items."""
+        currency_code = get_currency_code()
+        transactions = reports.get_detailed_sales_transactions(start, end)
+        
+        output = f"DETAILED SALES TRANSACTIONS\n"
+        output += f"Period: {start} to {end}\n"
+        output += "=" * 100 + "\n\n"
+        
+        current_sale_id = None
+        for transaction in transactions:
+            if transaction['sale_id'] != current_sale_id:
+                if current_sale_id is not None:
+                    output += "\n"
+                output += f"Receipt: {transaction['receipt_number']} | Date: {transaction['date']} {transaction['time']} | Total: {currency_code} {transaction['total']:.2f}\n"
+                output += f"Payment: {currency_code} {transaction['payment']:.2f} ({transaction.get('payment_method', 'Cash')})\n"
+                output += "-" * 80 + "\n"
+                current_sale_id = transaction['sale_id']
+            
+            output += f"  {transaction['item_name']:<30} {transaction['category']:<15} Qty:{transaction['quantity']:<8} Price:{currency_code} {transaction['price']:<8.2f} Total:{currency_code} {transaction['line_total']:<8.2f}\n"
+        
+        if not transactions:
+            output += "No transactions found in this period.\n"
+        
+        self.report_text.insert("1.0", output)
+
+    def _show_payment_methods_report(self, start: str, end: str) -> None:
+        """Show sales breakdown by payment method."""
+        currency_code = get_currency_code()
+        payment_data = reports.get_sales_by_payment_method(start, end)
+        
+        output = f"SALES BY PAYMENT METHOD\n"
+        output += f"Period: {start} to {end}\n"
+        output += "=" * 80 + "\n\n"
+        output += f"{'Payment Method':<15} {'Transactions':<12} {'Total Sales':<15} {'Avg Sale':<12} {'Min Sale':<12} {'Max Sale':<12}\n"
+        output += "-" * 80 + "\n"
+        
+        total_transactions = 0
+        total_sales = 0
+        
+        for payment in payment_data:
+            method = payment['payment_method']
+            transactions = payment['transaction_count']
+            sales = payment['total_sales']
+            avg = payment['avg_transaction']
+            min_sale = payment['min_transaction']
+            max_sale = payment['max_transaction']
+            
+            output += f"{method:<15} {transactions:<12} {currency_code} {sales:<14.2f} {currency_code} {avg:<11.2f} {currency_code} {min_sale:<11.2f} {currency_code} {max_sale:<11.2f}\n"
+            
+            total_transactions += transactions
+            total_sales += sales
+        
+        output += "-" * 80 + "\n"
+        output += f"{'TOTAL':<15} {total_transactions:<12} {currency_code} {total_sales:<14.2f}\n"
+        
+        self.report_text.insert("1.0", output)
+
+    def _show_trends_report(self, start: str, end: str) -> None:
+        """Show sales performance trends over time."""
+        currency_code = get_currency_code()
+        trends = reports.get_sales_performance_trends(start, end, 'day')
+        
+        output = f"SALES PERFORMANCE TRENDS\n"
+        output += f"Period: {start} to {end} (Daily)\n"
+        output += "=" * 90 + "\n\n"
+        output += f"{'Date':<12} {'Trans.':<8} {'Sales':<12} {'Avg Sale':<12} {'Subtotal':<12} {'VAT':<10} {'Discounts':<10}\n"
+        output += "-" * 90 + "\n"
+        
+        for trend in trends:
+            date = trend['period_label']
+            transactions = trend['transactions']
+            sales = trend['total_sales']
+            avg_sale = trend['avg_sale']
+            subtotal = trend['subtotal']
+            vat = trend['total_vat']
+            discounts = trend['total_discounts']
+            
+            output += f"{date:<12} {transactions:<8} {currency_code} {sales:<11.2f} {currency_code} {avg_sale:<11.2f} {currency_code} {subtotal:<11.2f} {currency_code} {vat:<9.2f} {currency_code} {discounts:<9.2f}\n"
+        
+        if not trends:
+            output += "No sales data found in this period.\n"
+        
+        self.report_text.insert("1.0", output)
+
     def refresh(self) -> None:
         currency_code = get_currency_code()
         report_type = self.report_type.get()
@@ -253,6 +347,12 @@ class ReportsFrame(ttk.Frame):
                 self._show_profit_report(start, end)
             elif report_type == "category":
                 self._show_category_report(start, end)
+            elif report_type == "transactions":
+                self._show_transactions_report(start, end)
+            elif report_type == "payment_methods":
+                self._show_payment_methods_report(start, end)
+            elif report_type == "trends":
+                self._show_trends_report(start, end)
         except Exception as e:
             messagebox.showerror("Error", f"Failed to generate report: {e}")
 
@@ -395,6 +495,65 @@ class ReportsFrame(ttk.Frame):
                 
                 for cat in categories:
                     writer.writerow([cat['category'], cat['total_quantity'], cat['total_revenue'], cat['transactions']])
+                    
+            elif report_type == "transactions":
+                transactions = reports.get_detailed_sales_transactions(start, end)
+                
+                writer.writerow(["Detailed Sales Transactions"])
+                writer.writerow([f"Period: {start} to {end}"])
+                writer.writerow([])
+                writer.writerow(["Receipt", "Date", "Time", "Item Name", "Category", "Quantity", "Price", "Line Total", "Sale Total", "Payment Method"])
+                
+                for transaction in transactions:
+                    writer.writerow([
+                        transaction['receipt_number'],
+                        transaction['date'],
+                        transaction['time'],
+                        transaction['item_name'],
+                        transaction['category'],
+                        transaction['quantity'],
+                        transaction['price'],
+                        transaction['line_total'],
+                        transaction['total'],
+                        transaction.get('payment_method', 'Cash')
+                    ])
+                    
+            elif report_type == "payment_methods":
+                payment_data = reports.get_sales_by_payment_method(start, end)
+                
+                writer.writerow(["Sales by Payment Method"])
+                writer.writerow([f"Period: {start} to {end}"])
+                writer.writerow([])
+                writer.writerow(["Payment Method", "Transactions", "Total Sales", "Avg Transaction", "Min Transaction", "Max Transaction"])
+                
+                for payment in payment_data:
+                    writer.writerow([
+                        payment['payment_method'],
+                        payment['transaction_count'],
+                        payment['total_sales'],
+                        payment['avg_transaction'],
+                        payment['min_transaction'],
+                        payment['max_transaction']
+                    ])
+                    
+            elif report_type == "trends":
+                trends = reports.get_sales_performance_trends(start, end, 'day')
+                
+                writer.writerow(["Sales Performance Trends"])
+                writer.writerow([f"Period: {start} to {end}"])
+                writer.writerow([])
+                writer.writerow(["Date", "Transactions", "Total Sales", "Avg Sale", "Subtotal", "VAT", "Discounts"])
+                
+                for trend in trends:
+                    writer.writerow([
+                        trend['period_label'],
+                        trend['transactions'],
+                        trend['total_sales'],
+                        trend['avg_sale'],
+                        trend['subtotal'],
+                        trend['total_vat'],
+                        trend['total_discounts']
+                    ])
                     
         except Exception as e:
             writer.writerow(["Error generating CSV", str(e)])
