@@ -31,7 +31,7 @@ class AuditLogsFrame(ttk.Frame):
     def _build_ui(self):
         """Build the UI layout."""
         self.columnconfigure(0, weight=1)
-        self.rowconfigure(4, weight=1)
+        self.rowconfigure(2, weight=1)  # Tree frame gets expansion space
 
         # Title
         ttk.Label(self, text="Audit Logs", font=("Segoe UI", 16, "bold")).grid(row=0, column=0, sticky=tk.W, pady=(0, 20))
@@ -80,11 +80,11 @@ class AuditLogsFrame(ttk.Frame):
         tree_frame = ttk.LabelFrame(self, text="Audit Entries", padding=10)
         tree_frame.grid(row=2, column=0, sticky=tk.NSEW, pady=(0, 10))
         tree_frame.columnconfigure(0, weight=1)
-        tree_frame.rowconfigure(0, weight=1)
+        tree_frame.rowconfigure(0, weight=1)  # Treeview gets all available space in this frame
 
         # Create treeview with scrollbars
         columns = ("timestamp", "user", "action", "table", "record_id", "source", "details")
-        self.tree = ttk.Treeview(tree_frame, columns=columns, show="headings", height=15)
+        self.tree = ttk.Treeview(tree_frame, columns=columns, show="headings", height=25)  # Increased height further
 
         # Define column headings
         self.tree.heading("timestamp", text="Timestamp")
@@ -114,12 +114,24 @@ class AuditLogsFrame(ttk.Frame):
         v_scrollbar.grid(row=0, column=1, sticky=tk.NS)
         h_scrollbar.grid(row=1, column=0, sticky=tk.EW)
 
+        # Configure tree_frame grid weights
+        tree_frame.grid_rowconfigure(0, weight=1)
+        tree_frame.grid_columnconfigure(0, weight=1)
+
         # Bind double-click to show details
         self.tree.bind("<Double-1>", self._show_entry_details)
 
-        # Pagination controls
-        pagination_frame = ttk.Frame(tree_frame)
-        pagination_frame.grid(row=2, column=0, columnspan=2, sticky=tk.EW, pady=(5, 0))
+        # Action buttons
+        buttons_frame = ttk.Frame(self)
+        buttons_frame.grid(row=3, column=0, sticky=tk.EW, pady=(0, 10))
+
+        ttk.Button(buttons_frame, text="Refresh", command=self._load_audit_data).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(buttons_frame, text="Export to CSV", command=self._export_to_csv).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(buttons_frame, text="Clear Old Entries", command=self._clear_old_entries).pack(side=tk.LEFT)
+
+        # Pagination controls (moved outside tree_frame for better space allocation)
+        pagination_frame = ttk.Frame(self)
+        pagination_frame.grid(row=4, column=0, sticky=tk.EW, pady=(0, 10))
 
         ttk.Button(pagination_frame, text="◀◀ First", command=self._go_to_first_page).pack(side=tk.LEFT, padx=(0, 5))
         ttk.Button(pagination_frame, text="◀ Previous", command=self._go_to_previous_page).pack(side=tk.LEFT, padx=(0, 10))
@@ -138,18 +150,14 @@ class AuditLogsFrame(ttk.Frame):
         page_size_combo.pack(side=tk.RIGHT, padx=(0, 10))
         page_size_combo.bind("<<ComboboxSelected>>", self._change_page_size)
 
-        # Action buttons
-        buttons_frame = ttk.Frame(self)
-        buttons_frame.grid(row=3, column=0, sticky=tk.EW, pady=(0, 10))
-
-        ttk.Button(buttons_frame, text="Refresh", command=self._load_audit_data).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(buttons_frame, text="Export to CSV", command=self._export_to_csv).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(buttons_frame, text="Clear Old Entries", command=self._clear_old_entries).pack(side=tk.LEFT)
-
         # Status label
         self.status_var = tk.StringVar(value="Ready")
         self.status_label = ttk.Label(self, textvariable=self.status_var, foreground="blue")
-        self.status_label.grid(row=4, column=0, sticky=tk.W)
+        self.status_label.grid(row=5, column=0, sticky=tk.W)
+
+        # Configure grid weights for proper expansion
+        self.grid_rowconfigure(2, weight=1)  # Tree frame gets expansion
+        self.grid_columnconfigure(0, weight=1)
 
     def _load_audit_data(self):
         """Load audit data from both file and database sources."""

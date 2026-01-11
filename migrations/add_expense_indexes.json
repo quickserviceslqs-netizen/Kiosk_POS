@@ -1,0 +1,7 @@
+{
+  "id": "add_expense_indexes",
+  "name": "add_expense_performance_indexes",
+  "up_sql": "\n-- Add indexes for better expense query performance\nCREATE INDEX IF NOT EXISTS idx_expenses_category ON expenses(category);\nCREATE INDEX IF NOT EXISTS idx_expenses_amount ON expenses(amount);\nCREATE INDEX IF NOT EXISTS idx_expenses_user_id ON expenses(user_id);\nCREATE INDEX IF NOT EXISTS idx_expenses_date_category ON expenses(date, category);\nCREATE INDEX IF NOT EXISTS idx_expenses_date_amount ON expenses(date, amount);\nCREATE INDEX IF NOT EXISTS idx_expense_categories_name ON expense_categories(name);\n",
+  "down_sql": "\n-- Remove expense indexes\nDROP INDEX IF EXISTS idx_expenses_category;\nDROP INDEX IF NOT EXISTS idx_expenses_amount;\nDROP INDEX IF EXISTS idx_expenses_user_id;\nDROP INDEX IF EXISTS idx_expenses_date_category;\nDROP INDEX IF EXISTS idx_expenses_date_amount;\nDROP INDEX IF EXISTS idx_expense_categories_name;\n",
+  "created_at": "2026-01-11T12:00:00Z"
+}

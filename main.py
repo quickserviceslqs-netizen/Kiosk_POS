@@ -239,6 +239,21 @@ def _require_admin(root: tk.Tk) -> dict | None:
     return user
 
 
+def _require_permission(root: tk.Tk, permission: str) -> dict | None:
+    """Check if current user has the required permission."""
+    user = getattr(root, "current_user", None)
+    if not user:
+        messagebox.showerror("Access denied", "Authentication required")
+        return None
+
+    from modules import permissions
+    if not permissions.has_permission(user, permission):
+        messagebox.showerror("Access denied", f"Permission '{permission}' required")
+        return None
+
+    return user
+
+
 def show_home(root: tk.Tk, user: dict) -> None:
     """Show dashboard as home screen inside the shell."""
     root.current_user = user
@@ -265,7 +280,8 @@ def _show_settings_menu(root: tk.Tk, user: dict) -> None:
 
         buttons = [
             ("👤 User Management", lambda: show_user_mgmt(root)),
-            ("📊 VAT Settings", lambda: show_vat_settings(root)),
+            ("� Permission Management", lambda: show_permission_mgmt(root)),
+            ("�📊 VAT Settings", lambda: show_vat_settings(root)),
             ("⚖️ Units of Measure", lambda: show_uom_settings(root)),
             ("📧 Email Notifications", lambda: show_email_settings(root)),
             ("🔧 System Info", lambda: show_system_info(root)),
@@ -326,6 +342,8 @@ def show_currency_settings(root: tk.Tk) -> None:
 
 
 def show_inventory(root: tk.Tk) -> None:
+    if not _require_permission(root, "view_inventory"):
+        return
     frame = _render(root, title="Inventory", subtitle="Items, stock, and pricing", builder=lambda parent: InventoryFrame(parent))
     shell = _ensure_shell(root)
     if shell and frame:
@@ -375,6 +393,22 @@ def show_user_mgmt(root: tk.Tk) -> None:
             pass
 
 
+def show_permission_mgmt(root: tk.Tk) -> None:
+    if not _require_admin(root):
+        return
+    from ui.permission_mgmt import PermissionManagementFrame
+    frame = _render(root, title="Permissions", subtitle="Manage user permissions", builder=lambda parent: PermissionManagementFrame(parent))
+    shell = _ensure_shell(root)
+    if shell and frame:
+        _activate_settings_subpage(shell, "permission_mgmt")
+        _set_back_button(shell, root)
+        try:
+            if hasattr(frame, "refresh"):
+                frame.refresh()
+        except Exception:
+            pass
+
+
 def show_vat_settings(root: tk.Tk) -> None:
     if not _require_admin(root):
         return
@@ -404,6 +438,8 @@ def show_uom_settings(root: tk.Tk) -> None:
 
 
 def show_reports(root: tk.Tk) -> None:
+    if not _require_permission(root, "view_reports"):
+        return
     frame = _render(root, title="Reports", subtitle="Performance and history", builder=lambda parent: ReportsFrame(parent, on_home=lambda: show_home(root, getattr(root, "current_user", {}))))
     shell = _ensure_shell(root)
     if shell and frame:
@@ -430,7 +466,7 @@ def show_order_history(root: tk.Tk) -> None:
 
 
 def show_expenses(root: tk.Tk) -> None:
-    if not _require_admin(root):
+    if not _require_permission(root, "view_expenses"):
         return
     frame = _render(root, title="Expenses", subtitle="Track spending", builder=lambda parent: ExpensesFrame(parent, on_home=lambda: show_home(root, getattr(root, "current_user", {}))))
     shell = _ensure_shell(root)
