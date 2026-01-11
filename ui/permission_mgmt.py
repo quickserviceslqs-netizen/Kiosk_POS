@@ -109,25 +109,34 @@ class PermissionManagementFrame(ttk.Frame):
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
-        # Permission action buttons
+        # Permission action buttons - arrange in a grid for better visibility
         perm_btn_frame = ttk.Frame(right_frame)
         perm_btn_frame.pack(fill=tk.X, pady=(10, 0))
 
-        ttk.Button(perm_btn_frame, text="💾 Save Changes",
+        # First row of buttons
+        first_row = ttk.Frame(perm_btn_frame)
+        first_row.pack(fill=tk.X, pady=(0, 5))
+
+        ttk.Button(first_row, text="💾 Save Changes",
                   command=self._save_permission_changes).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(perm_btn_frame, text="Grant Selected",
+        ttk.Button(first_row, text="Grant Selected",
                   command=self._grant_selected_permissions).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(perm_btn_frame, text="Revoke Selected",
+        ttk.Button(first_row, text="Revoke Selected",
                   command=self._revoke_selected_permissions).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(perm_btn_frame, text="Apply Role Suggestions",
+        ttk.Button(first_row, text="Apply Role Suggestions",
                   command=self._apply_role_suggestions).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(perm_btn_frame, text="Select All",
+
+        # Second row of buttons
+        second_row = ttk.Frame(perm_btn_frame)
+        second_row.pack(fill=tk.X, pady=(0, 5))
+
+        ttk.Button(second_row, text="Select All",
                   command=self._select_all_permissions).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(perm_btn_frame, text="Select None",
+        ttk.Button(second_row, text="Select None",
                   command=self._select_none_permissions).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(perm_btn_frame, text="Grant All",
-                  command=self._grant_all_permissions).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(perm_btn_frame, text="Revoke All",
+        ttk.Button(second_row, text="Grant All",
+                  command=self._grant_all_permissions).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(second_row, text="Revoke All",
                   command=self._revoke_all_permissions).pack(side=tk.LEFT)
 
         # Status bar
