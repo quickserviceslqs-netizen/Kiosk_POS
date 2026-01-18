@@ -285,7 +285,8 @@ def _show_settings_menu(root: tk.Tk, user: dict) -> None:
             ("🛒 Cart Management", lambda: show_cart_settings(root)),
             ("⚖️ Units of Measure", lambda: show_uom_settings(root)),
             ("📧 Email Notifications", lambda: show_email_settings(root)),
-            ("🔧 System Info", lambda: show_system_info(root)),
+            ("� Financial Reconciliation", lambda: show_reconciliation(root, user)),
+            ("�🔧 System Info", lambda: show_system_info(root)),
             ("📋 Audit Logs", lambda: show_audit_logs(root)),
             ("⬆️ Upgrade Manager", lambda: show_upgrade_manager(root)),
             ("🔑 Change Password", lambda: show_change_password(root, user)),
@@ -536,6 +537,14 @@ def show_email_settings(root: tk.Tk) -> None:
             frame.refresh()
         except Exception:
             pass
+
+
+def show_reconciliation(root: tk.Tk, user: dict) -> None:
+    """Show financial reconciliation interface."""
+    if not _require_admin(root):
+        return
+    from ui.reconciliation import ReconciliationDialog
+    ReconciliationDialog(root, user.get('user_id', 1), user.get('role', 'cashier'))
 
 
 def show_change_password(root: tk.Tk, user: dict) -> None:
