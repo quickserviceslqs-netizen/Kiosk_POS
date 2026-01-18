@@ -113,10 +113,16 @@ class ReconciliationDialog:
         ttk.Label(update_frame, textvariable=self.selected_method_var, width=20).grid(row=0, column=1, sticky=tk.W, padx=(5, 10))
 
         ttk.Label(update_frame, text="Actual:").grid(row=0, column=2, sticky=tk.W)
-        ttk.Entry(update_frame, textvariable=self.actual_amount_var, width=12).grid(row=0, column=3, sticky=tk.W, padx=(5, 10))
+        self.actual_entry = ttk.Entry(update_frame, textvariable=self.actual_amount_var, width=12)
+        self.actual_entry.grid(row=0, column=3, sticky=tk.W, padx=(5, 10))
+        # Press Enter to save quick updates
+        self.actual_entry.bind("<Return>", lambda e: self._update_selected_entry())
 
         ttk.Label(update_frame, text="Explanation:").grid(row=0, column=4, sticky=tk.W)
-        ttk.Entry(update_frame, textvariable=self.explanation_var, width=30).grid(row=0, column=5, sticky=tk.W, padx=(5, 10))
+        self.explanation_entry = ttk.Entry(update_frame, textvariable=self.explanation_var, width=30)
+        self.explanation_entry.grid(row=0, column=5, sticky=tk.W, padx=(5, 10))
+        # Press Enter in explanation to also save
+        self.explanation_entry.bind("<Return>", lambda e: self._update_selected_entry())
 
         ttk.Button(update_frame, text="Update Selected", command=self._update_selected_entry).grid(row=0, column=6, sticky=tk.E)
 
@@ -191,8 +197,9 @@ class ReconciliationDialog:
         ttk.Button(action_frame, text="Add Explanation", command=self._add_explanation).pack(side=tk.LEFT, padx=4, pady=4)
         ttk.Button(action_frame, text="Close", command=self._on_close).pack(side=tk.RIGHT, padx=4, pady=4)
 
-        # Bind tree selection
+        # Bind tree selection and double-click to edit
         self.tree.bind("<<TreeviewSelect>>", self._on_tree_select)
+        self.tree.bind("<Double-1>", self._on_tree_double_click)
 
     def _load_or_create_session(self) -> None:
         """Load existing session or create new one."""
@@ -224,6 +231,13 @@ class ReconciliationDialog:
                 messagebox.showinfo("Session Created", f"Created new reconciliation session for {period_type} period.", parent=self.dialog)
 
             self._refresh_display()
+
+            # Auto-select the first payment method and pre-fill top update controls
+            first = next(iter(self.tree.get_children()), None)
+            if first:
+                self.tree.selection_set(first)
+                self.tree.see(first)
+                self._on_tree_select(None)
 
         except Exception as e:
             logger.error(f"Error loading/creating session: {e}")
@@ -298,17 +312,23 @@ class ReconciliationDialog:
             messagebox.showwarning("No Session", "Please load or create a reconciliation session first.", parent=self.dialog)
             return
 
-        selection = self.tree.selection()
-        if not selection:
+        # Prefer selected_method_var if set, otherwise use tree selection
+        payment_method = None
+        if self.selected_method_var.get() and self.selected_method_var.get() != '--':
+            payment_method = self.selected_method_var.get()
+        else:
+            selection = self.tree.selection()
+            if selection:
+                item = self.tree.item(selection[0])
+                payment_method = item['values'][0]
+
+        if not payment_method:
             messagebox.showwarning("No Selection", "Please select a payment method to update.", parent=self.dialog)
             return
 
         try:
             actual_amount = float(self.actual_amount_var.get() or 0)
             explanation = self.explanation_var.get().strip()
-
-            item = self.tree.item(selection[0])
-            payment_method = item['values'][0]
 
             reconciliation.update_reconciliation_entry(
                 self.current_session.session_id,
@@ -317,9 +337,17 @@ class ReconciliationDialog:
                 explanation
             )
 
-            # Reload session data
+            # Reload session data and refresh UI
             self.current_session = reconciliation.get_reconciliation_session(self.current_session.session_id)
             self._refresh_display()
+
+            # Keep the selection on the updated method
+            for iid in self.tree.get_children():
+                vals = self.tree.item(iid)['values']
+                if vals and vals[0] == payment_method:
+                    self.tree.selection_set(iid)
+                    self.tree.see(iid)
+                    break
 
             messagebox.showinfo("Updated", f"Updated {payment_method} reconciliation entry.", parent=self.dialog)
 
@@ -388,6 +416,45 @@ class ReconciliationDialog:
         dialog = ExplanationDialog(self.dialog, self.current_session.session_id, self.user_id)
         # Removed wait_window to prevent Tkinter window path errors
 
+    def _on_tree_double_click(self, event) -> None:
+        """Open an edit dialog for the double-clicked payment method."""
+        selection = self.tree.selection()
+        if not selection:
+            return
+        item = self.tree.item(selection[0])
+        values = item['values']
+        if not values:
+            return
+        payment_method = values[0]
+
+        # Find existing entry
+        entry = None
+        if self.current_session:
+            for e in self.current_session.entries:
+                if e.payment_method == payment_method:
+                    entry = e
+                    break
+
+        # Open edit dialog
+        edit = EditEntryDialog(self.dialog, self.current_session.session_id, payment_method, entry.actual_amount if entry else 0.0, entry.explanation if entry else "", on_save=self._on_edit_saved)
+
+    def _on_edit_saved(self, payment_method: str) -> None:
+        """Callback after an edit dialog saves - reload session and refresh UI."""
+        try:
+            self.current_session = reconciliation.get_reconciliation_session(self.current_session.session_id)
+            self._refresh_display()
+            # Set selection to the updated row
+            for iid in self.tree.get_children():
+                vals = self.tree.item(iid)['values']
+                if vals and vals[0] == payment_method:
+                    self.tree.selection_set(iid)
+                    self.tree.see(iid)
+                    break
+            messagebox.showinfo("Updated", f"Updated {payment_method} reconciliation entry.", parent=self.dialog)
+        except Exception as e:
+            logger.error(f"Error refreshing after edit: {e}")
+            messagebox.showerror("Error", f"Failed to refresh after editing entry: {e}", parent=self.dialog)
+
     def _show_history(self) -> None:
         """Show reconciliation history."""
         history_dialog = ReconciliationHistoryDialog(self.dialog)
@@ -423,7 +490,12 @@ class ReconciliationDialog:
 
         self.dialog.deiconify()
         self.dialog.grab_set()
-        self.dialog.wait_window()
+        # Do not block UI loop in tests; wait_window will be handled by callers when appropriate
+        try:
+            self.dialog.wait_window()
+        except tk.TclError:
+            # In certain test contexts window path may be destroyed before wait_window returns
+            pass
 
 
 class ExplanationDialog:
@@ -443,6 +515,87 @@ class ExplanationDialog:
 
         self._build_ui()
         self._show_dialog()
+
+
+class EditEntryDialog:
+    """Small dialog to edit actual amount and explanation for a payment method."""
+
+    def __init__(self, parent: tk.Misc, session_id: int, payment_method: str, actual_amount: float = 0.0, explanation: str = "", on_save=None):
+        self.parent = parent
+        self.session_id = session_id
+        self.payment_method = payment_method
+        self.on_save = on_save
+
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title(f"Edit: {payment_method}")
+        set_window_icon(self.dialog)
+        # Make this dialog transient and modal to the parent reconciliation dialog
+        self.dialog.transient(parent)
+        self.dialog.grab_set()
+        self.dialog.resizable(False, False)
+        self.dialog.minsize(420, 140)
+
+        frame = ttk.Frame(self.dialog, padding=10)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(frame, text=f"Payment Method:").grid(row=0, column=0, sticky=tk.W)
+        ttk.Label(frame, text=payment_method).grid(row=0, column=1, sticky=tk.W, padx=(5, 0))
+        ttk.Label(frame, text="Actual Amount:").grid(row=1, column=0, sticky=tk.W, pady=(8, 0))
+        self.actual_var = tk.StringVar(value=f"{actual_amount:.2f}")
+        self.actual_entry = ttk.Entry(frame, textvariable=self.actual_var, width=20)
+        self.actual_entry.grid(row=1, column=1, sticky=tk.W, pady=(8, 0), padx=(5, 0))
+
+        ttk.Label(frame, text="Explanation:").grid(row=2, column=0, sticky=tk.W, pady=(8, 0))
+        self.expl_var = tk.StringVar(value=explanation)
+        self.expl_entry = ttk.Entry(frame, textvariable=self.expl_var, width=40)
+        self.expl_entry.grid(row=2, column=1, sticky=tk.W, pady=(8, 0), padx=(5, 0))
+
+        btn_frame = ttk.Frame(frame)
+        btn_frame.grid(row=3, column=0, columnspan=2, pady=(12, 0), sticky=tk.EW)
+        ttk.Button(btn_frame, text="Save", command=self._save).pack(side=tk.RIGHT, padx=(0, 4))
+        ttk.Button(btn_frame, text="Cancel", command=self._cancel).pack(side=tk.RIGHT)
+
+        # Bind Enter to save, Escape to cancel
+        self.actual_entry.bind("<Return>", lambda e: self._save())
+        self.expl_entry.bind("<Return>", lambda e: self._save())
+        self.dialog.bind("<Escape>", lambda e: self._cancel())
+
+        # Focus the actual entry
+        self.actual_entry.focus_set()
+
+        self._show_dialog()
+
+    def _save(self) -> None:
+        """Save the edited actual and explanation."""
+        try:
+            # Validate amount
+            try:
+                actual_amount = float(self.actual_var.get() or 0)
+            except ValueError:
+                messagebox.showerror("Invalid Amount", "Please enter a valid number for actual amount.", parent=self.dialog)
+                return
+
+            explanation = self.expl_var.get().strip()
+
+            reconciliation.update_reconciliation_entry(
+                self.session_id,
+                self.payment_method,
+                actual_amount,
+                explanation
+            )
+
+            # Close dialog and callback
+            self.dialog.destroy()
+            if callable(self.on_save):
+                # Notify parent
+                self.on_save(self.payment_method)
+        except Exception as e:
+            logger.error(f"Error saving edited entry: {e}")
+            messagebox.showerror("Error", f"Failed to save entry: {e}", parent=self.dialog)
+
+    def _cancel(self) -> None:
+        """Cancel the edit dialog."""
+        self.dialog.destroy()
 
     def _build_ui(self) -> None:
         """Build the explanation dialog UI."""
