@@ -15,6 +15,26 @@ from utils.i18n import get_currency_symbol
 logger = logging.getLogger(__name__)
 
 
+class ScrollableFrame(ttk.Frame):
+    """A vertical scrollable frame to contain dialog content and allow scrolling on small screens."""
+    def __init__(self, parent, *args, **kwargs):
+        super().__init__(parent, *args, **kwargs)
+        self.canvas = tk.Canvas(self, borderwidth=0, highlightthickness=0)
+        self.vscroll = ttk.Scrollbar(self, orient=tk.VERTICAL, command=self.canvas.yview)
+        self.scrollable_frame = ttk.Frame(self.canvas)
+
+        self.scrollable_frame.bind(
+            "<Configure>",
+            lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        )
+
+        self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+        self.canvas.configure(yscrollcommand=self.vscroll.set)
+
+        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.vscroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+
 class ReconciliationDialog:
     """Main dialog for reconciliation operations."""
 
@@ -30,7 +50,7 @@ class ReconciliationDialog:
         self.dialog.withdraw()
         self.dialog.title("Financial Reconciliation")
         set_window_icon(self.dialog)
-        self.dialog.transient(parent)
+        # Do not set transient(owner) so the OS can show standard window decorations (min/max buttons)
 
         # Set size and make resizable to show min/max buttons
         self.dialog.geometry("")  # Let widgets determine size
@@ -42,9 +62,10 @@ class ReconciliationDialog:
 
     def _build_ui(self) -> None:
         """Build the main UI."""
-        # Main container
-        main_frame = ttk.Frame(self.dialog)
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        # Main container with scrollable content
+        scrollable = ScrollableFrame(self.dialog)
+        scrollable.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        main_frame = scrollable.scrollable_frame
 
         # Top controls
         controls_frame = ttk.Frame(main_frame)
@@ -139,9 +160,9 @@ class ReconciliationDialog:
 
         ttk.Button(entry_frame, text="Update Selected", command=self._update_selected_entry).grid(row=0, column=2, rowspan=2, padx=(10, 0))
 
-        # Bottom panel - Notes and Actions
-        bottom_frame = ttk.LabelFrame(main_frame, text="Notes & Actions", padding=5)
-        bottom_frame.pack(fill=tk.X, pady=(10, 0))
+        # Bottom panel - Notes and Actions (fixed footer)
+        bottom_frame = ttk.LabelFrame(self.dialog, text="Notes & Actions", padding=5)
+        bottom_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(10, 10))
 
         # Notes
         ttk.Label(bottom_frame, text="Notes:").pack(anchor=tk.W)
@@ -152,10 +173,11 @@ class ReconciliationDialog:
         action_frame = ttk.Frame(bottom_frame)
         action_frame.pack(fill=tk.X)
 
-        ttk.Button(action_frame, text="Save Draft", command=self._save_draft).pack(side=tk.LEFT, padx=2)
-        ttk.Button(action_frame, text="Complete Reconciliation", command=self._complete_reconciliation).pack(side=tk.LEFT, padx=2)
-        ttk.Button(action_frame, text="Add Explanation", command=self._add_explanation).pack(side=tk.LEFT, padx=2)
-        ttk.Button(action_frame, text="Close", command=self._on_close).pack(side=tk.RIGHT, padx=2)
+        # Give the action buttons a bit of padding and allow wrap if needed
+        ttk.Button(action_frame, text="Save Draft", command=self._save_draft).pack(side=tk.LEFT, padx=4, pady=4)
+        ttk.Button(action_frame, text="Complete Reconciliation", command=self._complete_reconciliation).pack(side=tk.LEFT, padx=4, pady=4)
+        ttk.Button(action_frame, text="Add Explanation", command=self._add_explanation).pack(side=tk.LEFT, padx=4, pady=4)
+        ttk.Button(action_frame, text="Close", command=self._on_close).pack(side=tk.RIGHT, padx=4, pady=4)
 
         # Bind tree selection
         self.tree.bind("<<TreeviewSelect>>", self._on_tree_select)
@@ -360,21 +382,28 @@ class ReconciliationDialog:
         self.dialog.destroy()
 
     def _show_dialog(self) -> None:
-        """Show the dialog."""
-        # Update geometry to fit content with adequate size
-        self.dialog.update_idletasks()
-
-        # Force a second update to ensure all widgets are properly sized
-        self.dialog.update_idletasks()
+        """Show the dialog and center it on screen."""
+        # Ensure all widgets are fully realized
+        self.dialog.update()
 
         req_width = self.dialog.winfo_reqwidth()
         req_height = self.dialog.winfo_reqheight()
 
-        # Ensure adequate dimensions to show all content with extra padding
-        width = max(req_width + 50, 950)  # Add padding and minimum width
-        height = max(req_height + 100, 800)  # Add more padding for bottom content
+        # Add padding and minimum sizes
+        width = max(req_width + 60, 950)
+        height = max(req_height + 120, 800)
 
-        self.dialog.geometry(f"{width}x{height}")
+        # Clamp to screen size with margins
+        screen_w = self.dialog.winfo_screenwidth()
+        screen_h = self.dialog.winfo_screenheight()
+        margin = 80
+        width = min(width, screen_w - margin)
+        height = min(height, screen_h - margin)
+
+        # Center the dialog
+        x = (screen_w - width) // 2
+        y = (screen_h - height) // 2
+        self.dialog.geometry(f"{width}x{height}+{x}+{y}")
 
         self.dialog.deiconify()
         self.dialog.grab_set()
@@ -473,19 +502,28 @@ class ExplanationDialog:
         self.dialog.destroy()
 
     def _show_dialog(self) -> None:
-        """Show the dialog."""
-        # Update geometry to fit content
-        self.dialog.update_idletasks()
-        self.dialog.update_idletasks()  # Force second update
+        """Show the dialog and center it on screen."""
+        # Ensure all widgets are fully realized
+        self.dialog.update()
 
         req_width = self.dialog.winfo_reqwidth()
         req_height = self.dialog.winfo_reqheight()
 
-        # Ensure adequate dimensions with padding
+        # Add padding and minimum sizes
         width = max(req_width + 30, 550)
         height = max(req_height + 50, 400)
 
-        self.dialog.geometry(f"{width}x{height}")
+        # Clamp to screen size with margins
+        screen_w = self.dialog.winfo_screenwidth()
+        screen_h = self.dialog.winfo_screenheight()
+        margin = 80
+        width = min(width, screen_w - margin)
+        height = min(height, screen_h - margin)
+
+        # Center the dialog
+        x = (screen_w - width) // 2
+        y = (screen_h - height) // 2
+        self.dialog.geometry(f"{width}x{height}+{x}+{y}")
 
         self.dialog.deiconify()
         self.dialog.grab_set()
@@ -615,19 +653,28 @@ class ReconciliationHistoryDialog:
         self.dialog.destroy()
 
     def _show_dialog(self) -> None:
-        """Show the dialog."""
-        # Update geometry to fit content
-        self.dialog.update_idletasks()
-        self.dialog.update_idletasks()  # Force second update
+        """Show the dialog and center it on screen."""
+        # Ensure all widgets are fully realized
+        self.dialog.update()
 
         req_width = self.dialog.winfo_reqwidth()
         req_height = self.dialog.winfo_reqheight()
 
-        # Ensure adequate dimensions with padding
+        # Add padding and minimum sizes
         width = max(req_width + 50, 1100)
         height = max(req_height + 80, 700)
 
-        self.dialog.geometry(f"{width}x{height}")
+        # Clamp to screen size with margins
+        screen_w = self.dialog.winfo_screenwidth()
+        screen_h = self.dialog.winfo_screenheight()
+        margin = 80
+        width = min(width, screen_w - margin)
+        height = min(height, screen_h - margin)
+
+        # Center the dialog
+        x = (screen_w - width) // 2
+        y = (screen_h - height) // 2
+        self.dialog.geometry(f"{width}x{height}+{x}+{y}")
 
         self.dialog.deiconify()
         self.dialog.grab_set()
