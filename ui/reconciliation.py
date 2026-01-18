@@ -304,7 +304,7 @@ class ReconciliationDialog:
                 actual_str = re.sub(r"[^\d\.\-]", "", str(values[2]))
                 try:
                     actual_amount = float(actual_str)
-                    self.actual_amount_var.set(f"{actual_amount:.2f}")
+                    self.actual_amount_var.set(format_currency(actual_amount))
                 except (ValueError, IndexError):
                     self.actual_amount_var.set("")
 
@@ -336,7 +336,9 @@ class ReconciliationDialog:
             return
 
         try:
-            actual_amount = float(self.actual_amount_var.get() or 0)
+            # Strip currency symbols and parse amount
+            amount_str = re.sub(r"[^\d\.\-]", "", self.actual_amount_var.get() or "0")
+            actual_amount = float(amount_str)
             explanation = self.explanation_var.get().strip()
 
             reconciliation.update_reconciliation_entry(
@@ -384,9 +386,9 @@ class ReconciliationDialog:
                 for entry in self.current_session.entries:
                     writer.writerow([
                         entry.payment_method,
-                        f"{entry.system_amount:.2f}",
-                        f"{entry.actual_amount:.2f}",
-                        f"{entry.variance:.2f}",
+                        format_currency(entry.system_amount),
+                        format_currency(entry.actual_amount),
+                        format_currency(entry.variance),
                         entry.explanation or ''
                     ])
             messagebox.showinfo("Exported", f"Reconciliation exported to {os.path.basename(filename)}", parent=self.dialog)
@@ -438,7 +440,9 @@ class ReconciliationDialog:
                     skipped += 1
                     continue
                 try:
-                    actual_amount = float(amt_str) if amt_str != '' else 0.0
+                    # Strip currency symbols and other non-numeric characters
+                    clean_amt_str = re.sub(r"[^\d\.\-]", "", amt_str)
+                    actual_amount = float(clean_amt_str) if clean_amt_str != '' else 0.0
                 except ValueError:
                     errors.append(f"Invalid amount for {pm}: '{amt_str}'")
                     continue
@@ -482,9 +486,9 @@ class ReconciliationDialog:
                 writer = csv.writer(f)
                 writer.writerow(['payment_method', 'system_amount', 'actual_amount', 'explanation'])
                 # Example rows (system_amount should match system breakdown; actual_amount is what user will fill)
-                writer.writerow(['Cash', '1500.00', '1500.00', 'Counted cash at close'])
-                writer.writerow(['Card - Visa', '1200.00', '1198.00', 'Net after fees'])
-                writer.writerow(['Mobile Pay', '200.00', '200.00', ''])
+                writer.writerow(['Cash', format_currency(1500.00), format_currency(1500.00), 'Counted cash at close'])
+                writer.writerow(['Card - Visa', format_currency(1200.00), format_currency(1198.00), 'Net after fees'])
+                writer.writerow(['Mobile Pay', format_currency(200.00), format_currency(200.00), ''])
             messagebox.showinfo("Template Saved", f"CSV template saved to {os.path.basename(filename)}", parent=self.dialog)
         except Exception as e:
             logger.error(f"Error saving template: {e}")
@@ -676,7 +680,7 @@ class EditEntryDialog:
         ttk.Label(frame, text=f"Payment Method:").grid(row=0, column=0, sticky=tk.W)
         ttk.Label(frame, text=payment_method).grid(row=0, column=1, sticky=tk.W, padx=(5, 0))
         ttk.Label(frame, text="Actual Amount:").grid(row=1, column=0, sticky=tk.W, pady=(8, 0))
-        self.actual_var = tk.StringVar(value=f"{actual_amount:.2f}")
+        self.actual_var = tk.StringVar(value=format_currency(actual_amount))
         self.actual_entry = ttk.Entry(frame, textvariable=self.actual_var, width=20)
         self.actual_entry.grid(row=1, column=1, sticky=tk.W, pady=(8, 0), padx=(5, 0))
 
@@ -705,7 +709,9 @@ class EditEntryDialog:
         try:
             # Validate amount
             try:
-                actual_amount = float(self.actual_var.get() or 0)
+                # Strip currency symbols and parse
+                amount_str = re.sub(r"[^\d\.\-]", "", self.actual_var.get() or "0")
+                actual_amount = float(amount_str)
             except ValueError:
                 messagebox.showerror("Invalid Amount", "Please enter a valid number for actual amount.", parent=self.dialog)
                 return
