@@ -449,14 +449,14 @@ class OrderHistoryFrame(ttk.Frame):
     def _export_all_orders(self) -> None:
         """Export all filtered orders to CSV with detailed line items."""
         try:
-                # Get current filters
-                start = self.start_date.get().strip() or None
-                end = self.end_date.get().strip() or None
-                search = self.search_term.get().strip() or None
-                payment_filter = self.payment_method_var.get() if hasattr(self, 'payment_method_var') else 'Any'
-                refund_filter = self.refund_status_var.get() if hasattr(self, 'refund_status_var') else 'Any'
-                user_filter = self.user_var.get() if hasattr(self, 'user_var') else 'Any'
-                customer_filter = self.customer_var.get() if hasattr(self, 'customer_var') else 'Any'
+            # Get current filters
+            start = self.start_date.get().strip() or None
+            end = self.end_date.get().strip() or None
+            search = self.search_term.get().strip() or None
+            payment_filter = self.payment_method_var.get() if hasattr(self, 'payment_method_var') else 'Any'
+            refund_filter = self.refund_status_var.get() if hasattr(self, 'refund_status_var') else 'Any'
+            user_filter = self.user_var.get() if hasattr(self, 'user_var') else 'Any'
+            customer_filter = self.customer_var.get() if hasattr(self, 'customer_var') else 'Any'
             
             # Get filtered sales
             sales = receipts.list_sales_with_search(start, end, search, limit=10000)  # Higher limit for export
@@ -551,84 +551,84 @@ class OrderHistoryFrame(ttk.Frame):
             # Log the bulk export action
             current_user = getattr(self.master, 'current_user', {}).get('username', 'Unknown')
             log_audit_action("EXPORT_BULK", 0, current_user, f"Orders: {len(filtered_sales)}, File: {filename}, Filters: payment={payment_filter}, refund={refund_filter}, user={user_filter}, customer={customer_filter}")
-            
-            except Exception as e:
+        
+        except Exception as e:
             messagebox.showerror("Export Error", f"Failed to export orders: {e}")
         
         def _view_order_details(self) -> None:
             """Show detailed order information in a popup dialog."""
             try:
-            sale_id = self._selected_sale_id()
-            if not sale_id:
-                return
-            
-            # Get full sale details
-            sale_data = receipts.get_sale_with_items(sale_id)
-            if not sale_data:
+                sale_id = self._selected_sale_id()
+                if not sale_id:
+                    return
+                
+                # Get full sale details
+                sale_data = receipts.get_sale_with_items(sale_id)
+                if not sale_data:
                 messagebox.showerror("Error", "Order not found")
                 return
             
-            # Create popup window
-            popup = tk.Toplevel(self)
-            popup.withdraw()  # Hide until fully built
-            popup.title(f"Order Details - {sale_data.get('receipt_number', f'#{sale_id}')}")
-            set_window_icon(popup)
-            popup.transient(self.winfo_toplevel())
-            popup.columnconfigure(0, weight=1)
-            popup.rowconfigure(1, weight=1)
+                # Create popup window
+                popup = tk.Toplevel(self)
+                popup.withdraw()  # Hide until fully built
+                popup.title(f"Order Details - {sale_data.get('receipt_number', f'#{sale_id}')}")
+                set_window_icon(popup)
+                popup.transient(self.winfo_toplevel())
+                popup.columnconfigure(0, weight=1)
+                popup.rowconfigure(1, weight=1)
             
-            currency = get_currency_code()
+                currency = get_currency_code()
             
-            # Header frame
-            header_frame = ttk.Frame(popup, padding=10)
-            header_frame.grid(row=0, column=0, sticky=tk.EW)
+                # Header frame
+                header_frame = ttk.Frame(popup, padding=10)
+                header_frame.grid(row=0, column=0, sticky=tk.EW)
             
-            ttk.Label(header_frame, text=f"Order #{sale_data.get('receipt_number', sale_id)}", 
+                ttk.Label(header_frame, text=f"Order #{sale_data.get('receipt_number', sale_id)}", 
                      font=("Segoe UI", 14, "bold")).grid(row=0, column=0, columnspan=4, sticky=tk.W, pady=(0, 10))
             
-            # Order info
-            ttk.Label(header_frame, text="Date:").grid(row=1, column=0, sticky=tk.W)
-            ttk.Label(header_frame, text=f"{sale_data['date']} {sale_data['time']}").grid(row=1, column=1, sticky=tk.W, padx=(10, 20))
+                # Order info
+                ttk.Label(header_frame, text="Date:").grid(row=1, column=0, sticky=tk.W)
+                ttk.Label(header_frame, text=f"{sale_data['date']} {sale_data['time']}").grid(row=1, column=1, sticky=tk.W, padx=(10, 20))
             
-            ttk.Label(header_frame, text="Customer:").grid(row=1, column=2, sticky=tk.W)
-            ttk.Label(header_frame, text=sale_data.get('customer_name', 'Walk-in')).grid(row=1, column=3, sticky=tk.W, padx=(10, 0))
+                ttk.Label(header_frame, text="Customer:").grid(row=1, column=2, sticky=tk.W)
+                ttk.Label(header_frame, text=sale_data.get('customer_name', 'Walk-in')).grid(row=1, column=3, sticky=tk.W, padx=(10, 0))
             
-            ttk.Label(header_frame, text="Cashier:").grid(row=2, column=0, sticky=tk.W)
-            ttk.Label(header_frame, text=sale_data.get('username', 'Unknown')).grid(row=2, column=1, sticky=tk.W, padx=(10, 20))
+                ttk.Label(header_frame, text="Cashier:").grid(row=2, column=0, sticky=tk.W)
+                ttk.Label(header_frame, text=sale_data.get('username', 'Unknown')).grid(row=2, column=1, sticky=tk.W, padx=(10, 20))
             
-            ttk.Label(header_frame, text="Payment:").grid(row=2, column=2, sticky=tk.W)
-            ttk.Label(header_frame, text=sale_data.get('payment_method', 'Cash')).grid(row=2, column=3, sticky=tk.W, padx=(10, 0))
+                ttk.Label(header_frame, text="Payment:").grid(row=2, column=2, sticky=tk.W)
+                ttk.Label(header_frame, text=sale_data.get('payment_method', 'Cash')).grid(row=2, column=3, sticky=tk.W, padx=(10, 0))
             
-            # Items frame
-            items_frame = ttk.Frame(popup, padding=10)
-            items_frame.grid(row=1, column=0, sticky=tk.NSEW, padx=10, pady=(0, 10))
-            items_frame.columnconfigure(0, weight=1)
-            items_frame.rowconfigure(0, weight=1)
+                # Items frame
+                items_frame = ttk.Frame(popup, padding=10)
+                items_frame.grid(row=1, column=0, sticky=tk.NSEW, padx=10, pady=(0, 10))
+                items_frame.columnconfigure(0, weight=1)
+                items_frame.rowconfigure(0, weight=1)
             
-            ttk.Label(items_frame, text="Items:", font=("Segoe UI", 11, "bold")).grid(row=0, column=0, sticky=tk.W, pady=(0, 5))
+                ttk.Label(items_frame, text="Items:", font=("Segoe UI", 11, "bold")).grid(row=0, column=0, sticky=tk.W, pady=(0, 5))
             
-            # Items treeview
-            columns = ("item", "qty", "price", "total")
-            items_tree = ttk.Treeview(items_frame, columns=columns, show="headings", height=8)
-            items_tree.heading("item", text="Item")
-            items_tree.heading("qty", text="Quantity")
-            items_tree.heading("price", text="Unit Price")
-            items_tree.heading("total", text="Total")
+                # Items treeview
+                columns = ("item", "qty", "price", "total")
+                items_tree = ttk.Treeview(items_frame, columns=columns, show="headings", height=8)
+                items_tree.heading("item", text="Item")
+                items_tree.heading("qty", text="Quantity")
+                items_tree.heading("price", text="Unit Price")
+                items_tree.heading("total", text="Total")
             
-            items_tree.column("item", width=200, minwidth=150)
-            items_tree.column("qty", width=80, minwidth=60, anchor=tk.CENTER)
-            items_tree.column("price", width=100, minwidth=80, anchor=tk.E)
-            items_tree.column("total", width=100, minwidth=80, anchor=tk.E)
+                items_tree.column("item", width=200, minwidth=150)
+                items_tree.column("qty", width=80, minwidth=60, anchor=tk.CENTER)
+                items_tree.column("price", width=100, minwidth=80, anchor=tk.E)
+                items_tree.column("total", width=100, minwidth=80, anchor=tk.E)
             
-            items_tree.grid(row=1, column=0, sticky=tk.NSEW)
+                items_tree.grid(row=1, column=0, sticky=tk.NSEW)
             
-            # Scrollbar for items
-            items_scroll = ttk.Scrollbar(items_frame, orient=tk.VERTICAL, command=items_tree.yview)
-            items_scroll.grid(row=1, column=1, sticky=tk.NS)
-            items_tree.configure(yscrollcommand=items_scroll.set)
+                # Scrollbar for items
+                items_scroll = ttk.Scrollbar(items_frame, orient=tk.VERTICAL, command=items_tree.yview)
+                items_scroll.grid(row=1, column=1, sticky=tk.NS)
+                items_tree.configure(yscrollcommand=items_scroll.set)
             
-            # Populate items
-            for item in sale_data["items"]:
+                # Populate items
+                for item in sale_data["items"]:
                 item_name = item.get("name", "Unknown")
                 qty = item["quantity"]
                 price = item["price"]
@@ -641,68 +641,68 @@ class OrderHistoryFrame(ttk.Frame):
                     f"{currency} {total:.2f}"
                 ))
             
-            # Summary frame
-            summary_frame = ttk.Frame(popup, padding=10)
-            summary_frame.grid(row=2, column=0, sticky=tk.EW)
+                # Summary frame
+                summary_frame = ttk.Frame(popup, padding=10)
+                summary_frame.grid(row=2, column=0, sticky=tk.EW)
             
-            ttk.Label(summary_frame, text="Order Summary:", font=("Segoe UI", 11, "bold")).grid(row=0, column=0, columnspan=2, sticky=tk.W, pady=(0, 10))
+                ttk.Label(summary_frame, text="Order Summary:", font=("Segoe UI", 11, "bold")).grid(row=0, column=0, columnspan=2, sticky=tk.W, pady=(0, 10))
             
-            # Summary details
-            subtotal = sale_data.get("subtotal", sum(item["price"] * item["quantity"] for item in sale_data["items"]))
-            vat_amount = sale_data.get("vat_amount", 0)
-            discount_amount = sale_data.get("discount_amount", 0)
-            total = sale_data["total"]
+                # Summary details
+                subtotal = sale_data.get("subtotal", sum(item["price"] * item["quantity"] for item in sale_data["items"]))
+                vat_amount = sale_data.get("vat_amount", 0)
+                discount_amount = sale_data.get("discount_amount", 0)
+                total = sale_data["total"]
             
-            ttk.Label(summary_frame, text="Subtotal:").grid(row=1, column=0, sticky=tk.W)
-            ttk.Label(summary_frame, text=f"{currency} {subtotal:.2f}").grid(row=1, column=1, sticky=tk.E, padx=(10, 0))
+                ttk.Label(summary_frame, text="Subtotal:").grid(row=1, column=0, sticky=tk.W)
+                ttk.Label(summary_frame, text=f"{currency} {subtotal:.2f}").grid(row=1, column=1, sticky=tk.E, padx=(10, 0))
             
-            if vat_amount > 0:
+                if vat_amount > 0:
                 ttk.Label(summary_frame, text="VAT:").grid(row=2, column=0, sticky=tk.W)
                 ttk.Label(summary_frame, text=f"{currency} {vat_amount:.2f}").grid(row=2, column=1, sticky=tk.E, padx=(10, 0))
             
-            if discount_amount > 0:
+                if discount_amount > 0:
                 ttk.Label(summary_frame, text="Discount:").grid(row=3, column=0, sticky=tk.W)
                 ttk.Label(summary_frame, text=f"{currency} {discount_amount:.2f}").grid(row=3, column=1, sticky=tk.E, padx=(10, 0))
             
-            ttk.Label(summary_frame, text="Total:", font=("Segoe UI", 10, "bold")).grid(row=4, column=0, sticky=tk.W, pady=(10, 0))
-            ttk.Label(summary_frame, text=f"{currency} {total:.2f}", font=("Segoe UI", 10, "bold")).grid(row=4, column=1, sticky=tk.E, padx=(10, 0), pady=(10, 0))
+                ttk.Label(summary_frame, text="Total:", font=("Segoe UI", 10, "bold")).grid(row=4, column=0, sticky=tk.W, pady=(10, 0))
+                ttk.Label(summary_frame, text=f"{currency} {total:.2f}", font=("Segoe UI", 10, "bold")).grid(row=4, column=1, sticky=tk.E, padx=(10, 0), pady=(10, 0))
             
-            # Payment info
-            ttk.Label(summary_frame, text="Amount Paid:").grid(row=5, column=0, sticky=tk.W)
-            ttk.Label(summary_frame, text=f"{currency} {sale_data.get('payment_received', total):.2f}").grid(row=5, column=1, sticky=tk.E, padx=(10, 0))
+                # Payment info
+                ttk.Label(summary_frame, text="Amount Paid:").grid(row=5, column=0, sticky=tk.W)
+                ttk.Label(summary_frame, text=f"{currency} {sale_data.get('payment_received', total):.2f}").grid(row=5, column=1, sticky=tk.E, padx=(10, 0))
             
-            change = sale_data.get("change", 0)
-            if change > 0:
+                change = sale_data.get("change", 0)
+                if change > 0:
                 ttk.Label(summary_frame, text="Change:").grid(row=6, column=0, sticky=tk.W)
                 ttk.Label(summary_frame, text=f"{currency} {change:.2f}").grid(row=6, column=1, sticky=tk.E, padx=(10, 0))
             
-            # Status (Voided, Refunded, or Regular Sale)
-            is_voided = sale_data.get("voided", 0) == 1
-            sid = sale_data["sale_id"]
+                # Status (Voided, Refunded, or Regular Sale)
+                is_voided = sale_data.get("voided", 0) == 1
+                sid = sale_data["sale_id"]
             
-            if is_voided:
+                if is_voided:
                 order_status = "Voided"
                 status_color = "red"
-            elif refunds.is_sale_fully_refunded(sid):
+                elif refunds.is_sale_fully_refunded(sid):
                 order_status = "Fully Refunded"
                 status_color = "orange"
-            elif refunds.get_refunded_quantities_for_sale(sid):
+                elif refunds.get_refunded_quantities_for_sale(sid):
                 order_status = "Partially Refunded"
                 status_color = "orange"
-            else:
+                else:
                 order_status = "Regular Sale"
                 status_color = "green"
             
-            ttk.Label(summary_frame, text="Status:").grid(row=7, column=0, sticky=tk.W, pady=(10, 0))
-            status_label = ttk.Label(summary_frame, text=order_status, foreground=status_color)
-            status_label.grid(row=7, column=1, sticky=tk.E, padx=(10, 0), pady=(10, 0))
+                ttk.Label(summary_frame, text="Status:").grid(row=7, column=0, sticky=tk.W, pady=(10, 0))
+                status_label = ttk.Label(summary_frame, text=order_status, foreground=status_color)
+                status_label.grid(row=7, column=1, sticky=tk.E, padx=(10, 0), pady=(10, 0))
             
-            # Set geometry and show
-            popup.update_idletasks()
-            popup.geometry("700x600")
-            popup.deiconify()
+                # Set geometry and show
+                popup.update_idletasks()
+                popup.geometry("700x600")
+                popup.deiconify()
             
-            except Exception as e:
+                except Exception as e:
             messagebox.showerror("Error", f"Failed to view order details: {e}")
         
         def _refund_order(self) -> None:
