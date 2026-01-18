@@ -1,0 +1,16 @@
+{
+  "loyalty_enabled": true,
+  "points_per_dollar": 1,
+  "redemption_rate": 100,
+  "points_expiry_months": 24,
+  "min_points_redemption": 100,
+  "max_redemption_percent": 50,
+  "welcome_points": 100,
+  "birthday_bonus_points": 200,
+  "tier_levels": {
+    "bronze": {"min_points": 0, "multiplier": 1.0},
+    "silver": {"min_points": 1000, "multiplier": 1.25},
+    "gold": {"min_points": 5000, "multiplier": 1.5},
+    "platinum": {"min_points": 10000, "multiplier": 2.0}
+  }
+}

@@ -123,6 +123,7 @@ class VatSettingsFrame(ttk.Frame):
         dialog.transient(self.winfo_toplevel())
         dialog.grab_set()
         dialog.geometry("400x200")
+        dialog.resizable(True, True)
 
         fields = {
             "rate": tk.StringVar(value=str(existing.get("rate", 0.0)) if existing else "0.0"),

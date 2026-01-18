@@ -486,7 +486,7 @@ class AdminSetupFrame(ttk.Frame):
         recovery_window = tk.Toplevel(self.parent)
         recovery_window.title("Setup Recovery")
         recovery_window.geometry("500x400")
-        recovery_window.resizable(False, False)
+        recovery_window.resizable(True, True)
         recovery_window.transient(self.parent)
         recovery_window.grab_set()
         

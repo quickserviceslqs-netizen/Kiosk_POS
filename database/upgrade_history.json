@@ -1,0 +1,50 @@
+[
+  {
+    "id": "1.1.0",
+    "version": "1.1.0",
+    "applied_at": "2026-01-18T12:24:02.158072",
+    "success": true,
+    "manifest": {
+      "version": "1.1.0",
+      "steps": [
+        {
+          "type": "sql",
+          "file": "sql/001_create_table.sql"
+        }
+      ]
+    },
+    "logs": [
+      "[2026-01-18T12:24:02.097365] INFO: Starting upgrade process",
+      "[2026-01-18T12:24:02.120870] INFO: Package validated: 1.1.0",
+      "[2026-01-18T12:24:02.125116] INFO: Package extracted to C:\\Users\\ADMIN\\AppData\\Local\\Temp\\upgrade_oxaz0yni",
+      "[2026-01-18T12:24:02.131531] INFO: Database backed up to C:\\Users\\ADMIN\\AppData\\Local\\Temp\\upgrade_backup_ynpeqvs1\\pos_test.db.bak",
+      "[2026-01-18T12:24:02.132552] INFO: Starting step #1: type=sql",
+      "[2026-01-18T12:24:02.157541] INFO: Applied SQL: sql/001_create_table.sql",
+      "[2026-01-18T12:24:02.157593] INFO: Completed step #1",
+      "[2026-01-18T12:24:02.157602] INFO: All database changes committed"
+    ],
+    "backup_paths": [
+      "C:\\Users\\ADMIN\\AppData\\Local\\Temp\\upgrade_backup_ynpeqvs1"
+    ],
+    "rollback_operations": [
+      {
+        "operation_type": "db_restore",
+        "original_path": "C:\\Users\\ADMIN\\AppData\\Local\\Temp\\tmpptmg5wjl\\pos_test.db",
+        "backup_path": "C:\\Users\\ADMIN\\AppData\\Local\\Temp\\upgrade_backup_ynpeqvs1\\pos_test.db.bak",
+        "new_path": null,
+        "db_changes": null,
+        "command": null
+      },
+      {
+        "operation_type": "db_changes",
+        "original_path": null,
+        "backup_path": null,
+        "new_path": null,
+        "db_changes": [
+          "DROP TABLE IF EXISTS t_upgrade;"
+        ],
+        "command": null
+      }
+    ]
+  }
+]

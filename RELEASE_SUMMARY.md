@@ -17,6 +17,9 @@
 3. **Cross-Platform Testing**: Test installer on clean Windows 10/11 VMs
 4. **GitHub Release**: Create release with artifacts and documentation
 
+## 🆕 Inventory UX update
+- **Variant grouping**: Inventory list now groups items with variants as an expandable parent row showing **Name, Category, Unit** and aggregated quantity, with variants displayed as child rows (variant names, price, qty). A new **"Show variants inline"** toggle in the Inventory header allows switching back to the flat item list. This reduces noise and surfaces variant-level stock information more clearly.
+
 ## 📁 Files Ready for Distribution:
 total 95268
 drwxrwxrwx+  2 codespace root          4096 Jan 10 15:26 .

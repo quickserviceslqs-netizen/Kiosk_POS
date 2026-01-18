@@ -28,7 +28,7 @@ class CheckoutDialog:
         set_window_icon(dialog)
         dialog.transient(parent)
         dialog.grab_set()
-        dialog.resizable(False, False)
+        dialog.resizable(True, True)
 
         # Recalculate VAT and totals based on canonical per-item line totals
         # Prefer stored '_line_total' (set by POS refresh); fall back to computed values.

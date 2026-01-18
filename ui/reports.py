@@ -45,6 +45,8 @@ class ReportsFrame(ttk.Frame):
         ttk.Radiobutton(controls, text="Transactions", variable=self.report_type, value="transactions").grid(row=0, column=6, padx=4)
         ttk.Radiobutton(controls, text="Payment Methods", variable=self.report_type, value="payment_methods").grid(row=0, column=7, padx=4)
         ttk.Radiobutton(controls, text="Trends", variable=self.report_type, value="trends").grid(row=0, column=8, padx=4)
+        ttk.Radiobutton(controls, text="Voided Sales & Refunds", variable=self.report_type, value="voided").grid(row=0, column=9, padx=4)
+        ttk.Radiobutton(controls, text="Sales Log", variable=self.report_type, value="sales_log").grid(row=0, column=10, padx=4)
 
         ttk.Label(controls, text="Start Date:").grid(row=1, column=0, padx=4, pady=(8, 0), sticky=tk.W)
         start_frame = ttk.Frame(controls)
@@ -120,6 +122,10 @@ class ReportsFrame(ttk.Frame):
                 self._show_payment_methods_report(start, end)
             elif report_type == "trends":
                 self._show_trends_report(start, end)
+            elif report_type == "voided":
+                self._show_voided_report(start, end)
+            elif report_type == "sales_log":
+                self._show_sales_log_report(start, end)
         except Exception as e:
             messagebox.showerror("Error", f"Failed to generate report: {e}")
 
@@ -246,29 +252,63 @@ class ReportsFrame(ttk.Frame):
         self.report_text.insert("1.0", output)
 
     def _show_transactions_report(self, start: str, end: str) -> None:
-        """Show detailed sales transactions with line items."""
+        """Show detailed sales transactions with line items, including voided sales and refunds."""
         currency_code = get_currency_code()
         transactions = reports.get_detailed_sales_transactions(start, end)
-        
-        output = f"DETAILED SALES TRANSACTIONS\n"
+
+        output = f"DETAILED SALES TRANSACTIONS (Including Voids & Refunds)\n"
         output += f"Period: {start} to {end}\n"
         output += "=" * 100 + "\n\n"
-        
+
         current_sale_id = None
+        current_transaction_type = None
+
         for transaction in transactions:
-            if transaction['sale_id'] != current_sale_id:
+            transaction_type = transaction.get('transaction_type', 'sale')
+
+            # Start new transaction block
+            if transaction['sale_id'] != current_sale_id or transaction_type != current_transaction_type:
                 if current_sale_id is not None:
                     output += "\n"
-                output += f"Receipt: {transaction['receipt_number']} | Date: {transaction['date']} {transaction['time']} | Total: {currency_code} {transaction['total']:.2f}\n"
-                output += f"Payment: {currency_code} {transaction['payment']:.2f} ({transaction.get('payment_method', 'Cash')})\n"
+
+                # Determine transaction type label
+                type_label = ""
+                if transaction_type == 'void':
+                    type_label = "[VOIDED] "
+                elif transaction_type == 'refund':
+                    type_label = "[REFUND] "
+
+                output += f"{type_label}Receipt: {transaction['receipt_number']} | Date: {transaction['date']} {transaction['time']} | Total: {currency_code} {transaction['total']:.2f}\n"
+
+                # Payment info (only for sales and voids)
+                if transaction_type in ['sale', 'void']:
+                    payment = transaction.get('payment')
+                    payment_method = transaction.get('payment_method', 'Cash')
+                    if payment is not None:
+                        output += f"Payment: {currency_code} {payment:.2f} ({payment_method})\n"
+                    else:
+                        output += f"Payment: Not recorded ({payment_method})\n"
+
+                # Void/refund reason
+                if transaction_type == 'void' and transaction.get('void_reason'):
+                    output += f"Void Reason: {transaction['void_reason']}\n"
+                elif transaction_type == 'refund' and transaction.get('refund_reason'):
+                    output += f"Refund Reason: {transaction['refund_reason']}\n"
+
                 output += "-" * 80 + "\n"
                 current_sale_id = transaction['sale_id']
-            
-            output += f"  {transaction['item_name']:<30} {transaction['category']:<15} Qty:{transaction['quantity']:<8} Price:{currency_code} {transaction['price']:<8.2f} Total:{currency_code} {transaction['line_total']:<8.2f}\n"
-        
+                current_transaction_type = transaction_type
+
+            # Item line (skip for refunds as they don't have detailed line items)
+            if transaction_type != 'refund':
+                output += f"  {transaction['item_name']:<30} {transaction['category']:<15} Qty:{transaction['quantity']:<8} Price:{currency_code} {transaction['price']:<8.2f} Total:{currency_code} {transaction['line_total']:<8.2f}\n"
+            else:
+                # For refunds, show the refund amount as a single line
+                output += f"  Refund Amount: {currency_code} {transaction['refund_amount']:.2f}\n"
+
         if not transactions:
             output += "No transactions found in this period.\n"
-        
+
         self.report_text.insert("1.0", output)
 
     def _show_payment_methods_report(self, start: str, end: str) -> None:
@@ -330,6 +370,130 @@ class ReportsFrame(ttk.Frame):
         
         self.report_text.insert("1.0", output)
 
+    def _show_voided_report(self, start: str, end: str) -> None:
+        """Show comprehensive voided sales and refunds report."""
+        currency_code = get_currency_code()
+        comprehensive = reports.get_comprehensive_sales_summary(start, end)
+        voided_sales = reports.get_voided_sales(start, end)
+        voided_by_reason = reports.get_voided_sales_by_reason(start, end)
+        refunds_by_reason = reports.get_refunds_by_reason(start, end)
+        daily_voided = reports.get_daily_voided_and_refunds(start, end)
+        
+        output = f"VOIDED SALES & REFUNDS REPORT\n"
+        output += f"Period: {start} to {end}\n"
+        output += "=" * 80 + "\n\n"
+        
+        # Summary metrics
+        output += "SUMMARY METRICS\n"
+        output += "-" * 40 + "\n"
+        output += f"Valid Transactions: {comprehensive.get('valid_transactions', 0)}\n"
+        output += f"Valid Sales Amount: {currency_code} {comprehensive.get('valid_sales_amount', 0):.2f}\n"
+        output += f"Avg Valid Transaction: {currency_code} {comprehensive.get('avg_valid_transaction', 0):.2f}\n"
+        output += f"Voided Transactions: {comprehensive.get('voided_transactions', 0)}\n"
+        output += f"Voided Amount: {currency_code} {comprehensive.get('voided_amount', 0):.2f}\n"
+        output += f"Refund Count: {comprehensive.get('refund_count', 0)}\n"
+        output += f"Total Refunded: {currency_code} {comprehensive.get('total_refunded', 0):.2f}\n"
+        output += f"Net Sales: {currency_code} {comprehensive.get('net_sales', 0):.2f}\n"
+        output += f"Total Gross Sales: {currency_code} {comprehensive.get('total_gross_sales', 0):.2f}\n\n"
+        
+        # Voided sales by reason
+        if voided_by_reason:
+            output += "VOIDED SALES BY REASON\n"
+            output += "-" * 40 + "\n"
+            output += f"{'Reason':<20} {'Count':<8} {'Total Amount':<15}\n"
+            output += "-" * 40 + "\n"
+            for reason in voided_by_reason:
+                output += f"{reason['reason']:<20} {reason['count']:<8} {currency_code} {reason['total_amount']:<14.2f}\n"
+            output += "\n"
+        
+        # Refunds by reason
+        if refunds_by_reason:
+            output += "REFUNDS BY REASON\n"
+            output += "-" * 40 + "\n"
+            output += f"{'Reason':<20} {'Count':<8} {'Total Amount':<15}\n"
+            output += "-" * 40 + "\n"
+            for reason in refunds_by_reason:
+                output += f"{reason['reason']:<20} {reason['count']:<8} {currency_code} {reason['total_amount']:<14.2f}\n"
+            output += "\n"
+        
+        # Daily breakdown
+        if daily_voided:
+            output += "DAILY BREAKDOWN\n"
+            output += "-" * 40 + "\n"
+            output += f"{'Date':<12} {'Voided':<8} {'Void Amt':<12} {'Refunds':<8} {'Ref Amt':<12}\n"
+            output += "-" * 40 + "\n"
+            for day in daily_voided:
+                if day['voided_count'] > 0 or day['refund_count'] > 0:
+                    output += f"{day['date']:<12} {day['voided_count']:<8} {currency_code} {day['voided_amount']:<11.2f} {day['refund_count']:<8} {currency_code} {day['refunded_amount']:<11.2f}\n"
+            output += "\n"
+        
+        # Detailed voided sales
+        if voided_sales:
+            output += "DETAILED VOIDED SALES\n"
+            output += "-" * 80 + "\n"
+            output += f"{'Date':<12} {'Time':<10} {'Receipt #':<15} {'Items':<6} {'Amount':<12} {'Voided By':<15} {'Reason':<15}\n"
+            output += "-" * 80 + "\n"
+            for sale in voided_sales[:50]:  # Limit to 50 for readability
+                receipt = sale.get('receipt_number', f"#{sale['sale_id']}")[:14]
+                voided_by = sale.get('voided_by_username', 'Unknown')[:14]
+                reason = sale.get('void_reason', 'N/A')[:14]
+                output += f"{sale['date']:<12} {sale['time']:<10} {receipt:<15} {sale['item_count']:<6} {currency_code} {sale['total']:<11.2f} {voided_by:<15} {reason:<15}\n"
+            
+            if len(voided_sales) > 50:
+                output += f"\n... and {len(voided_sales) - 50} more voided sales\n"
+        
+        if not voided_sales and not voided_by_reason and not refunds_by_reason:
+            output += "No voided sales or refunds found in this period.\n"
+        
+        self.report_text.insert("1.0", output)
+
+    def _show_sales_log_report(self, start: str, end: str) -> None:
+        """Show comprehensive sales log with all transactions, refunds, and voids."""
+        currency_code = get_currency_code()
+
+        # Get total count for pagination info
+        total_count = reports.get_sales_log_count(start, end)
+
+        # Get paginated results (limit to reasonable amount for display)
+        transactions = reports.get_comprehensive_sales_log(start, end, limit=200, offset=0)
+
+        output = f"COMPREHENSIVE SALES LOG\n"
+        output += f"Period: {start} to {end}\n"
+        output += f"Total Transactions: {total_count}\n"
+        output += "=" * 140 + "\n\n"
+
+        output += f"{'Date':<12} {'Time':<10} {'Type':<8} {'Receipt/ID':<15} {'Amount':<12} {'Payment':<12} {'Change':<10} {'Method':<12} {'User':<15} {'Description':<30}\n"
+        output += "-" * 140 + "\n"
+
+        for transaction in transactions:
+            date = transaction.get('date', '')[:10]  # Extract date part
+            time_display = transaction.get('time_display', transaction.get('time', ''))[:8]  # Extract time part
+            trans_type = (transaction.get('transaction_type') or 'unknown')[:7].upper()  # SALE, VOID, REFUND
+            receipt_id = str(transaction.get('receipt_number', transaction.get('transaction_id', '')))[:14]
+            amount = f"{currency_code} {transaction.get('amount', 0):.2f}"
+            payment = f"{currency_code} {transaction.get('payment', 0):.2f}" if transaction.get('payment') else '-'
+            change = f"{currency_code} {transaction.get('change', 0):.2f}" if transaction.get('change') else '-'
+            method = (transaction.get('payment_method') or '-')[:11]
+            user = (transaction.get('user_name') or 'Unknown')[:14]
+            description = transaction.get('description', '')[:29]
+
+            output += f"{date:<12} {time_display:<10} {trans_type:<8} {receipt_id:<15} {amount:<12} {payment:<12} {change:<10} {method:<12} {user:<15} {description:<30}\n"
+
+            # Add additional details for sales transactions
+            if transaction.get('transaction_type') == 'sale' and transaction.get('items_summary'):
+                items = transaction['items_summary']
+                if len(items) > 60:  # Truncate long item lists
+                    items = items[:57] + "..."
+                output += f"{'':<12} {'':<10} {'':<8} {'Items:':<15} {items}\n"
+
+        if len(transactions) < total_count:
+            output += f"\n... and {total_count - len(transactions)} more transactions (showing first 200)\n"
+
+        if not transactions:
+            output += "No transactions found in this period.\n"
+
+        self.report_text.insert("1.0", output)
+
     def refresh(self) -> None:
         currency_code = get_currency_code()
         report_type = self.report_type.get()
@@ -353,23 +517,25 @@ class ReportsFrame(ttk.Frame):
                 self._show_payment_methods_report(start, end)
             elif report_type == "trends":
                 self._show_trends_report(start, end)
+            elif report_type == "voided":
+                self._show_voided_report(start, end)
         except Exception as e:
             messagebox.showerror("Error", f"Failed to generate report: {e}")
 
     def _download_report(self) -> None:
-        """Download the current report as a text or CSV file."""
+        """Download the current report as a text or CSV file with progress feedback for large datasets."""
         content = self.report_text.get("1.0", tk.END).strip()
         if not content:
             messagebox.showwarning("No Report", "Please generate a report first")
             return
-        
+
         # Determine report type from current selection
         report_type = self.report_type.get()
         start = self.start_date.get()
         end = self.end_date.get()
-        
-        filetypes = [("Text files", "*.txt"), ("CSV files", "*.csv"), ("All files", "*.*")]
-        
+
+        filetypes = [("CSV files", "*.csv"), ("Text files", "*.txt"), ("Excel files", "*.xlsx"), ("All files", "*.*")]
+
         filename = filedialog.asksaveasfilename(
             title="Download Report",
             defaultextension=".csv",
@@ -377,13 +543,26 @@ class ReportsFrame(ttk.Frame):
         )
         if not filename:
             return
-        
+
         try:
+            # Check if this is a potentially large dataset
+            is_large_dataset = self._is_large_dataset(report_type, start, end)
+
+            if is_large_dataset:
+                # Show progress dialog for large exports
+                progress_result = self._show_export_progress_dialog(report_type, start, end, filename)
+                if progress_result:
+                    messagebox.showinfo("Download", f"Report downloaded to {filename}")
+                return
+
+            # For smaller datasets, use the original method
             if filename.endswith(".csv"):
                 # Generate CSV from data
                 csv_content = self._generate_csv_data(report_type, start, end)
                 with open(filename, 'w', newline='', encoding='utf-8') as f:
                     f.write(csv_content)
+            elif filename.endswith(".xlsx"):
+                self._generate_excel_data(report_type, start, end, filename)
             else:
                 with open(filename, 'w', encoding='utf-8') as f:
                     f.write(content)
@@ -498,14 +677,28 @@ class ReportsFrame(ttk.Frame):
                     
             elif report_type == "transactions":
                 transactions = reports.get_detailed_sales_transactions(start, end)
-                
-                writer.writerow(["Detailed Sales Transactions"])
+
+                writer.writerow(["Detailed Sales Transactions (Including Voids & Refunds)"])
                 writer.writerow([f"Period: {start} to {end}"])
                 writer.writerow([])
-                writer.writerow(["Receipt", "Date", "Time", "Item Name", "Category", "Quantity", "Price", "Line Total", "Sale Total", "Payment Method"])
-                
+
+                # Create a single table with Sale Type column
+                writer.writerow(["Sale Type", "Receipt", "Date", "Time", "Item Name", "Category", "Quantity", "Price", "Line Total", "Sale Total", "Payment", "Payment Method", "Void Reason", "Refund Reason"])
+
                 for transaction in transactions:
+                    # Determine sale type label
+                    transaction_type = transaction.get('transaction_type', 'sale')
+                    if transaction_type == 'sale':
+                        sale_type = 'Regular Sale'
+                    elif transaction_type == 'void':
+                        sale_type = 'Voided Sale'
+                    elif transaction_type == 'refund':
+                        sale_type = 'Refund'
+                    else:
+                        sale_type = 'Unknown'
+
                     writer.writerow([
+                        sale_type,
                         transaction['receipt_number'],
                         transaction['date'],
                         transaction['time'],
@@ -515,10 +708,11 @@ class ReportsFrame(ttk.Frame):
                         transaction['price'],
                         transaction['line_total'],
                         transaction['total'],
-                        transaction.get('payment_method', 'Cash')
+                        transaction.get('payment', ''),
+                        transaction.get('payment_method', ''),
+                        transaction.get('void_reason', ''),
+                        transaction.get('refund_reason', '')
                     ])
-                    
-            elif report_type == "payment_methods":
                 payment_data = reports.get_sales_by_payment_method(start, end)
                 
                 writer.writerow(["Sales by Payment Method"])
@@ -573,7 +767,7 @@ class ReportsFrame(ttk.Frame):
         top.title("Select Start Date")
         set_window_icon(top)
         top.geometry("350x350")
-        top.resizable(False, False)
+        top.resizable(True, True)
         # Make it modal - block interaction with main window until closed
         top.transient(root)
         top.grab_set()
@@ -610,7 +804,7 @@ class ReportsFrame(ttk.Frame):
         set_window_icon(top)
         top.title("Select End Date")
         top.geometry("350x350")
-        top.resizable(False, False)
+        top.resizable(True, True)
         # Make it modal - block interaction with main window until closed
         top.transient(root)
         top.grab_set()
@@ -633,3 +827,494 @@ class ReportsFrame(ttk.Frame):
         button_frame.pack(pady=10)
         ttk.Button(button_frame, text="OK", command=on_select).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="Cancel", command=top.destroy).pack(side=tk.LEFT, padx=5)
+
+    def _is_large_dataset(self, report_type: str, start: str, end: str) -> bool:
+        """Determine if a dataset is large enough to warrant progress feedback."""
+        try:
+            # Check based on report type and date range
+            if report_type in ["transactions", "voided"]:
+                # For detailed transaction reports, check the estimated row count
+                from datetime import datetime
+                start_date = datetime.strptime(start, "%Y-%m-%d")
+                end_date = datetime.strptime(end, "%Y-%m-%d")
+                days_diff = (end_date - start_date).days + 1
+
+                # Estimate based on historical data - assume 50 transactions per day as threshold
+                if days_diff > 30:  # More than a month
+                    return True
+                elif days_diff > 7 and report_type == "transactions":  # More than a week for detailed transactions
+                    return True
+
+            elif report_type == "daily" and start != end:
+                # Daily reports spanning multiple days
+                from datetime import datetime
+                start_date = datetime.strptime(start, "%Y-%m-%d")
+                end_date = datetime.strptime(end, "%Y-%m-%d")
+                days_diff = (end_date - start_date).days + 1
+                if days_diff > 30:
+                    return True
+
+            return False
+        except:
+            return False
+
+    def _show_export_progress_dialog(self, report_type: str, start: str, end: str, filename: str) -> bool:
+        """Show a progress dialog for large dataset exports."""
+        import threading
+        import queue
+
+        # Create progress dialog
+        progress_window = tk.Toplevel(self)
+        progress_window.title("Exporting Report")
+        progress_window.geometry("400x150")
+        progress_window.resizable(True, True)
+        progress_window.transient(self.winfo_toplevel())
+        progress_window.grab_set()
+        set_window_icon(progress_window)
+
+        # Center the dialog
+        progress_window.geometry("+{}+{}".format(
+            self.winfo_rootx() + self.winfo_width() // 2 - 200,
+            self.winfo_rooty() + self.winfo_height() // 2 - 75
+        ))
+
+        ttk.Label(progress_window, text="Exporting report data...", font=("Segoe UI", 10)).pack(pady=(20, 10))
+        progress_bar = ttk.Progressbar(progress_window, mode="indeterminate", length=300)
+        progress_bar.pack(pady=(0, 10))
+        progress_bar.start(10)
+
+        status_label = ttk.Label(progress_window, text="Preparing export...")
+        status_label.pack(pady=(0, 20))
+
+        # Queue for communication between threads
+        result_queue = queue.Queue()
+
+        def export_worker():
+            try:
+                if filename.endswith(".xlsx"):
+                    self._generate_excel_data_streaming(report_type, start, end, filename, status_label)
+                else:
+                    self._generate_csv_data_streaming(report_type, start, end, filename, status_label)
+                result_queue.put(True)
+            except Exception as e:
+                result_queue.put(e)
+
+        # Start export in background thread
+        export_thread = threading.Thread(target=export_worker, daemon=True)
+        export_thread.start()
+
+        def check_result():
+            try:
+                result = result_queue.get_nowait()
+                progress_window.destroy()
+                if isinstance(result, Exception):
+                    raise result
+                return True
+            except queue.Empty:
+                # Still running, check again
+                self.after(100, check_result)
+
+        # Start checking for completion
+        self.after(100, check_result)
+
+        # Handle window close
+        def on_close():
+            if messagebox.askyesno("Cancel Export", "Are you sure you want to cancel the export?"):
+                progress_window.destroy()
+
+        progress_window.protocol("WM_DELETE_WINDOW", on_close)
+
+        return True
+
+    def _generate_csv_data_streaming(self, report_type: str, start: str, end: str, filename: str, status_label=None) -> None:
+        """Generate CSV data with streaming for large datasets."""
+        import csv
+
+        def update_status(message: str):
+            if status_label:
+                status_label.config(text=message)
+                status_label.update()
+
+        update_status("Initializing export...")
+
+        with open(filename, "w", newline="", encoding="utf-8") as csvfile:
+            writer = csv.writer(csvfile)
+
+            try:
+                if report_type == "daily":
+                    update_status("Fetching daily sales data...")
+                    sales = reports.get_daily_sales(start)
+                    summary = reports.get_sales_summary(start, start)
+                    refunds = reports.get_refunds(start, start)
+                    voided_sales = reports.get_voided_sales(start, start)
+
+                    # Write summary
+                    writer.writerow(["Daily Sales Report", start])
+                    writer.writerow([])
+                    writer.writerow(["Total Transactions", summary.get("total_transactions", 0) or 0])
+                    writer.writerow(["Total Sales", summary.get("total_sales", 0) or 0])
+                    writer.writerow(["Voided Sales", len(voided_sales)])
+                    writer.writerow(["Voided Amount", sum(v["total"] for v in voided_sales)])
+                    writer.writerow(["Refunds Issued", len(refunds)])
+                    writer.writerow(["Refund Amount", sum(r["refund_amount"] for r in refunds)])
+                    writer.writerow(["Net Sales", (summary.get("total_sales", 0) or 0) - sum(r["refund_amount"] for r in refunds)])
+                    writer.writerow(["Average Transaction", summary.get("avg_transaction", 0) or 0])
+                    writer.writerow([])
+
+                    # Write sales table
+                    writer.writerow(["Time", "Receipt Number", "Items", "Total"])
+                    for sale in sales:
+                        receipt = sale.get("receipt_number", f"#{sale['sale_id']}")
+                        writer.writerow([sale["time"], receipt, sale["item_count"], sale["total"]])
+
+                    # Write refunds
+                    if refunds:
+                        writer.writerow([])
+                        writer.writerow(["Refunds"])
+                        writer.writerow(["Time", "Refund Code", "Original Receipt", "Refund Amount"])
+                        for r in refunds:
+                            receipt = r.get("receipt_number", f"#{r['original_sale_id']}")
+                            time_part = r["created_at"].split()[1] if " " in r["created_at"] else r["created_at"]
+                            writer.writerow([time_part, r.get("refund_code",""), receipt, r["refund_amount"]])
+
+                elif report_type == "range":
+                    update_status("Fetching date range sales data...")
+                    daily_sales = reports.get_date_range_sales(start, end)
+                    summary = reports.get_sales_summary(start, end)
+                    refunds = reports.get_refunds(start, end)
+                    voided_sales = reports.get_voided_sales(start, end)
+
+                    writer.writerow(["Date Range Sales Report"])
+                    writer.writerow([f"Period: {start} to {end}"])
+                    writer.writerow([])
+                    writer.writerow(["Total Transactions", summary.get("total_transactions", 0) or 0])
+                    writer.writerow(["Total Sales", summary.get("total_sales", 0) or 0])
+                    writer.writerow(["Voided Sales", len(voided_sales)])
+                    writer.writerow(["Voided Amount", sum(v["total"] for v in voided_sales)])
+                    writer.writerow(["Refunds Issued", len(refunds)])
+                    writer.writerow(["Refund Amount", sum(r["refund_amount"] for r in refunds)])
+                    writer.writerow(["Net Sales", (summary.get("total_sales", 0) or 0) - sum(r["refund_amount"] for r in refunds)])
+                    writer.writerow(["Average Transaction", summary.get("avg_transaction", 0) or 0])
+                    writer.writerow([])
+
+                    writer.writerow(["Date", "Transactions", "Total Sales", "Average Sale"])
+                    for day in daily_sales:
+                        writer.writerow([day["date"], day["transactions"], day["total_sales"], day["avg_sale"]])
+
+                    if refunds:
+                        writer.writerow([])
+                        writer.writerow(["Refunds"])
+                        writer.writerow(["Date", "Refund Code", "Original Receipt", "Refund Amount"])
+                        for r in refunds:
+                            date_part = r["created_at"].split()[0] if " " in r["created_at"] else r["created_at"]
+                            receipt = r.get("receipt_number", f"#{r['original_sale_id']}")
+                            writer.writerow([date_part, r.get("refund_code",""), receipt, r["refund_amount"]])
+
+                elif report_type == "transactions":
+                    update_status("Fetching detailed transactions...")
+                    # Use batching for large transaction datasets
+                    batch_size = 1000
+                    offset = 0
+
+                    writer.writerow(["Detailed Sales Transactions (Including Voids & Refunds)"])
+                    writer.writerow([f"Period: {start} to {end}"])
+                    writer.writerow([])
+
+                    # Collect all transactions first
+                    update_status("Collecting all transactions...")
+                    all_transactions = []
+                    temp_offset = 0
+                    while True:
+                        batch = reports.get_detailed_sales_transactions(start, end, limit=batch_size, offset=temp_offset)
+                        if not batch:
+                            break
+                        all_transactions.extend(batch)
+                        temp_offset += batch_size
+                        if len(batch) < batch_size:
+                            break
+
+                    # Create a single table with Sale Type column
+                    writer.writerow(["Sale Type", "Receipt", "Date", "Time", "Item Name", "Category", "Quantity", "Price", "Line Total", "Sale Total", "Payment", "Payment Method", "Void Reason", "Refund Reason"])
+
+                    for transaction in all_transactions:
+                        # Determine sale type label
+                        transaction_type = transaction.get('transaction_type', 'sale')
+                        if transaction_type == 'sale':
+                            sale_type = 'Regular Sale'
+                        elif transaction_type == 'void':
+                            sale_type = 'Voided Sale'
+                        elif transaction_type == 'refund':
+                            sale_type = 'Refund'
+                        else:
+                            sale_type = 'Unknown'
+
+                        writer.writerow([
+                            sale_type,
+                            transaction["receipt_number"],
+                            transaction["date"],
+                            transaction["time"],
+                            transaction["item_name"],
+                            transaction["category"],
+                            transaction["quantity"],
+                            transaction["price"],
+                            transaction["line_total"],
+                            transaction["total"],
+                            transaction.get("payment", ""),
+                            transaction.get("payment_method", ""),
+                            transaction.get("void_reason", ""),
+                            transaction.get("refund_reason", "")
+                        ])
+
+                elif report_type == "voided":
+                    update_status("Fetching voided sales data...")
+                    comprehensive = reports.get_comprehensive_sales_summary(start, end)
+                    voided_sales = reports.get_voided_sales(start, end)
+                    voided_by_reason = reports.get_voided_sales_by_reason(start, end)
+                    refunds_by_reason = reports.get_refunds_by_reason(start, end)
+                    daily_voided = reports.get_daily_voided_and_refunds(start, end)
+
+                    writer.writerow(["Voided Sales & Refunds Report"])
+                    writer.writerow([f"Period: {start} to {end}"])
+                    writer.writerow([])
+
+                    # Summary
+                    writer.writerow(["Summary Metrics"])
+                    writer.writerow(["Valid Transactions", comprehensive.get("valid_transactions", 0)])
+                    writer.writerow(["Valid Sales Amount", comprehensive.get("valid_sales_amount", 0)])
+                    writer.writerow(["Avg Valid Transaction", comprehensive.get("avg_valid_transaction", 0)])
+                    writer.writerow(["Voided Transactions", comprehensive.get("voided_transactions", 0)])
+                    writer.writerow(["Voided Amount", comprehensive.get("voided_amount", 0)])
+                    writer.writerow(["Refund Count", comprehensive.get("refund_count", 0)])
+                    writer.writerow(["Total Refunded", comprehensive.get("total_refunded", 0)])
+                    writer.writerow(["Net Sales", comprehensive.get("net_sales", 0)])
+                    writer.writerow(["Total Gross Sales", comprehensive.get("total_gross_sales", 0)])
+                    writer.writerow([])
+
+                    # Voided sales by reason
+                    if voided_by_reason:
+                        writer.writerow(["Voided Sales by Reason"])
+                        writer.writerow(["Reason", "Count", "Total Amount"])
+                        for reason in voided_by_reason:
+                            writer.writerow([reason["reason"], reason["count"], reason["total_amount"]])
+                        writer.writerow([])
+
+                    # Refunds by reason
+                    if refunds_by_reason:
+                        writer.writerow(["Refunds by Reason"])
+                        writer.writerow(["Reason", "Count", "Total Amount"])
+                        for reason in refunds_by_reason:
+                            writer.writerow([reason["reason"], reason["count"], reason["total_amount"]])
+                        writer.writerow([])
+
+                    # Daily breakdown
+                    if daily_voided:
+                        writer.writerow(["Daily Breakdown"])
+                        writer.writerow(["Date", "Voided Count", "Voided Amount", "Refund Count", "Refunded Amount"])
+                        for day in daily_voided:
+                            if day["voided_count"] > 0 or day["refund_count"] > 0:
+                                writer.writerow([
+                                    day["date"],
+                                    day["voided_count"],
+                                    day["voided_amount"],
+                                    day["refund_count"],
+                                    day["refunded_amount"]
+                                ])
+                        writer.writerow([])
+
+                    # Detailed voided sales (batched)
+                    if voided_sales:
+                        writer.writerow(["Detailed Voided Sales"])
+                        writer.writerow(["Date", "Time", "Receipt Number", "Items", "Amount", "Voided By", "Reason"])
+
+                        batch_size = 500
+                        for i in range(0, len(voided_sales), batch_size):
+                            update_status(f"Processing voided sales batch {(i // batch_size) + 1}...")
+                            batch = voided_sales[i:i + batch_size]
+                            for sale in batch:
+                                receipt = sale.get("receipt_number", f"#{sale['sale_id']}")
+                                voided_by = sale.get("voided_by_username", "Unknown")
+                                reason = sale.get("void_reason", "N/A")
+                                writer.writerow([
+                                    sale["date"],
+                                    sale["time"],
+                                    receipt,
+                                    sale["item_count"],
+                                    sale["total"],
+                                    voided_by,
+                                    reason
+                                ])
+
+                update_status("Finalizing export...")
+
+            except Exception as e:
+                update_status(f"Error: {str(e)}")
+                raise
+
+    def _generate_excel_data(self, report_type: str, start: str, end: str, filename: str) -> None:
+        """Generate Excel file for reports."""
+        try:
+            import pandas as pd
+        except ImportError:
+            raise ImportError("pandas is required for Excel export. Install with: pip install pandas openpyxl")
+
+        try:
+            if report_type == "daily":
+                sales = reports.get_daily_sales(start)
+                summary = reports.get_sales_summary(start, start)
+                refunds = reports.get_refunds(start, start)
+                voided_sales = reports.get_voided_sales(start, start)
+
+                # Create summary DataFrame
+                summary_data = {
+                    "Metric": ["Total Transactions", "Total Sales", "Voided Sales", "Voided Amount", "Refunds Issued", "Refund Amount", "Net Sales", "Average Transaction"],
+                    "Value": [
+                        summary.get("total_transactions", 0) or 0,
+                        summary.get("total_sales", 0) or 0,
+                        len(voided_sales),
+                        sum(v["total"] for v in voided_sales),
+                        len(refunds),
+                        sum(r["refund_amount"] for r in refunds),
+                        (summary.get("total_sales", 0) or 0) - sum(r["refund_amount"] for r in refunds),
+                        summary.get("avg_transaction", 0) or 0
+                    ]
+                }
+                summary_df = pd.DataFrame(summary_data)
+
+                # Create sales DataFrame
+                sales_data = []
+                for sale in sales:
+                    receipt = sale.get("receipt_number", f"#{sale['sale_id']}")
+                    sales_data.append({
+                        "Time": sale["time"],
+                        "Receipt Number": receipt,
+                        "Items": sale["item_count"],
+                        "Total": sale["total"]
+                    })
+                sales_df = pd.DataFrame(sales_data)
+
+                with pd.ExcelWriter(filename, engine="openpyxl") as writer:
+                    summary_df.to_excel(writer, sheet_name="Summary", index=False)
+                    sales_df.to_excel(writer, sheet_name="Sales", index=False)
+
+                    if refunds:
+                        refunds_data = []
+                        for r in refunds:
+                            receipt = r.get("receipt_number", f"#{r['original_sale_id']}")
+                            time_part = r["created_at"].split()[1] if " " in r["created_at"] else r["created_at"]
+                            refunds_data.append({
+                                "Time": time_part,
+                                "Refund Code": r.get("refund_code", ""),
+                                "Original Receipt": receipt,
+                                "Refund Amount": r["refund_amount"]
+                            })
+                        refunds_df = pd.DataFrame(refunds_data)
+                        refunds_df.to_excel(writer, sheet_name="Refunds", index=False)
+
+            elif report_type == "transactions":
+                # For large transaction datasets, use chunked processing
+                batch_size = 50000  # Excel can handle large datasets but we'll be conservative
+                offset = 0
+                all_transactions = []
+
+                while True:
+                    transactions = reports.get_detailed_sales_transactions(start, end, limit=batch_size, offset=offset)
+                    if not transactions:
+                        break
+                    all_transactions.extend(transactions)
+                    offset += batch_size
+                    if len(transactions) < batch_size:
+                        break
+
+                # Create a single DataFrame with Sale Type column
+                if all_transactions:
+                    transactions_df = pd.DataFrame(all_transactions)
+
+                    # Add Sale Type column
+                    def get_sale_type(row):
+                        transaction_type = row.get('transaction_type', 'sale')
+                        if transaction_type == 'sale':
+                            return 'Regular Sale'
+                        elif transaction_type == 'void':
+                            return 'Voided Sale'
+                        elif transaction_type == 'refund':
+                            return 'Refund'
+                        else:
+                            return 'Unknown'
+
+                    transactions_df['Sale Type'] = transactions_df.apply(get_sale_type, axis=1)
+
+                    # Reorder columns to put Sale Type first
+                    cols = ['Sale Type', 'receipt_number', 'date', 'time', 'item_name', 'category', 'quantity', 'price', 'line_total', 'total', 'payment', 'payment_method', 'void_reason', 'refund_reason']
+                    transactions_df = transactions_df[cols]
+
+                    # Rename columns for better readability
+                    transactions_df.columns = ['Sale Type', 'Receipt', 'Date', 'Time', 'Item Name', 'Category', 'Quantity', 'Price', 'Line Total', 'Sale Total', 'Payment', 'Payment Method', 'Void Reason', 'Refund Reason']
+
+                    transactions_df.to_excel(filename, sheet_name="All Transactions", index=False)
+
+            else:
+                # For other report types, fall back to CSV-like approach
+                csv_content = self._generate_csv_data(report_type, start, end)
+                # Convert CSV to Excel
+                from io import StringIO
+                csv_io = StringIO(csv_content)
+                df = pd.read_csv(csv_io)
+                df.to_excel(filename, index=False)
+
+        except ImportError:
+            raise ImportError("Excel export requires pandas and openpyxl. Install with: pip install pandas openpyxl")
+
+    def _generate_excel_data_streaming(self, report_type: str, start: str, end: str, filename: str, status_label=None) -> None:
+        """Generate Excel data with streaming for very large datasets."""
+        try:
+            import pandas as pd
+        except ImportError:
+            # Fall back to CSV if pandas not available
+            return self._generate_csv_data_streaming(report_type, start, end, filename, status_label)
+
+        def update_status(message: str):
+            if status_label:
+                status_label.config(text=message)
+                status_label.update()
+
+        update_status("Preparing Excel export...")
+
+        try:
+            if report_type == "transactions":
+                # For very large transaction datasets, process in chunks
+                batch_size = 100000  # Large chunks for Excel
+                offset = 0
+
+                with pd.ExcelWriter(filename, engine="openpyxl") as writer:
+                    first_batch = True
+
+                    while True:
+                        update_status(f"Processing transaction batch {offset // batch_size + 1}...")
+                        transactions = reports.get_detailed_sales_transactions(start, end, limit=batch_size, offset=offset)
+
+                        if not transactions:
+                            break
+
+                        df = pd.DataFrame(transactions)
+
+                        if first_batch:
+                            df.to_excel(writer, sheet_name="Transactions", index=False)
+                            first_batch = False
+                        else:
+                            # Append to existing sheet (this will create multiple sheets if very large)
+                            sheet_name = f"Transactions_{offset // batch_size + 1}"
+                            df.to_excel(writer, sheet_name=sheet_name, index=False)
+
+                        offset += batch_size
+                        if len(transactions) < batch_size:
+                            break
+
+            else:
+                # For other reports, use regular Excel generation
+                self._generate_excel_data(report_type, start, end, filename)
+
+            update_status("Excel export completed")
+
+        except Exception as e:
+            update_status(f"Excel export failed: {str(e)}")
+            raise

@@ -8,7 +8,8 @@ from modules import items
 from modules import portions
 from modules import units_of_measure as uom
 from ui.checkout import CheckoutDialog
-from utils.security import get_currency_code
+from utils.cart_pubsub import subscribe_cart_changed, unsubscribe_cart_changed, notify_cart_changed
+from utils.security import get_currency_code, get_cart_vat_enabled, get_cart_discount_enabled, get_cart_suspend_enabled, get_payment_methods, subscribe_payment_methods, unsubscribe_payment_methods, get_payment_methods, subscribe_payment_methods, unsubscribe_payment_methods
 from utils.images import load_thumbnail
 
 
@@ -42,6 +43,34 @@ class PosFrame(ttk.Frame):
         self.bind("<Map>", lambda _e: self.ensure_populated())
         self.bind("<FocusIn>", lambda _e: self.ensure_populated())
         self.bind("<Visibility>", lambda _e: self.ensure_populated())
+
+        # Store references to conditionally shown widgets
+        self.vat_label = None
+        self.vat_display = None
+        self.discount_label = None
+        self.discount_entry = None
+        self.suspend_button = None
+        self.resume_button = None
+
+        # Subscribe to payment method changes to update combobox live
+        subscribe_payment_methods(self._on_payment_methods_changed)
+        self.bind("<Destroy>", lambda _e: unsubscribe_payment_methods(self._on_payment_methods_changed))
+
+        # Subscribe to cart change notifications to refresh view when cart is mutated elsewhere
+        subscribe_cart_changed(self._refresh_cart)
+        self.bind("<Destroy>", lambda _e: unsubscribe_cart_changed(self._refresh_cart))
+
+    def _on_payment_methods_changed(self) -> None:
+        try:
+            methods = get_payment_methods()
+            current = self.payment_method_var.get()
+            self.payment_combo['values'] = methods
+            if current not in methods:
+                self.payment_method_var.set(methods[0] if methods else "")
+        except Exception:
+            pass
+
+
 
     def _build_ui(self) -> None:
         # grid layout to avoid bottom clipping; two-column layout (left: catalog, right: cart)
@@ -130,38 +159,106 @@ class PosFrame(ttk.Frame):
         totals = ttk.Frame(cart_container)
         totals.grid(row=3, column=0, sticky=tk.EW, pady=(4, 6))
         totals.columnconfigure(1, weight=1)
+        self.totals_frame = totals
         ttk.Label(totals, text="Subtotal:").grid(row=0, column=0, sticky=tk.W)
         ttk.Label(totals, textvariable=self.subtotal_var, font=("Segoe UI", 11, "bold")).grid(row=0, column=1, sticky=tk.W, padx=(8, 0))
 
-        ttk.Label(totals, text="VAT:").grid(row=1, column=0, sticky=tk.W, pady=(2, 0))
-        ttk.Label(totals, textvariable=self.vat_var).grid(row=1, column=1, sticky=tk.W, padx=(8, 0))
+        # VAT display - will be shown/hidden dynamically
+        self.vat_label = ttk.Label(totals, text="VAT:")
+        self.vat_display = ttk.Label(totals, textvariable=self.vat_var)
 
-        ttk.Label(totals, text="Discount (%):").grid(row=2, column=0, sticky=tk.W, pady=(2, 0))
-        discount_entry = ttk.Entry(totals, textvariable=self.discount_var, width=8)
-        discount_entry.grid(row=2, column=1, sticky=tk.W, padx=(8, 0))
-        discount_entry.bind("<KeyRelease>", lambda _e: self._refresh_cart())
+        # Discount input - will be shown/hidden dynamically
+        self.discount_label = ttk.Label(totals, text="Discount (%):")
+        self.discount_entry = ttk.Entry(totals, textvariable=self.discount_var, width=8)
+        self.discount_entry.bind("<KeyRelease>", lambda _e: self._refresh_cart())
 
-        ttk.Label(totals, text="Payment Method:").grid(row=3, column=0, sticky=tk.W, pady=(2, 0))
-        payment_combo = ttk.Combobox(totals, textvariable=self.payment_method_var, values=["Cash", "M-Pesa", "Card"], width=10, state="readonly")
-        payment_combo.grid(row=3, column=1, sticky=tk.W, padx=(8, 0))
+        # Payment method (always shown)
+        self.payment_label = ttk.Label(totals, text="Payment Method:")
+        from utils.security import get_payment_methods
+        self.payment_combo = ttk.Combobox(totals, textvariable=self.payment_method_var, values=get_payment_methods(), width=10, state="readonly")
 
-        ttk.Label(totals, text="Total:").grid(row=4, column=0, sticky=tk.W, pady=(4, 0))
-        ttk.Label(totals, textvariable=self.total_var, font=("Segoe UI", 12, "bold")).grid(row=4, column=1, sticky=tk.W, padx=(8, 0))
+        # Total (always shown)
+        self.total_label = ttk.Label(totals, text="Total:")
+        self.total_display = ttk.Label(totals, textvariable=self.total_var, font=("Segoe UI", 12, "bold"))
 
         btn_frame = ttk.Frame(cart_container)
         btn_frame.grid(row=4, column=0, sticky=tk.W, pady=(6, 4))
+        self.actions_frame = btn_frame
         ttk.Button(btn_frame, text="Checkout / Save Sale", command=self._checkout).pack(side=tk.LEFT, padx=2)
-        ttk.Button(btn_frame, text="Suspend Cart", command=self._suspend_cart).pack(side=tk.LEFT, padx=2)
-        self.resume_btn = ttk.Button(btn_frame, text="Resume Cart", command=self._resume_cart)
-        self.resume_btn.pack(side=tk.LEFT, padx=2)
+
+        # Suspend/Resume buttons - created but not packed; layout will show/hide them
+        self.suspend_button = ttk.Button(btn_frame, text="Suspend Cart", command=self._suspend_cart)
+        self.resume_button = ttk.Button(btn_frame, text="Resume Cart", command=self._resume_cart)
+
         ttk.Button(btn_frame, text="Open Cart", command=self._goto_cart).pack(side=tk.LEFT, padx=2)
+        
+        # Initialize UI layout
+        self._update_ui_layout()
+        self._update_resume_btn()
+
+    def _update_ui_layout(self) -> None:
+        """Update the UI layout based on current cart settings."""
+        # Clear existing grid layout
+        for widget in self.totals_frame.winfo_children():
+            widget.grid_forget()
+
+        # Clear existing pack layout for actions
+        for widget in self.actions_frame.winfo_children():
+            widget.pack_forget()
+
+        # Always show subtotal
+        ttk.Label(self.totals_frame, text="Subtotal:").grid(row=0, column=0, sticky=tk.W)
+        ttk.Label(self.totals_frame, textvariable=self.subtotal_var, font=("Segoe UI", 11, "bold")).grid(row=0, column=1, sticky=tk.W, padx=(8, 0))
+
+        row_idx = 1
+
+        # VAT display - conditionally shown
+        if get_cart_vat_enabled() and self.vat_label is not None:
+            self.vat_label.grid(row=row_idx, column=0, sticky=tk.W, pady=(2, 0))
+            self.vat_display.grid(row=row_idx, column=1, sticky=tk.W, padx=(8, 0))
+            row_idx += 1
+        elif self.vat_label is not None:
+            self.vat_label.grid_forget()
+            self.vat_display.grid_forget()
+
+        # Discount input - conditionally shown
+        if get_cart_discount_enabled() and self.discount_label is not None:
+            self.discount_label.grid(row=row_idx, column=0, sticky=tk.W, pady=(2, 0))
+            self.discount_entry.grid(row=row_idx, column=1, sticky=tk.W, padx=(8, 0))
+            row_idx += 1
+        elif self.discount_label is not None:
+            self.discount_label.grid_forget()
+            self.discount_entry.grid_forget()
+
+        # Payment method (always shown)
+        self.payment_label.grid(row=row_idx, column=0, sticky=tk.W, pady=(2, 0))
+        self.payment_combo.grid(row=row_idx, column=1, sticky=tk.W, padx=(8, 0))
+        row_idx += 1
+
+        # Total (always shown)
+        self.total_label.grid(row=row_idx, column=0, sticky=tk.W, pady=(4, 0))
+        self.total_display.grid(row=row_idx, column=1, sticky=tk.W, padx=(8, 0))
+
+        # Actions - always show checkout and open cart buttons
+        ttk.Button(self.actions_frame, text="Checkout / Save Sale", command=self._checkout).pack(side=tk.LEFT, padx=2)
+
+        # Suspend/Resume buttons - conditionally shown
+        if get_cart_suspend_enabled() and self.suspend_button is not None:
+            self.suspend_button.pack(side=tk.LEFT, padx=2)
+            self.resume_button.pack(side=tk.LEFT, padx=2)
+        elif self.suspend_button is not None:
+            self.suspend_button.pack_forget()
+            self.resume_button.pack_forget()
+
+        ttk.Button(self.actions_frame, text="Open Cart", command=self._goto_cart).pack(side=tk.LEFT, padx=2)
         self._update_resume_btn()
 
     def _update_resume_btn(self):
-        if self.suspended_carts:
-            self.resume_btn.state(["!disabled"])
-        else:
-            self.resume_btn.state(["disabled"])
+        if self.resume_button is not None:
+            if self.suspended_carts:
+                self.resume_button.state(["!disabled"])
+            else:
+                self.resume_button.state(["disabled"])
 
     def _thumb_for_item(self, item: dict) -> tk.PhotoImage | None:
         item_id = item.get("item_id")
@@ -187,6 +284,10 @@ class PosFrame(ttk.Frame):
             cost = row["cost_price"] if isinstance(row["cost_price"], (int, float)) else 0.0
             price = row["selling_price"] if isinstance(row["selling_price"], (int, float)) else 0.0
             
+            # Check if item has variants
+            from modules import variants
+            has_variants_flag = variants.has_variants(row["item_id"])
+            
             # Use configured conversion factor and abbreviation for display
             try:
                 unit_info = uom.get_unit_by_name(unit) or {}
@@ -198,18 +299,52 @@ class PosFrame(ttk.Frame):
                 abbr = ""
                 base_unit = ""
 
-            # Price per large unit = bulk price / package_size
-            if unit_size > 0:
-                price_per_unit = price / unit_size
+            # Handle pricing display for items with variants
+            if has_variants_flag:
+                # Get variants for display
+                variant_list = variants.list_variants(row["item_id"])
+                if variant_list:
+                    # If this parent is catalog-only, show each variant as its own top-level entry
+                    if row.get("is_catalog_only"):
+                        for v in variant_list:
+                            if not v.get("is_active", 1):
+                                continue
+                            v_name = f"{row.get('name')} — {v.get('variant_name')}"
+                            price_display = f"{self.currency_symbol} {v['selling_price']:.2f}"
+                            qty_display = str(v.get('quantity', 0))
+                            self.items_list.insert("", tk.END, iid=f"variant-{v['variant_id']}", values=(v_name, price_display, qty_display))
+                        # skip inserting parent row
+                        continue
+                    else:
+                        variant_prices = [v["selling_price"] for v in variant_list if v.get("is_active", 1)]
+                        if variant_prices:
+                            min_price = min(variant_prices)
+                            max_price = max(variant_prices)
+                            if min_price == max_price:
+                                price_display = f"{self.currency_symbol} {min_price:.2f}"
+                            else:
+                                price_display = f"{self.currency_symbol} {min_price:.2f} - {self.currency_symbol} {max_price:.2f}"
+                        else:
+                            price_display = "Variants available"
+                else:
+                    price_display = "Variants available"
             else:
-                price_per_unit = price
+                # Price per large unit = bulk price / package_size
+                if unit_size > 0:
+                    price_per_unit = price / unit_size
+                else:
+                    price_per_unit = price
 
-            # Always show price per large unit (e.g., per L/kg/m or per pcs)
-            suffix = abbr or unit or "unit"
-            price_display = f"{self.currency_symbol} {price_per_unit:.2f}/{suffix}"
+                # Always show price per large unit (e.g., per L/kg/m or per pcs)
+                suffix = abbr or unit or "unit"
+                price_display = f"{self.currency_symbol} {price_per_unit:.2f}/{suffix}"
 
-            # Match Inventory display: for fractional items, show total in base units (e.g., 5.0 L, 500 ml)
-            if is_special:
+            # Handle quantity display for items with variants
+            if has_variants_flag:
+                # Sum quantities across all active variants
+                total_variant_qty = sum(v["quantity"] for v in variant_list if v.get("is_active", 1))
+                qty_display = f"{total_variant_qty} (variants)"
+            elif is_special:
                 try:
                     unit_lower = unit.lower()
                     # Use unit_size and conv_factor to compute small unit total
@@ -246,7 +381,28 @@ class PosFrame(ttk.Frame):
         sel = self.items_list.selection()
         if not sel:
             return
-        item_id = int(sel[0])
+        selid = sel[0]
+        # Variant entry selected
+        if isinstance(selid, str) and selid.startswith("variant-"):
+            try:
+                variant_id = int(selid.split("-")[-1])
+            except Exception:
+                return
+            from modules import variants
+            variant = variants.get_variant(variant_id)
+            if variant:
+                parent = items.get_item(variant["item_id"]) if variant.get("item_id") else None
+                if parent:
+                    self._add_variant_to_cart(parent, variant)
+                    # update preview to show variant info
+                    self._update_item_preview({'_variant': variant, **parent})
+            return
+
+        # Otherwise item (parent) selected
+        try:
+            item_id = int(selid)
+        except Exception:
+            return
         record = items.get_item(item_id)
         if record:
             # Check if item has variants
@@ -276,6 +432,7 @@ class PosFrame(ttk.Frame):
         set_window_icon(dialog)
         dialog.transient(self.winfo_toplevel())
         dialog.grab_set()
+        dialog.resizable(True, True)
         
         ttk.Label(dialog, text=f"Select variant for: {item['name']}", font=("Segoe UI", 11, "bold")).pack(pady=(10, 6))
         
@@ -370,7 +527,7 @@ class PosFrame(ttk.Frame):
         set_window_icon(dialog)
         dialog.transient(self.winfo_toplevel())
         dialog.grab_set()
-        dialog.resizable(False, False)
+        dialog.resizable(True, True)
 
         main_frame = ttk.Frame(dialog, padding=12)
         main_frame.pack(fill=tk.BOTH, expand=True)
@@ -515,6 +672,7 @@ class PosFrame(ttk.Frame):
             if entry["item_id"] == item["item_id"] and not entry.get("is_special_volume"):
                 entry["quantity"] += 1
                 self._refresh_cart()
+                notify_cart_changed()
                 return
         
         # Item not in cart, add new entry
@@ -531,6 +689,7 @@ class PosFrame(ttk.Frame):
             }
         )
         self._refresh_cart()
+        notify_cart_changed()
 
     def _add_special_sale(self, item: dict, qty_small: float, price_per_unit: float, display_unit: str, multiplier: float = 1, preset_name: str = None, preset_price: float = None, portion_id: int = None) -> None:
         if qty_small <= 0:
@@ -586,6 +745,8 @@ class PosFrame(ttk.Frame):
             }
         )
         self._refresh_cart()
+        notify_cart_changed()
+        self._refresh_cart()
 
     def _add_variant_to_cart(self, item: dict, variant: dict) -> None:
         """Add a specific variant to cart."""
@@ -625,6 +786,9 @@ class PosFrame(ttk.Frame):
         self._refresh_cart()
 
     def _refresh_cart(self) -> None:
+        # Update UI layout based on current settings
+        self._update_ui_layout()
+
         # Ensure every entry has a unique cart_id for the tree iid
         for entry in self.cart:
             if "cart_id" not in entry:
@@ -707,24 +871,31 @@ class PosFrame(ttk.Frame):
                 values=(entry["name"], price_display, qty_display, f"{self.currency_symbol} {line_total:.2f}"),
             )
         
+        # Check settings for VAT and discount functionality
+        vat_enabled = get_cart_vat_enabled()
+        discount_enabled = get_cart_discount_enabled()
+
         # Compute VAT based on each item's VAT rate and discount
-        try:
-            discount_pct = float(self.discount_var.get() or 0) / 100.0
-        except ValueError:
-            discount_pct = 0.0
+        discount_pct = 0.0
+        if discount_enabled:
+            try:
+                discount_pct = float(self.discount_var.get() or 0) / 100.0
+            except ValueError:
+                discount_pct = 0.0
         
         discount_amt = subtotal * discount_pct
         vat_base = subtotal - discount_amt
         
         # VAT with per-item rates
         vat_amt = 0.0
-        for entry in self.cart:
-            line_subtotal = entry.get('_line_total', entry.get("price", 0) * entry.get("quantity", 0))
-            # Apply discount proportionally to this item
-            item_discount = line_subtotal * discount_pct
-            item_vat_base = line_subtotal - item_discount
-            item_vat_rate = entry.get("vat_rate", 16.0) / 100.0
-            vat_amt += item_vat_base * item_vat_rate
+        if vat_enabled:
+            for entry in self.cart:
+                line_subtotal = entry.get('_line_total', entry.get("price", 0) * entry.get("quantity", 0))
+                # Apply discount proportionally to this item
+                item_discount = line_subtotal * discount_pct
+                item_vat_base = line_subtotal - item_discount
+                item_vat_rate = entry.get("vat_rate", 16.0) / 100.0
+                vat_amt += item_vat_base * item_vat_rate
         
         total = vat_base + vat_amt  # Ensure subtotal already includes the discount adjustment
         
@@ -746,7 +917,32 @@ class PosFrame(ttk.Frame):
     def _update_item_preview(self, record: dict | None = None) -> None:
         if record is None:
             sel = self.items_list.selection()
-            record = items.get_item(int(sel[0])) if sel else None
+            if sel:
+                selid = sel[0]
+                # If variant selected, fetch variant and parent
+                if isinstance(selid, str) and selid.startswith("variant-"):
+                    try:
+                        vid = int(selid.split("-")[-1])
+                        from modules import variants as variants_module
+                        variant = variants_module.get_variant(vid)
+                        if variant:
+                            parent = items.get_item(variant["item_id"])
+                            # Compose a record that reflects variant pricing and quantity
+                            if parent:
+                                record = {**parent}
+                                record.update({
+                                    "selling_price": variant.get("selling_price", record.get("selling_price")),
+                                    "quantity": variant.get("quantity", record.get("quantity")),
+                                    "_variant_name": variant.get("variant_name"),
+                                    "_variant": variant,
+                                })
+                    except Exception:
+                        record = items.get_item(int(sel[0])) if sel else None
+                else:
+                    try:
+                        record = items.get_item(int(selid))
+                    except Exception:
+                        record = None
         if not record:
             self.item_preview_label.configure(text="(No image)", image="")
             self.item_preview_meta.configure(text="")
@@ -759,36 +955,61 @@ class PosFrame(ttk.Frame):
             self.item_preview_label.configure(text="(No image)", image="")
             self.item_preview_label.image = None
         
-        # Display stock in base units (not fractional)
-        stock_display = str(record.get('quantity', 0))
-        unit_of_measure = record.get('unit_of_measure', 'pieces')
+        # Check if item has variants
+        from modules import variants
+        has_variants_flag = variants.has_variants(record["item_id"])
         
-        # For special volume items, show converted units (L, kg, m) - based on base_unit not fractional
-        if record.get('is_special_volume'):
-            unit_size = float(record.get('unit_size_ml') or 1)
-            quantity = float(record.get('quantity') or 0)
-            unit_lower = unit_of_measure.lower()
+        if has_variants_flag:
+            # Show variant information
+            variant_list = variants.list_variants(record["item_id"])
+            active_variants = [v for v in variant_list if v.get("is_active", 1)]
             
-            if unit_lower in ('liters', 'litre', 'liter', 'litres', 'l'):
-                total_liters = quantity * unit_size  # unit_size is in liters
-                stock_display = f"{total_liters:.2f} L"
-            elif unit_lower in ('kilograms', 'kilogram', 'kg', 'kgs'):
-                total_kg = quantity * unit_size  # unit_size is in kg
-                stock_display = f"{total_kg:.2f} kg"
-            elif unit_lower in ('meters', 'meter', 'metre', 'metres', 'm'):
-                total_m = quantity * unit_size  # unit_size is in meters
-                stock_display = f"{total_m:.2f} m"
+            if active_variants:
+                prices = [v["selling_price"] for v in active_variants]
+                min_price = min(prices)
+                max_price = max(prices)
+                total_stock = sum(v["quantity"] for v in active_variants)
+                
+                if min_price == max_price:
+                    price_info = f"{self.currency_symbol} {min_price:.2f}"
+                else:
+                    price_info = f"{self.currency_symbol} {min_price:.2f} - {self.currency_symbol} {max_price:.2f}"
+                
+                meta = f"Variants: {len(active_variants)}\nTotal Stock: {total_stock}\nPrices: {price_info}"
+            else:
+                meta = "No active variants"
+        else:
+            # Display stock in base units (not fractional)
+            stock_display = str(record.get('quantity', 0))
+            unit_of_measure = record.get('unit_of_measure', 'pieces')
+            
+            # For special volume items, show converted units (L, kg, m) - based on base_unit not fractional
+            if record.get('is_special_volume'):
+                unit_size = float(record.get('unit_size_ml') or 1)
+                quantity = float(record.get('quantity') or 0)
+                unit_lower = unit_of_measure.lower()
+                
+                if unit_lower in ('liters', 'litre', 'liter', 'litres', 'l'):
+                    total_liters = quantity * unit_size  # unit_size is in liters
+                    stock_display = f"{total_liters:.2f} L"
+                elif unit_lower in ('kilograms', 'kilogram', 'kg', 'kgs'):
+                    total_kg = quantity * unit_size  # unit_size is in kg
+                    stock_display = f"{total_kg:.2f} kg"
+                elif unit_lower in ('meters', 'meter', 'metre', 'metres', 'm'):
+                    total_m = quantity * unit_size  # unit_size is in meters
+                    stock_display = f"{total_m:.2f} m"
+            
+            # Show price per large/base unit (e.g., per L/kg/m or per piece)
+            try:
+                unit_info = uom.get_unit_by_name(unit_of_measure) or {}
+                abbr = unit_info.get('abbreviation') or unit_of_measure
+            except Exception:
+                abbr = unit_of_measure
+            item_sell = float(record.get('selling_price') or 0)
+            unit_size = float(record.get('unit_size_ml') or 1)
+            price_per_large = item_sell / unit_size if unit_size > 0 else item_sell
+            meta = f"Stock: {stock_display}\nPrice: {self.currency_symbol} {price_per_large:.2f}/{abbr}"
         
-        # Show price per large/base unit (e.g., per L/kg/m or per piece)
-        try:
-            unit_info = uom.get_unit_by_name(unit_of_measure) or {}
-            abbr = unit_info.get('abbreviation') or unit_of_measure
-        except Exception:
-            abbr = unit_of_measure
-        item_sell = float(record.get('selling_price') or 0)
-        unit_size = float(record.get('unit_size_ml') or 1)
-        price_per_large = item_sell / unit_size if unit_size > 0 else item_sell
-        meta = f"Stock: {stock_display}\nPrice: {self.currency_symbol} {price_per_large:.2f}/{abbr}"
         self.item_preview_meta.configure(text=meta)
 
     def _adjust_qty(self, delta: int) -> None:
@@ -800,6 +1021,7 @@ class PosFrame(ttk.Frame):
             return
         entry["quantity"] = max(1, entry["quantity"] + delta)
         self._refresh_cart()
+        notify_cart_changed()
 
     def _remove_selected(self) -> None:
         entry = self._selected_cart_item()
@@ -807,6 +1029,7 @@ class PosFrame(ttk.Frame):
             return
         self.cart[:] = [e for e in self.cart if e.get("cart_id") != entry.get("cart_id")]
         self._refresh_cart()
+        notify_cart_changed()
 
     def _double_click_cart(self) -> None:
         """On double-click, subtract one from the selected cart item's quantity; remove if zero."""
@@ -821,10 +1044,12 @@ class PosFrame(ttk.Frame):
         else:
             self.cart[:] = [e for e in self.cart if e.get("cart_id") != entry.get("cart_id")]
         self._refresh_cart()
+        notify_cart_changed()
 
     def _clear_cart(self) -> None:
         self.cart.clear()
         self._refresh_cart()
+        notify_cart_changed()
 
     def _update_change(self) -> None:
         try:
@@ -842,6 +1067,7 @@ class PosFrame(ttk.Frame):
         self.suspended_carts.append(self.cart[:])
         self.cart.clear()
         self._refresh_cart()
+        notify_cart_changed()
         self._update_resume_btn()
         messagebox.showinfo("Suspend", f"Cart suspended (total: {len(self.suspended_carts)} suspended)")
 
@@ -854,6 +1080,7 @@ class PosFrame(ttk.Frame):
         self.cart.clear()
         self.cart.extend(recovered)
         self._refresh_cart()
+        notify_cart_changed()
         self._update_resume_btn()
         messagebox.showinfo("Resume", "Cart restored")
 

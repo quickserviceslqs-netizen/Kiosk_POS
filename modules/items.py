@@ -9,7 +9,7 @@ from database.init_db import get_connection
 from utils.validation import sanitize_string, validate_numeric, validate_integer, validate_barcode, validate_path, ValidationError, validate_item_name, validate_item_category, validate_item_barcode, validate_item_price, validate_item_cost, validate_item_quantity, validate_item_vat_rate, validate_item_low_stock_threshold, validate_item_unit_of_measure, validate_item_package_size
 from utils.audit import audit_logger
 from utils.performance import profile_function
-from modules import reports
+from modules import reports, variants
 
 
 # Cache for unit conversions to improve performance
@@ -110,6 +110,8 @@ def create_item(
     is_special_volume: int = 0,
     unit_size_ml: int | None = None,
     price_per_ml: float | None = None,
+    has_variants: int = 0,
+    is_catalog_only: int | None = None,
 ) -> dict:
     """Create a new inventory item.
 
@@ -168,6 +170,9 @@ def create_item(
         image_path = validate_path(image_path) if image_path else None
         unit_of_measure = validate_item_unit_of_measure(unit_of_measure)
 
+        # Normalize has_variants input (allow bool or int)
+        has_variants = 1 if bool(has_variants) else 0
+
         if unit_size_ml is not None:
             unit_size_ml = validate_item_package_size(unit_size_ml)
         else:
@@ -216,12 +221,18 @@ def create_item(
             # Calculate normalized prices
             price_data = _normalize_prices(cost_price, selling_price, unit_size, multiplier)
             
+            # Decide default for catalog-only: if not explicitly specified, default to has_variants
+            if is_catalog_only is None:
+                is_catalog_only = 1 if bool(has_variants) else 0
+            else:
+                is_catalog_only = 1 if bool(is_catalog_only) else 0
+
             conn.execute(
                 """
-                INSERT INTO items (name, category, cost_price, selling_price, quantity, image_path, barcode, vat_rate, low_stock_threshold, unit_of_measure, is_special_volume, unit_size_ml, price_per_ml, cost_price_per_unit, unit_multiplier, selling_price_per_unit)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO items (name, category, cost_price, selling_price, quantity, image_path, barcode, vat_rate, low_stock_threshold, unit_of_measure, is_special_volume, unit_size_ml, price_per_ml, cost_price_per_unit, unit_multiplier, selling_price_per_unit, has_variants, is_catalog_only)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (name, category, price_data["cost_price"], price_data["selling_price"], quantity, image_path, barcode, vat_rate, low_stock_threshold, unit_of_measure, is_special_volume, unit_size, price_data["price_per_ml"], price_data["cost_price_per_unit"], price_data["unit_multiplier"], price_data["selling_price_per_unit"]),
+                (name, category, price_data["cost_price"], price_data["selling_price"], quantity, image_path, barcode, vat_rate, low_stock_threshold, unit_of_measure, is_special_volume, unit_size, price_data["price_per_ml"], price_data["cost_price_per_unit"], price_data["unit_multiplier"], price_data["selling_price_per_unit"], int(bool(has_variants)), int(bool(is_catalog_only))),
             )
             conn.commit()
         except Exception:
@@ -286,9 +297,20 @@ def update_item(item_id: int, **fields) -> Optional[dict]:
         updated = update_item(123, quantity=50)
     """
 
+    # Prepare updates dict and fetch current record for context
+    updates = dict(fields)
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        current = conn.execute("SELECT * FROM items WHERE item_id = ?", (item_id,)).fetchone()
+        if not current:
+            raise ValueError(f"Item {item_id} not found")
+
     # Validation
     if "name" in updates:
         updates["name"] = validate_item_name(updates["name"])
+    if "has_variants" in updates:
+        # Normalize boolean-like inputs
+        updates["has_variants"] = 1 if bool(updates["has_variants"]) else 0
     if "category" in updates:
         updates["category"] = validate_item_category(updates["category"])
     if "cost_price" in updates:
@@ -369,7 +391,6 @@ def update_item(item_id: int, **fields) -> Optional[dict]:
             raise
         
         row = conn.execute("SELECT * FROM items WHERE item_id = ?", (item_id,)).fetchone()
-    
     # Audit logging
     if row:
         new_values = _row_to_dict(row)
@@ -398,21 +419,11 @@ def delete_item(item_id: int) -> None:
     Examples:
         delete_item(123)  # Permanently removes item with ID 123
     """
-    # Get item details before deletion for audit logging
-    item = get_item(item_id)
-    
-    with get_connection() as conn:
-        conn.execute("DELETE FROM items WHERE item_id = ?", (item_id,))
-        conn.commit()
-    
-    # Audit logging
-    if item:
-        audit_logger.log_data_change(
-            "DELETE",
-            "items",
-            item_id,
-            old_values=item
-        )
+
+
+def set_is_catalog_only(item_id: int, flag: bool) -> None:
+    """Convenience wrapper to mark an item as catalog-only (not sellable directly)."""
+    update_item(item_id, is_catalog_only=1 if flag else 0)
 
 
 @profile_function
@@ -455,25 +466,97 @@ def list_items(search: str | None = None) -> List[dict]:
 
 
 def low_stock(threshold: int = 5) -> List[dict]:
-    """Get items with low stock. For fractional items, considers actual volume."""
+    """Get low-stock alerts. Returns a list of alert dicts.
+
+    - For items without variants: behaves like before (item-level alerts).
+    - For items with variants: returns variant-level alerts for variants below their threshold.
+      Parent-level alerts are NOT emitted for items that have variants (variant-only mode).
+    """
     with get_connection() as conn:
         conn.row_factory = sqlite3.Row
-        # Get all items and filter based on their type
         cursor = conn.execute("SELECT * FROM items ORDER BY quantity ASC")
-        low_items = []
+        low_items: List[dict] = []
         for row in cursor.fetchall():
             item = _row_to_dict(row)
             item_threshold = item.get("low_stock_threshold") or threshold
-            if item.get("is_special_volume"):
-                # For fractional items, check actual volume (qty * unit_size)
-                unit_size = float(item.get("unit_size_ml") or 1)
-                actual_volume = item["quantity"] * unit_size
-                if actual_volume <= item_threshold:
-                    low_items.append(item)
-            else:
-                # For regular items, just check quantity
-                if item["quantity"] <= item_threshold:
-                    low_items.append(item)
+
+            # If the item has variants, inspect them
+            try:
+                if variants.has_variants(item["item_id"]):
+                    vars_list = variants.list_variants(item["item_id"])
+                    variant_alerts = []
+                    all_variants_low = True
+                    aggregated_qty = 0
+                    aggregated_volume = 0.0
+
+                    for v in vars_list:
+                        v_threshold = v.get("low_stock_threshold") or item_threshold
+                        qty = int(v.get("quantity") or 0)
+                        aggregated_qty += qty
+
+                        if item.get("is_special_volume"):
+                            unit_size = float(item.get("unit_size_ml") or 1)
+                            actual = qty * unit_size
+                            aggregated_volume += actual
+                        else:
+                            actual = qty
+
+                        if actual <= v_threshold:
+                            # Variant-level alert
+                            alert = {
+                                "type": "variant",
+                                "item_id": item["item_id"],
+                                "variant_id": v.get("variant_id"),
+                                "name": f"{item.get('name')} — {v.get('variant_name')}",
+                                "quantity": qty,
+                                "actual_volume": actual,
+                                "threshold": v_threshold,
+                                "is_special_volume": bool(item.get("is_special_volume")),
+                                "display_unit": ("L" if (item.get("unit_of_measure") or "").lower() in ("litre","liter","liters","litres","l") else ("kg" if (item.get("unit_of_measure") or "").lower() in ("kilogram","kilograms","kg","kgs") else ("m" if (item.get("unit_of_measure") or "").lower() in ("meter","meters","metre","metres","m") else "units")))
+                            }
+                            variant_alerts.append(alert)
+                        else:
+                            all_variants_low = False
+
+                    low_items.extend(variant_alerts)
+
+                    # Variant-only mode: for items that have variants we report variant-level alerts
+                    # and do NOT emit parent-level alerts. This avoids duplicate/ambiguous alerts when
+                    # variants are the actual stock carriers.
+                    # (If desired in future, we can add a config flag to re-enable parent alerts.)
+                else:
+                    # No variants: existing behavior
+                    if item.get("is_special_volume"):
+                        unit_size = float(item.get("unit_size_ml") or 1)
+                        actual_volume = item["quantity"] * unit_size
+                        if actual_volume <= item_threshold:
+                            item["actual_volume"] = actual_volume
+                            item["display_unit"] = ("L" if (item.get("unit_of_measure") or "").lower() in ("litre","liter","liters","litres","l") else ("kg" if (item.get("unit_of_measure") or "").lower() in ("kilogram","kilograms","kg","kgs") else ("m" if (item.get("unit_of_measure") or "").lower() in ("meter","meters","metre","metres","m") else "units")))
+                            low_items.append(item)
+                    else:
+                        if item["quantity"] <= item_threshold:
+                            item["actual_volume"] = item["quantity"]
+                            item["display_unit"] = "units"
+                            low_items.append(item)
+            except Exception:
+                # On any unexpected error when checking variants, fall back to item-level check
+                try:
+                    if item.get("is_special_volume"):
+                        unit_size = float(item.get("unit_size_ml") or 1)
+                        actual_volume = item["quantity"] * unit_size
+                        if actual_volume <= item_threshold:
+                            item["actual_volume"] = actual_volume
+                            item["display_unit"] = ("L" if (item.get("unit_of_measure") or "").lower() in ("litre","liter","liters","litres","l") else ("kg" if (item.get("unit_of_measure") or "").lower() in ("kilogram","kilograms","kg","kgs") else ("m" if (item.get("unit_of_measure") or "").lower() in ("meter","meters","metre","metres","m") else "units")))
+                            low_items.append(item)
+                    else:
+                        if item["quantity"] <= item_threshold:
+                            item["actual_volume"] = item["quantity"]
+                            item["display_unit"] = "units"
+                            low_items.append(item)
+                except Exception:
+                    # Give up and skip
+                    continue
+
         return low_items
 
 

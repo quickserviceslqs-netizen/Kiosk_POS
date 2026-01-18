@@ -395,7 +395,7 @@ class ExpensesFrame(ttk.Frame):
         dialog.transient(self.winfo_toplevel())
         dialog.grab_set()
         dialog.geometry("380x360")
-        dialog.resizable(False, False)
+        dialog.resizable(True, True)
 
         ttk.Label(dialog, text="Categories", font=("Segoe UI", 12, "bold")).pack(pady=(10, 6))
 
@@ -414,6 +414,14 @@ class ExpensesFrame(ttk.Frame):
             return listbox.get(sel[0])
 
         def do_add():
+            # Check permissions
+            root = self.winfo_toplevel()
+            current_user = getattr(root, 'current_user', {})
+            from modules import permissions
+            if not permissions.has_permission(current_user, 'add_expense_categories'):
+                messagebox.showerror("Permission Denied", "You do not have permission to add expense categories")
+                return
+                
             name = simpledialog.askstring("Add Category", "Category name:", parent=dialog)
             if not name:
                 return
@@ -440,6 +448,14 @@ class ExpensesFrame(ttk.Frame):
                 messagebox.showerror("Category Error", f"Could not rename category: {exc}")
 
         def do_delete():
+            # Check permissions
+            root = self.winfo_toplevel()
+            current_user = getattr(root, 'current_user', {})
+            from modules import permissions
+            if not permissions.has_permission(current_user, 'delete_expense_categories'):
+                messagebox.showerror("Permission Denied", "You do not have permission to delete expense categories")
+                return
+                
             current = selected_category()
             if not current:
                 messagebox.showinfo("Delete", "Select a category to delete")
@@ -453,12 +469,12 @@ class ExpensesFrame(ttk.Frame):
             except Exception as exc:
                 messagebox.showerror("Category Error", f"Could not delete category: {exc}")
 
-        btns = ttk.Frame(dialog)
-        btns.pack(pady=8)
-        ttk.Button(btns, text="Add", width=10, command=do_add).pack(side=tk.LEFT, padx=4)
-        ttk.Button(btns, text="Rename", width=10, command=do_rename).pack(side=tk.LEFT, padx=4)
-        ttk.Button(btns, text="Delete", width=10, command=do_delete).pack(side=tk.LEFT, padx=4)
-        ttk.Button(btns, text="Close", width=10, command=dialog.destroy).pack(side=tk.LEFT, padx=4)
+        # Action buttons at the bottom
+        action_frame = ttk.Frame(dialog)
+        action_frame.pack(pady=8)
+        ttk.Button(action_frame, text="Add", width=10, command=do_add).pack(side=tk.LEFT, padx=4)
+        ttk.Button(action_frame, text="Rename", width=10, command=do_rename).pack(side=tk.LEFT, padx=4)
+        ttk.Button(action_frame, text="Delete", width=10, command=do_delete).pack(side=tk.LEFT, padx=4)
 
         reload_list()
 
@@ -547,7 +563,7 @@ class ExpensesFrame(ttk.Frame):
             cal_top.title("Select Date")
             set_window_icon(cal_top)
             cal_top.geometry("320x340")
-            cal_top.resizable(False, False)
+            cal_top.resizable(True, True)
             cal_top.transient(dialog)
             cal_top.grab_set()
 
@@ -577,6 +593,14 @@ class ExpensesFrame(ttk.Frame):
 
         def add_category_inline():
             """Prompt for a new category and update the list."""
+            # Check permissions
+            root = dialog.winfo_toplevel()
+            current_user = getattr(root, 'current_user', {})
+            from modules import permissions
+            if not permissions.has_permission(current_user, 'add_expense_categories'):
+                messagebox.showerror("Permission Denied", "You do not have permission to add expense categories")
+                return
+                
             name = simpledialog.askstring("Add Category", "Category name:", parent=dialog)
             if not name:
                 return
@@ -635,11 +659,11 @@ class ExpensesFrame(ttk.Frame):
             except Exception as exc:
                 messagebox.showerror("Error", f"Failed to save expense: {exc}")
 
-        # Buttons
-        btn_frame = ttk.Frame(dialog)
-        btn_frame.grid(row=4, column=0, columnspan=2, pady=16)
-        ttk.Button(btn_frame, text="Save", command=on_submit).pack(side=tk.LEFT, padx=4)
-        ttk.Button(btn_frame, text="Cancel", command=dialog.destroy).pack(side=tk.LEFT, padx=4)
+        # Action buttons at the bottom
+        action_frame = ttk.Frame(dialog)
+        action_frame.grid(row=4, column=0, columnspan=3, pady=16)
+        ttk.Button(action_frame, text="Save", command=on_submit).pack(side=tk.LEFT, padx=4)
+        ttk.Button(action_frame, text="Cancel", command=dialog.destroy).pack(side=tk.LEFT, padx=4)
 
         dialog.update_idletasks()
         dialog.deiconify()  # show after layout is ready
@@ -653,11 +677,9 @@ class ExpensesFrame(ttk.Frame):
         report_dialog.grab_set()
         report_dialog.geometry("800x600")
 
-        ttk.Label(report_dialog, text="Expense Report & Analytics", font=("Segoe UI", 14, "bold")).pack(pady=10)
-
         # Controls frame
         controls = ttk.Frame(report_dialog)
-        controls.pack(pady=8, fill=tk.X, padx=12)
+        controls.grid(row=0, column=0, pady=8, sticky=tk.EW, padx=12)
 
         # Date range
         date_frame = ttk.Frame(controls)
@@ -682,42 +704,9 @@ class ExpensesFrame(ttk.Frame):
                                    values=["summary", "trends", "categories", "detailed"], width=12)
         report_combo.pack(side=tk.LEFT, padx=(0, 8))
 
-        # Buttons
-        button_frame = ttk.Frame(date_frame)
-        button_frame.pack(side=tk.RIGHT)
-
-        def generate_report():
-            generate()
-
-        def export_report():
-            from tkinter import filedialog
-            filename = filedialog.asksaveasfilename(
-                defaultextension=".txt",
-                filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
-                title="Export Report"
-            )
-            if filename:
-                try:
-                    with open(filename, 'w', encoding='utf-8') as f:
-                        f.write(text.get("1.0", tk.END))
-                    messagebox.showinfo("Export Complete", f"Report exported to {filename}")
-                except Exception as e:
-                    messagebox.showerror("Export Error", f"Failed to export: {e}")
-
-        ttk.Button(button_frame, text="Generate", command=generate_report).pack(side=tk.LEFT, padx=2)
-        ttk.Button(button_frame, text="Export", command=export_report).pack(side=tk.LEFT, padx=2)
-        ttk.Button(button_frame, text="Close", command=report_dialog.destroy).pack(side=tk.LEFT, padx=2)
-
-        # Report display
-        text_frame = ttk.Frame(report_dialog)
-        text_frame.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 12))
-
-        text = tk.Text(text_frame, wrap=tk.WORD, font=("Courier", 10))
-        text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-        scroll = ttk.Scrollbar(text_frame, orient=tk.VERTICAL, command=text.yview)
-        scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        text.configure(yscroll=scroll.set)
+        # Action buttons
+        action_frame = ttk.Frame(date_frame)
+        action_frame.pack(side=tk.RIGHT)
 
         def generate():
             start = start_var.get()
@@ -741,6 +730,39 @@ class ExpensesFrame(ttk.Frame):
             except Exception as e:
                 text.delete("1.0", tk.END)
                 text.insert("1.0", f"Error generating report: {e}")
+
+        def generate_report():
+            generate()
+
+        def export_report():
+            from tkinter import filedialog
+            filename = filedialog.asksaveasfilename(
+                defaultextension=".txt",
+                filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
+                title="Export Report"
+            )
+            if filename:
+                try:
+                    with open(filename, 'w', encoding='utf-8') as f:
+                        f.write(text.get("1.0", tk.END))
+                    messagebox.showinfo("Export Complete", f"Report exported to {filename}")
+                except Exception as e:
+                    messagebox.showerror("Export Error", f"Failed to export: {e}")
+
+        ttk.Button(action_frame, text="Generate", command=generate_report).pack(side=tk.LEFT, padx=2)
+        ttk.Button(action_frame, text="Export", command=export_report).pack(side=tk.LEFT, padx=2)
+
+        # Report display
+        text_frame = ttk.Frame(report_dialog)
+        text_frame.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 12))
+
+        text = tk.Text(text_frame, wrap=tk.WORD, font=("Courier", 10))
+        text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        scroll = ttk.Scrollbar(text_frame, orient=tk.VERTICAL, command=text.yview)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        text.configure(yscroll=scroll.set)
+
 
         def generate_summary_report(start, end):
             summary = expenses.get_expense_summary(start, end)

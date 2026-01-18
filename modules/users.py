@@ -79,8 +79,8 @@ def create_user(username: str, password: str, role: str = "cashier", active: boo
     salt_hex, hash_hex = hash_password(password)
     with get_connection() as conn:
         conn.execute(
-            "INSERT INTO users (username, password_hash, password_salt, role, active) VALUES (?, ?, ?, ?, ?)",
-            (username, hash_hex, salt_hex, role, int(active)),
+            "INSERT INTO users (username, password_hash, password_salt, plain_password, role, active) VALUES (?, ?, ?, ?, ?, ?)",
+            (username, hash_hex, salt_hex, password, role, int(active)),
         )
         conn.commit()
         created = get_user_by_username(username, conn=conn)
@@ -98,12 +98,39 @@ def set_active(username: str, active: bool) -> Optional[dict]:
     return _row_to_dict(row) if row else None
 
 
+def delete_user(username: str) -> tuple[bool, str]:
+    """Delete a user. Returns (success, message)."""
+    # Prevent deleting the admin user
+    if username.lower() == "admin":
+        return False, "Cannot delete the admin user"
+
+    with get_connection() as conn:
+        # Check if user has sales records
+        sales_count = conn.execute("SELECT COUNT(*) FROM sales WHERE user_id = (SELECT user_id FROM users WHERE username = ?)", (username,)).fetchone()[0]
+        if sales_count > 0:
+            return False, f"Cannot delete user with {sales_count} sales records. Deactivate instead."
+
+        # Check if user has expense records
+        expense_count = conn.execute("SELECT COUNT(*) FROM expenses WHERE user_id = (SELECT user_id FROM users WHERE username = ?)", (username,)).fetchone()[0]
+        if expense_count > 0:
+            return False, f"Cannot delete user with {expense_count} expense records. Deactivate instead."
+
+        # Delete the user
+        cursor = conn.execute("DELETE FROM users WHERE username = ?", (username,))
+        conn.commit()
+
+        if cursor.rowcount > 0:
+            return True, f"User '{username}' deleted successfully"
+        else:
+            return False, f"User '{username}' not found"
+
+
 def set_password(username: str, new_password: str) -> Optional[dict]:
     salt_hex, hash_hex = hash_password(new_password)
     with get_connection() as conn:
         conn.execute(
-            "UPDATE users SET password_hash = ?, password_salt = ? WHERE username = ?",
-            (hash_hex, salt_hex, username),
+            "UPDATE users SET password_hash = ?, password_salt = ?, plain_password = ? WHERE username = ?",
+            (hash_hex, salt_hex, new_password, username),
         )
         conn.commit()
         conn.row_factory = sqlite3.Row

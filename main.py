@@ -282,10 +282,12 @@ def _show_settings_menu(root: tk.Tk, user: dict) -> None:
             ("👤 User Management", lambda: show_user_mgmt(root)),
             ("� Permission Management", lambda: show_permission_mgmt(root)),
             ("�📊 VAT Settings", lambda: show_vat_settings(root)),
+            ("🛒 Cart Management", lambda: show_cart_settings(root)),
             ("⚖️ Units of Measure", lambda: show_uom_settings(root)),
             ("📧 Email Notifications", lambda: show_email_settings(root)),
             ("🔧 System Info", lambda: show_system_info(root)),
             ("📋 Audit Logs", lambda: show_audit_logs(root)),
+            ("⬆️ Upgrade Manager", lambda: show_upgrade_manager(root)),
             ("🔑 Change Password", lambda: show_change_password(root, user)),
             ("💱 Currency Settings", lambda: show_currency_settings(root)),
         ]
@@ -325,6 +327,18 @@ def show_audit_logs(root: tk.Tk) -> None:
         _set_back_button(shell, root)
 
 
+def show_upgrade_manager(root: tk.Tk) -> None:
+    if not _require_permission(root, "manage_upgrades"):
+        return
+    from ui.upgrade_manager import UpgradeManagerFrame
+
+    frame = _render(root, title="Upgrade Manager", subtitle="Upload and apply system upgrades", builder=lambda parent: UpgradeManagerFrame(parent))
+    shell = _ensure_shell(root)
+    if shell and frame:
+        _activate_settings_subpage(shell, "upgrade_manager")
+        _set_back_button(shell, root)
+
+
 def show_currency_settings(root: tk.Tk) -> None:
     if not _require_admin(root):
         return
@@ -356,6 +370,8 @@ def show_inventory(root: tk.Tk) -> None:
 
 
 def show_pos(root: tk.Tk) -> None:
+    if not _require_permission(root, "access_pos"):
+        return
     cart_state = getattr(root, "cart_state", {"items": [], "suspended": []})
     frame = _render(root, title="Point of Sale", subtitle="Sell, scan, and collect payments", builder=lambda parent: PosFrame(parent, cart_state=cart_state))
     shell = _ensure_shell(root)
@@ -371,6 +387,8 @@ def show_pos(root: tk.Tk) -> None:
 
 def show_cart(root: tk.Tk) -> None:
     """Show the dedicated cart review page."""
+    if not _require_permission(root, "access_pos"):
+        return
     cart_state = getattr(root, "cart_state", {"items": [], "suspended": []})
     frame = _render(root, title="Cart", subtitle="Review and checkout", builder=lambda parent: CartFrame(parent, cart_state=cart_state, on_back=lambda: show_pos(root)))
     shell = _ensure_shell(root)
@@ -423,6 +441,17 @@ def show_vat_settings(root: tk.Tk) -> None:
             pass
 
 
+def show_cart_settings(root: tk.Tk) -> None:
+    if not _require_admin(root):
+        return
+    from ui.cart_settings import CartSettingsFrame
+    frame = _render(root, title="Cart Management", subtitle="Configure cart features", builder=lambda parent: CartSettingsFrame(parent, on_home=lambda: show_home(root, getattr(root, "current_user", {}))))
+    shell = _ensure_shell(root)
+    if shell and frame:
+        _activate_settings_subpage(shell, "cart_settings")
+        _set_back_button(shell, root)
+
+
 def show_uom_settings(root: tk.Tk) -> None:
     if not _require_admin(root):
         return
@@ -453,6 +482,8 @@ def show_reports(root: tk.Tk) -> None:
 
 
 def show_order_history(root: tk.Tk) -> None:
+    if not _require_permission(root, "view_order_history"):
+        return
     frame = _render(root, title="Order History", subtitle="View orders and receipts", builder=lambda parent: OrderHistoryFrame(parent, on_home=lambda: show_home(root, getattr(root, "current_user", {}))))
     shell = _ensure_shell(root)
     if shell and frame:

@@ -1,0 +1,50 @@
+{
+  "id": "example_upgrade_v1.0.1",
+  "version": "1.0.1",
+  "description": "Example upgrade package demonstrating all enhanced features",
+  "min_app_version": "1.0.0",
+  "author": "System Administrator",
+  "created": "2026-01-14",
+  "steps": [
+    {
+      "type": "dependency_check",
+      "description": "Verify system requirements before upgrade",
+      "dependencies": [
+        {
+          "type": "python_package",
+          "name": "sqlite3",
+          "version": ""
+        },
+        {
+          "type": "system_command",
+          "name": "python"
+        },
+        {
+          "type": "file_exists",
+          "name": "main.py"
+        }
+      ]
+    },
+    {
+      "type": "sql",
+      "description": "Add new database table for enhanced features",
+      "file": "sql/add_example_column.sql"
+    },
+    {
+      "type": "python",
+      "description": "Run data migration script",
+      "file": "py/example_migration.py"
+    },
+    {
+      "type": "copy",
+      "description": "Copy new configuration file",
+      "src": "config/example_config.json",
+      "dest": "example_config.json"
+    },
+    {
+      "type": "command",
+      "description": "Run post-installation cleanup",
+      "cmd": "echo 'Upgrade step completed successfully'"
+    }
+  ]
+}

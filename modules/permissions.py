@@ -25,6 +25,8 @@ PERMISSIONS = {
     "delete_inventory": "Delete inventory items",
     "adjust_stock": "Adjust stock levels",
     "view_low_stock": "View low stock alerts",
+    "add_categories": "Add new item categories",
+    "delete_categories": "Delete item categories",
 
     # Reports permissions
     "view_reports": "View sales and inventory reports",
@@ -40,6 +42,8 @@ PERMISSIONS = {
     "add_expenses": "Add new expenses",
     "edit_expenses": "Edit existing expenses",
     "delete_expenses": "Delete expenses",
+    "add_expense_categories": "Add new expense categories",
+    "delete_expense_categories": "Delete expense categories",
 
     # User management permissions
     "view_users": "View user accounts",
@@ -49,6 +53,7 @@ PERMISSIONS = {
     # Settings permissions
     "view_settings": "View system settings",
     "manage_settings": "Modify system settings",
+    "manage_upgrades": "Upload and apply system upgrades",
     "manage_permissions": "Manage user permissions",
 
     # System permissions
@@ -124,6 +129,19 @@ def get_user_permissions(user_id: int) -> Set[str]:
         return {row['permission'] for row in cursor.fetchall()}
 
 
+def get_revoked_permissions(user_id: int) -> Set[str]:
+    """Get all permissions explicitly revoked from a user."""
+    _ensure_permissions_table()
+
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.execute(
+            "SELECT permission FROM user_permissions WHERE user_id = ? AND granted = 0",
+            (user_id,)
+        )
+        return {row['permission'] for row in cursor.fetchall()}
+
+
 def get_role_permissions(role: str) -> Set[str]:
     """Get default permissions for a role."""
     return DEFAULT_ROLE_PERMISSIONS.get(role, set())
@@ -137,9 +155,14 @@ def get_effective_permissions(user: dict) -> Set[str]:
     user_id = user.get('user_id')
     role = user.get('role', 'cashier')
 
-    # Admin users automatically get all permissions
     if role == 'admin':
-        return set(PERMISSIONS.keys())
+        # Admin users get all permissions by default, but can have explicit revocations
+        all_perms = set(PERMISSIONS.keys())
+        if user_id:
+            # Check for explicit revocations (granted=0)
+            revoked_perms = get_revoked_permissions(user_id)
+            return all_perms - revoked_perms
+        return all_perms
 
     # For non-admin users, only return explicitly granted permissions
     if user_id:

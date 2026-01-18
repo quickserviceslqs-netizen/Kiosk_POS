@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
+
 CREATE TABLE IF NOT EXISTS items (
     item_id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -143,9 +144,24 @@ CREATE TABLE IF NOT EXISTS refunds (
 """
 
 
+def _pragma_columns(conn: sqlite3.Connection, table_name: str) -> set:
+    """Return a set of column names for the given table, tolerant of different row types."""
+    cols = set()
+    for r in conn.execute(f"PRAGMA table_info({table_name});"):
+        try:
+            cols.add(r[1])
+        except Exception:
+            try:
+                cols.add(tuple(r)[1])
+            except Exception:
+                # Skip rows that cannot be parsed
+                pass
+    return cols
+
+
 def _ensure_expense_columns(conn: sqlite3.Connection) -> None:
     """Add user tracking columns to expenses table if missing."""
-    existing_columns = {row[1] for row in conn.execute("PRAGMA table_info(expenses);")}
+    existing_columns = _pragma_columns(conn, 'expenses')
     if "user_id" not in existing_columns:
         conn.execute("ALTER TABLE expenses ADD COLUMN user_id INTEGER")
     if "username" not in existing_columns:
@@ -158,7 +174,7 @@ def _ensure_expense_columns(conn: sqlite3.Connection) -> None:
 
 def _ensure_refunds_table(conn: sqlite3.Connection) -> None:
     """Ensure refunds table has expected columns and migrate legacy names if present."""
-    existing_columns = {row[1] for row in conn.execute("PRAGMA table_info(refunds);")}
+    existing_columns = _pragma_columns(conn, 'refunds')
 
     # Add modern columns if missing
     if "refund_code" not in existing_columns:
@@ -211,28 +227,60 @@ def _ensure_refunds_table(conn: sqlite3.Connection) -> None:
 
 def _ensure_user_columns(conn: sqlite3.Connection) -> None:
     """Apply lightweight migrations for the users table (idempotent)."""
-    existing_columns = {row[1] for row in conn.execute("PRAGMA table_info(users);")}
+    # Some DB connections may have different row types; be tolerant when extracting column names
+    existing_columns = set()
+    for r in conn.execute("PRAGMA table_info(users);"):
+        try:
+            existing_columns.add(r[1])
+        except Exception:
+            try:
+                existing_columns.add(tuple(r)[1])
+            except Exception:
+                # Give up on this row if unexpectedly shaped
+                pass
+
     if "password_salt" not in existing_columns:
-        conn.execute("ALTER TABLE users ADD COLUMN password_salt TEXT;")
+        try:
+            conn.execute("ALTER TABLE users ADD COLUMN password_salt TEXT;")
+        except Exception:
+            # If column already exists or alter fails for any reason, continue silently
+            pass
+    if "plain_password" not in existing_columns:
+        try:
+            conn.execute("ALTER TABLE users ADD COLUMN plain_password TEXT;")
+        except Exception:
+            pass
 
 
 def _ensure_item_columns(conn: sqlite3.Connection) -> None:
     """Apply lightweight migrations for the items table (idempotent)."""
-    existing_columns = {row[1] for row in conn.execute("PRAGMA table_info(items);")}
+    existing_columns = _pragma_columns(conn, 'items')
     
     # Add low_stock_threshold if missing
     if "low_stock_threshold" not in existing_columns:
-        conn.execute("ALTER TABLE items ADD COLUMN low_stock_threshold INTEGER NOT NULL DEFAULT 10")
+        try:
+            conn.execute("ALTER TABLE items ADD COLUMN low_stock_threshold INTEGER NOT NULL DEFAULT 10")
+        except Exception:
+            pass
 
     # Add currency_code if missing
     if "currency_code" not in existing_columns:
-        conn.execute("ALTER TABLE items ADD COLUMN currency_code TEXT DEFAULT NULL")
+        try:
+            conn.execute("ALTER TABLE items ADD COLUMN currency_code TEXT DEFAULT NULL")
+        except Exception:
+            pass
 
     # Add fractional/volume support columns
     if "is_special_volume" not in existing_columns:
-        conn.execute("ALTER TABLE items ADD COLUMN is_special_volume INTEGER NOT NULL DEFAULT 0")
+        try:
+            conn.execute("ALTER TABLE items ADD COLUMN is_special_volume INTEGER NOT NULL DEFAULT 0")
+        except Exception:
+            pass
     if "unit_size_ml" not in existing_columns:
-        conn.execute("ALTER TABLE items ADD COLUMN unit_size_ml INTEGER NOT NULL DEFAULT 1")
+        try:
+            conn.execute("ALTER TABLE items ADD COLUMN unit_size_ml INTEGER NOT NULL DEFAULT 1")
+        except Exception:
+            pass
         # Migrate legacy records: if an older DB used the previous default (1000)
         # and the item is measured in 'pieces' (non-volume), reset to 1.
         try:
@@ -241,17 +289,32 @@ def _ensure_item_columns(conn: sqlite3.Connection) -> None:
             # If update fails (e.g., no such rows), continue silently
             pass
     if "unit_multiplier" not in existing_columns:
-        conn.execute("ALTER TABLE items ADD COLUMN unit_multiplier REAL NOT NULL DEFAULT 1.0")
+        try:
+            conn.execute("ALTER TABLE items ADD COLUMN unit_multiplier REAL NOT NULL DEFAULT 1.0")
+        except Exception:
+            pass
     if "unit_of_measure" not in existing_columns:
-        conn.execute("ALTER TABLE items ADD COLUMN unit_of_measure TEXT DEFAULT 'pieces'")
+        try:
+            conn.execute("ALTER TABLE items ADD COLUMN unit_of_measure TEXT DEFAULT 'pieces'")
+        except Exception:
+            pass
 
     # Add per-unit price/cost columns used by POS calculations
     if "price_per_ml" not in existing_columns:
-        conn.execute("ALTER TABLE items ADD COLUMN price_per_ml REAL DEFAULT NULL")
+        try:
+            conn.execute("ALTER TABLE items ADD COLUMN price_per_ml REAL DEFAULT NULL")
+        except Exception:
+            pass
     if "cost_price_per_unit" not in existing_columns:
-        conn.execute("ALTER TABLE items ADD COLUMN cost_price_per_unit REAL DEFAULT NULL")
+        try:
+            conn.execute("ALTER TABLE items ADD COLUMN cost_price_per_unit REAL DEFAULT NULL")
+        except Exception:
+            pass
     if "selling_price_per_unit" not in existing_columns:
-        conn.execute("ALTER TABLE items ADD COLUMN selling_price_per_unit REAL DEFAULT NULL")
+        try:
+            conn.execute("ALTER TABLE items ADD COLUMN selling_price_per_unit REAL DEFAULT NULL")
+        except Exception:
+            pass
 
     # Recalculate per-item small-unit pricing where it is missing or stale
     def _recalculate_per_unit_values(conn: sqlite3.Connection) -> None:
@@ -280,6 +343,57 @@ def _ensure_item_columns(conn: sqlite3.Connection) -> None:
             _recalculate_per_unit_values(conn)
         except Exception:
             pass
+
+    # Add has_variants flag to items if missing so UI can persist the checkbox state
+    if "has_variants" not in existing_columns:
+        try:
+            conn.execute("ALTER TABLE items ADD COLUMN has_variants INTEGER NOT NULL DEFAULT 0")
+        except Exception:
+            pass
+
+    # Add is_catalog_only flag so parent items can be marked as catalog-only (not sellable directly)
+    if "is_catalog_only" not in existing_columns:
+        try:
+            conn.execute("ALTER TABLE items ADD COLUMN is_catalog_only INTEGER NOT NULL DEFAULT 0")
+        except Exception:
+            pass
+        # If there are existing variants, mark those parents as catalog-only
+        try:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute("SELECT DISTINCT item_id FROM item_variants").fetchall()
+            for r in rows:
+                iid = r['item_id'] if isinstance(r, dict) else r[0]
+                conn.execute("UPDATE items SET is_catalog_only = 1 WHERE item_id = ?", (iid,))
+            conn.commit()
+        except Exception:
+            # If item_variants table doesn't exist yet or any error occurs, ignore safely
+            pass
+
+
+def get_setting(key: str) -> str | None:
+    """Retrieve a setting value from the settings table. Returns None if not found."""
+    from typing import Optional
+    try:
+        conn = get_connection()
+        conn.row_factory = sqlite3.Row
+        cursor = conn.execute("SELECT value FROM settings WHERE key = ?", (key,))
+        row = cursor.fetchone()
+        if row:
+            return row['value'] if isinstance(row, dict) else row[0]
+        return None
+    except Exception:
+        return None
+
+
+def set_setting(key: str, value: str) -> None:
+    """Persist a setting value into the settings table (insert or update)."""
+    try:
+        with get_connection() as conn:
+            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, value))
+            conn.commit()
+    except Exception:
+        # Swallow errors to avoid breaking UI on non-critical settings
+        pass
 
 
 def recalculate_per_unit_values(db_path: Path | None = None) -> int:
@@ -363,7 +477,7 @@ def _ensure_units_of_measure_table(conn: sqlite3.Connection) -> None:
         """)
     else:
         # Add missing columns if table exists but is missing columns
-        existing_columns = {row[1] for row in conn.execute("PRAGMA table_info(units_of_measure);")}
+        existing_columns = _pragma_columns(conn, 'units_of_measure')
         if "conversion_factor" not in existing_columns:
             conn.execute("ALTER TABLE units_of_measure ADD COLUMN conversion_factor REAL NOT NULL DEFAULT 1")
         if "base_unit" not in existing_columns:
@@ -419,7 +533,7 @@ def _ensure_item_portions_table(conn: sqlite3.Connection) -> None:
 
 def _ensure_sales_columns(conn: sqlite3.Connection) -> None:
     """Add missing columns to sales table used by POS logic."""
-    existing = {row[1] for row in conn.execute("PRAGMA table_info(sales);")}
+    existing = _pragma_columns(conn, 'sales')
     # Add receipt_number
     if "receipt_number" not in existing:
         conn.execute("ALTER TABLE sales ADD COLUMN receipt_number TEXT")
@@ -437,13 +551,21 @@ def _ensure_sales_columns(conn: sqlite3.Connection) -> None:
     if "user_id" not in existing:
         conn.execute("ALTER TABLE sales ADD COLUMN user_id INTEGER")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_sales_user_id ON sales(user_id)")
+    # Add voided sale tracking columns
+    if "voided" not in existing:
+        conn.execute("ALTER TABLE sales ADD COLUMN voided INTEGER DEFAULT 0")
+    if "voided_at" not in existing:
+        conn.execute("ALTER TABLE sales ADD COLUMN voided_at TEXT")
+    if "voided_by" not in existing:
+        conn.execute("ALTER TABLE sales ADD COLUMN voided_by INTEGER")
+    if "void_reason" not in existing:
+        conn.execute("ALTER TABLE sales ADD COLUMN void_reason TEXT")
     conn.commit()
 
 
 def _ensure_sales_items_columns(conn: sqlite3.Connection) -> None:
     """Add missing columns to sales_items table for variant and portion tracking."""
-    existing = {row[1] for row in conn.execute("PRAGMA table_info(sales_items);")}
-    # Add variant_id for tracking specific variants sold
+    existing = _pragma_columns(conn, 'sales_items')    # Add variant_id for tracking specific variants sold
     if "variant_id" not in existing:
         conn.execute("ALTER TABLE sales_items ADD COLUMN variant_id INTEGER")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_sales_items_variant_id ON sales_items(variant_id)")

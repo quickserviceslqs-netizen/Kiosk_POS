@@ -201,6 +201,7 @@ class PermissionManagementFrame(ttk.Frame):
             # Get user's effective permissions
             effective_perms = permissions.get_effective_permissions(self.selected_user)
             user_specific_perms = permissions.get_user_permissions(self.selected_user['user_id'])
+            revoked_perms = permissions.get_revoked_permissions(self.selected_user['user_id'])
             role_perms = permissions.get_role_permissions(self.selected_user['role'])
 
             # Group permissions by category for better organization
@@ -221,17 +222,17 @@ class PermissionManagementFrame(ttk.Frame):
                     perm_groups["Dashboard"].append((perm_key, description))
                 elif perm_key.startswith(("access_pos", "process_sales", "apply_discounts", "void_sales")):
                     perm_groups["Point of Sale"].append((perm_key, description))
-                elif perm_key.startswith(("view_inventory", "add_inventory", "edit_inventory", "delete_inventory", "adjust_stock", "view_low_stock")):
+                elif perm_key.startswith(("view_inventory", "add_inventory", "edit_inventory", "delete_inventory", "adjust_stock", "view_low_stock", "add_categories", "delete_categories")):
                     perm_groups["Inventory"].append((perm_key, description))
                 elif perm_key.startswith(("view_reports", "export_reports", "view_profit_reports")):
                     perm_groups["Reports"].append((perm_key, description))
                 elif perm_key.startswith(("view_order_history", "refund_orders")):
                     perm_groups["Order History"].append((perm_key, description))
-                elif perm_key.startswith(("view_expenses", "add_expenses", "edit_expenses", "delete_expenses")):
+                elif perm_key.startswith(("view_expenses", "add_expenses", "edit_expenses", "delete_expenses", "add_expense_categories", "delete_expense_categories")):
                     perm_groups["Expenses"].append((perm_key, description))
                 elif perm_key.startswith(("view_users", "manage_users", "manage_roles")):
                     perm_groups["User Management"].append((perm_key, description))
-                elif perm_key.startswith(("view_settings", "manage_settings", "manage_permissions")):
+                elif perm_key.startswith(("view_settings", "manage_settings", "manage_permissions", "manage_upgrades")):
                     perm_groups["Settings"].append((perm_key, description))
                 else:
                     perm_groups["System"].append((perm_key, description))
@@ -250,8 +251,12 @@ class PermissionManagementFrame(ttk.Frame):
 
                 # Permission checkboxes
                 for perm_key, description in group_perms:
-                    # Determine permission status based on effective permissions
-                    if perm_key in effective_perms:
+                    # Determine permission status based on effective permissions and revocations
+                    if perm_key in revoked_perms:
+                        status = "Revoked (User)"
+                        bg_color = "#f8d7da"  # Light red
+                        checkbox_state = False
+                    elif perm_key in effective_perms:
                         if perm_key in user_specific_perms:
                             status = "Granted (User)"
                             bg_color = "#e8f5e8"  # Light green

@@ -24,6 +24,7 @@ def get_today_summary() -> dict:
                 COALESCE(AVG(total), 0) as avg_sale
             FROM sales
             WHERE date = ?
+            AND (voided IS NULL OR voided = 0)
             """,
             (today,)
         ).fetchone()
@@ -46,6 +47,7 @@ def get_today_summary() -> dict:
             JOIN sales s ON si.sale_id = s.sale_id
             LEFT JOIN refunds r ON s.sale_id = r.original_sale_id
             WHERE s.date = ? AND r.refund_id IS NULL
+            AND (s.voided IS NULL OR s.voided = 0)
             """,
             (today,)
         ).fetchone()
@@ -89,6 +91,7 @@ def get_week_summary() -> dict:
                 COALESCE(SUM(total), 0) as revenue
             FROM sales
             WHERE date BETWEEN ? AND ?
+            AND (voided IS NULL OR voided = 0)
             """,
             (week_start, today_str)
         ).fetchone()
@@ -127,6 +130,7 @@ def get_month_summary() -> dict:
                 COALESCE(SUM(total), 0) as revenue
             FROM sales
             WHERE date BETWEEN ? AND ?
+            AND (voided IS NULL OR voided = 0)
             """,
             (month_start, today_str)
         ).fetchone()
@@ -171,6 +175,7 @@ def get_top_products(limit: int = 5) -> list[dict]:
             JOIN sales s ON si.sale_id = s.sale_id
             LEFT JOIN refunds r ON s.sale_id = r.original_sale_id
             WHERE s.date = ? AND r.refund_id IS NULL
+            AND (s.voided IS NULL OR s.voided = 0)
             GROUP BY i.item_id
             ORDER BY quantity_sold_raw DESC
             LIMIT ?
@@ -209,12 +214,15 @@ def get_top_products(limit: int = 5) -> list[dict]:
 
 
 def get_low_stock_items(threshold: int = 10) -> list[dict]:
-    """Get items with low stock based on item-specific thresholds.
-    For fractional items, checks actual volume against threshold."""
+    """Get low-stock alerts. Returns a list of alert dicts.
+
+    - For items with variants, returns variant-level alerts only (no parent alerts).
+    - For items without variants, falls back to item-level alerts as before.
+    """
+    from modules import variants as variants_module
+
     with get_connection() as conn:
         conn.row_factory = sqlite3.Row
-        
-        # Get all items with their unit info
         rows = conn.execute(
             """
             SELECT 
@@ -223,51 +231,118 @@ def get_low_stock_items(threshold: int = 10) -> list[dict]:
                 category,
                 quantity,
                 selling_price,
-                COALESCE(low_stock_threshold, 10) as threshold,
+                COALESCE(low_stock_threshold, ?) as threshold,
                 is_special_volume,
                 unit_size_ml,
-                unit_of_measure
+                unit_of_measure,
+                has_variants
             FROM items
             ORDER BY quantity ASC
             """,
+            (threshold,)
         ).fetchall()
-        
-        low_items = []
+
+        low_items: list[dict] = []
         for row in rows:
             item = dict(row)
             item_threshold = item.get("threshold", threshold)
-            
-            if item.get("is_special_volume"):
-                # For fractional items, check actual volume
-                unit_size = float(item.get("unit_size_ml") or 1)
-                actual_volume = item["quantity"] * unit_size
-                item["actual_volume"] = actual_volume
-                
-                # Determine display unit
-                unit = (item.get("unit_of_measure") or "").lower()
-                if unit in ("litre", "liter", "liters", "litres", "l"):
-                    item["display_unit"] = "L"
-                elif unit in ("kilogram", "kilograms", "kg", "kgs"):
-                    item["display_unit"] = "kg"
-                elif unit in ("meter", "meters", "metre", "metres", "m"):
-                    item["display_unit"] = "m"
+
+            # If item has variants, evaluate each variant
+            try:
+                if variants_module.has_variants(item["item_id"]):
+                    vars_list = variants_module.list_variants(item["item_id"])
+                    variant_alerts = []
+                    all_variants_low = True
+                    aggregated_qty = 0
+                    aggregated_volume = 0.0
+
+                    for v in vars_list:
+                        v_threshold = v.get("low_stock_threshold") or item_threshold
+                        qty = int(v.get("quantity") or 0)
+                        aggregated_qty += qty
+
+                        if item.get("is_special_volume"):
+                            unit_size = float(item.get("unit_size_ml") or 1)
+                            actual = qty * unit_size
+                            aggregated_volume += actual
+                        else:
+                            actual = qty
+
+                        if actual <= v_threshold:
+                            variant_alerts.append({
+                                "type": "variant",
+                                "item_id": item["item_id"],
+                                "variant_id": v.get("variant_id"),
+                                "name": f"{item.get('name')} — {v.get('variant_name')}",
+                                "quantity": qty,
+                                "actual_volume": actual,
+                                "threshold": v_threshold,
+                                "is_special_volume": bool(item.get("is_special_volume")),
+                                "display_unit": ("L" if (item.get("unit_of_measure") or "").lower() in ("litre","liter","liters","litres","l") else ("kg" if (item.get("unit_of_measure") or "").lower() in ("kilogram","kilograms","kg","kgs") else ("m" if (item.get("unit_of_measure") or "").lower() in ("meter","meters","metre","metres","m") else "units")))
+                            })
+                        else:
+                            all_variants_low = False
+
+                    low_items.extend(variant_alerts)
+
+                    parent_actual = aggregated_volume if item.get("is_special_volume") else aggregated_qty
+                    # Add a parent-level alert when appropriate (all variants low OR aggregated <= threshold)
+                    if False:  # parent alerts disabled for items with variants (variant-only mode)
+                        low_items.append({
+                            "type": "parent",
+                            "item_id": item["item_id"],
+                            "name": item.get("name"),
+                            "quantity": aggregated_qty,
+                            "actual_volume": parent_actual,
+                            "threshold": item_threshold,
+                            "is_special_volume": bool(item.get("is_special_volume")),
+                            "display_unit": ("L" if (item.get("unit_of_measure") or "").lower() in ("litre","liter","liters","litres","l") else ("kg" if (item.get("unit_of_measure") or "").lower() in ("kilogram","kilograms","kg","kgs") else ("m" if (item.get("unit_of_measure") or "").lower() in ("meter","meters","metre","metres","m") else "units")))
+                        })
                 else:
-                    item["display_unit"] = unit
-                
-                if actual_volume <= item_threshold:
-                    low_items.append(item)
-            else:
-                # For regular items, check quantity
-                item["actual_volume"] = item["quantity"]
-                item["display_unit"] = "units"
-                if item["quantity"] <= item_threshold:
-                    low_items.append(item)
-            
+                    # No variants: same as previous behavior
+                    if item.get("is_special_volume"):
+                        unit_size = float(item.get("unit_size_ml") or 1)
+                        actual_volume = item["quantity"] * unit_size
+                        item["actual_volume"] = actual_volume
+                        unit = (item.get("unit_of_measure") or "").lower()
+                        if unit in ("litre", "liter", "liters", "litres", "l"):
+                            item["display_unit"] = "L"
+                        elif unit in ("kilogram", "kilograms", "kg", "kgs"):
+                            item["display_unit"] = "kg"
+                        elif unit in ("meter", "meters", "metre", "metres", "m"):
+                            item["display_unit"] = "m"
+                        else:
+                            item["display_unit"] = unit
+
+                        if actual_volume <= item_threshold:
+                            low_items.append(item)
+                    else:
+                        item["actual_volume"] = item["quantity"]
+                        item["display_unit"] = "units"
+                        if item["quantity"] <= item_threshold:
+                            low_items.append(item)
+            except Exception:
+                # On error, fall back to item-level check
+                try:
+                    if item.get("is_special_volume"):
+                        unit_size = float(item.get("unit_size_ml") or 1)
+                        actual_volume = item["quantity"] * unit_size
+                        item["actual_volume"] = actual_volume
+                        item["display_unit"] = ("L" if (item.get("unit_of_measure") or "").lower() in ("litre","liter","liters","litres","l") else ("kg" if (item.get("unit_of_measure") or "").lower() in ("kilogram","kilograms","kg","kgs") else ("m" if (item.get("unit_of_measure") or "").lower() in ("meter","meters","metre","metres","m") else "units")))
+                        if actual_volume <= item_threshold:
+                            low_items.append(item)
+                    else:
+                        if item["quantity"] <= item_threshold:
+                            item["actual_volume"] = item["quantity"]
+                            item["display_unit"] = "units"
+                            low_items.append(item)
+                except Exception:
+                    continue
+
             if len(low_items) >= 10:
                 break
-        
-        return low_items
 
+        return low_items
 
 def get_recent_sales(limit: int = 10) -> list[dict]:
     """Get recent sales and refund transactions."""
@@ -286,6 +361,7 @@ def get_recent_sales(limit: int = 10) -> list[dict]:
                 total as amount,
                 (SELECT COUNT(*) FROM sales_items WHERE sale_id = s.sale_id) as items
             FROM sales s
+            WHERE (s.voided IS NULL OR s.voided = 0)
             ORDER BY date DESC, time DESC
             LIMIT ?
             """,
@@ -341,6 +417,7 @@ def get_sales_trend_data(days: int = 7) -> list[dict]:
                 COALESCE(SUM(total), 0) as revenue
             FROM sales
             WHERE date BETWEEN ? AND ?
+            AND (voided IS NULL OR voided = 0)
             GROUP BY date
             ORDER BY date ASC
             """,
@@ -403,6 +480,7 @@ def get_category_breakdown() -> list[dict]:
             JOIN items i ON si.item_id = i.item_id
             JOIN sales s ON si.sale_id = s.sale_id
             WHERE s.date = ?
+            AND (s.voided IS NULL OR s.voided = 0)
             GROUP BY i.category
             ORDER BY revenue DESC
             """,
@@ -424,6 +502,7 @@ def get_hourly_sales_data(date: str) -> list[dict]:
                 COALESCE(SUM(total), 0) as revenue
             FROM sales
             WHERE date = ?
+            AND (voided IS NULL OR voided = 0)
             GROUP BY hour
             ORDER BY hour
             """,
@@ -448,8 +527,34 @@ def get_sales_trend_data(days: int = 7) -> list[dict]:
                     COALESCE(SUM(total), 0) as revenue
                 FROM sales
                 WHERE date = ?
+                AND (voided IS NULL OR voided = 0)
                 """,
                 (date, date)
             ).fetchone()
             results.append(dict(row))
         return results
+
+
+def get_expenses_by_category(days: int = 30) -> list[dict]:
+    """Get expenses grouped by category for the last N days."""
+    from modules import expenses
+    
+    end_date = datetime.now().strftime("%Y-%m-%d")
+    start_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    
+    return expenses.get_expenses_by_category(start_date, end_date)
+
+
+def get_expenses_summary(days: int = 30) -> dict:
+    """Get expenses summary for the last N days."""
+    from modules import expenses
+    
+    end_date = datetime.now().strftime("%Y-%m-%d")
+    start_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    
+    summary = expenses.get_expense_summary(start_date, end_date)
+    return {
+        'total_expenses': summary.get('total_amount', 0),
+        'expense_count': summary.get('total_count', 0),
+        'avg_expense': summary.get('avg_amount', 0)
+    }

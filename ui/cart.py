@@ -5,7 +5,8 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 
 from ui.checkout import CheckoutDialog
-from utils.security import get_currency_code
+from utils.security import get_currency_code, get_cart_vat_enabled, get_cart_discount_enabled, get_cart_suspend_enabled, get_payment_methods, subscribe_payment_methods, unsubscribe_payment_methods
+from utils.cart_pubsub import subscribe_cart_changed, unsubscribe_cart_changed, notify_cart_changed
 from utils.images import load_thumbnail
 
 
@@ -27,8 +28,40 @@ class CartFrame(ttk.Frame):
         self.change_var = tk.StringVar(value="0.00")
         self._preview_cache: dict[int, tk.PhotoImage] = {}
 
+        # Store references to conditionally shown widgets
+        self.vat_label = None
+        self.vat_display = None
+        self.discount_label = None
+        self.discount_entry = None
+        self.suspend_button = None
+        self.resume_button = None
+
+        # Store references to totals frame and actions frame for dynamic updates
+        self.totals_frame = None
+        self.actions_frame = None
+
         self._build_ui()
         self._refresh_cart()
+
+        # Subscribe to payment method changes so combobox updates live
+        subscribe_payment_methods(self._on_payment_methods_changed)
+        # Ensure we unsubscribe when frame is destroyed
+        self.bind("<Destroy>", lambda _e: unsubscribe_payment_methods(self._on_payment_methods_changed))
+
+        # Subscribe to cart change notifications so other frames' mutations refresh this view
+        subscribe_cart_changed(self._refresh_cart)
+        self.bind("<Destroy>", lambda _e: unsubscribe_cart_changed(self._refresh_cart))
+
+    def _on_payment_methods_changed(self) -> None:
+        """Refresh the payment methods combobox when settings change."""
+        try:
+            methods = get_payment_methods()
+            current = self.payment_method_var.get()
+            self.pay_combo['values'] = methods
+            if current not in methods:
+                self.payment_method_var.set(methods[0] if methods else "")
+        except Exception:
+            pass
 
     def _build_ui(self) -> None:
         self.columnconfigure(0, weight=3)
@@ -55,9 +88,11 @@ class CartFrame(ttk.Frame):
             self.tree.heading(col, text=txt)
             self.tree.column(col, width=width, anchor=anchor, stretch=True)
         self.tree.grid(row=0, column=0, sticky=tk.NSEW)
-        scroll = ttk.Scrollbar(cart_frame, orient=tk.VERTICAL, command=self.tree.yview)
-        scroll.grid(row=0, column=1, sticky=tk.NS)
-        self.tree.configure(yscroll=scroll.set)
+        vscroll = ttk.Scrollbar(cart_frame, orient=tk.VERTICAL, command=self.tree.yview)
+        vscroll.grid(row=0, column=1, sticky=tk.NS)
+        hscroll = ttk.Scrollbar(cart_frame, orient=tk.HORIZONTAL, command=self.tree.xview)
+        hscroll.grid(row=1, column=0, sticky=tk.EW)
+        self.tree.configure(yscroll=vscroll.set, xscroll=hscroll.set)
         self.tree.bind("<<TreeviewSelect>>", lambda _e: self._update_preview())
         self.tree.bind("<Double-1>", lambda _e: self._double_click())
 
@@ -76,28 +111,91 @@ class CartFrame(ttk.Frame):
         ttk.Button(btns, text="Remove", width=10, command=self._remove).pack(side=tk.LEFT, padx=2)
         ttk.Button(btns, text="Clear", width=8, command=self._clear).pack(side=tk.LEFT, padx=2)
 
-        totals = ttk.Frame(side, padding=(0, 8))
-        totals.pack(fill=tk.X)
-        totals.columnconfigure(1, weight=1)
-        ttk.Label(totals, text="Subtotal:").grid(row=0, column=0, sticky=tk.W)
-        ttk.Label(totals, textvariable=self.subtotal_var, font=("Segoe UI", 11, "bold")).grid(row=0, column=1, sticky=tk.W, padx=(8, 0))
-        ttk.Label(totals, text="VAT:").grid(row=1, column=0, sticky=tk.W, pady=(2, 0))
-        ttk.Label(totals, textvariable=self.vat_var).grid(row=1, column=1, sticky=tk.W, padx=(8, 0))
-        ttk.Label(totals, text="Discount (%):").grid(row=2, column=0, sticky=tk.W, pady=(2, 0))
-        disc = ttk.Entry(totals, textvariable=self.discount_var, width=8)
-        disc.grid(row=2, column=1, sticky=tk.W, padx=(8, 0))
-        disc.bind("<KeyRelease>", lambda _e: self._refresh_cart())
-        ttk.Label(totals, text="Payment Method:").grid(row=3, column=0, sticky=tk.W, pady=(2, 0))
-        pay_combo = ttk.Combobox(totals, textvariable=self.payment_method_var, values=["Cash", "M-Pesa", "Card"], width=10, state="readonly")
-        pay_combo.grid(row=3, column=1, sticky=tk.W, padx=(8, 0))
-        ttk.Label(totals, text="Total:").grid(row=4, column=0, sticky=tk.W, pady=(4, 0))
-        ttk.Label(totals, textvariable=self.total_var, font=("Segoe UI", 12, "bold")).grid(row=4, column=1, sticky=tk.W, padx=(8, 0))
+        # Totals section
+        self.totals_frame = ttk.Frame(side, padding=(0, 8))
+        self.totals_frame.pack(fill=tk.X)
+        self.totals_frame.columnconfigure(1, weight=1)
+        ttk.Label(self.totals_frame, text="Subtotal:").grid(row=0, column=0, sticky=tk.W)
+        ttk.Label(self.totals_frame, textvariable=self.subtotal_var, font=("Segoe UI", 11, "bold")).grid(row=0, column=1, sticky=tk.W, padx=(8, 0))
 
-        actions = ttk.Frame(side)
-        actions.pack(pady=(6, 0))
-        ttk.Button(actions, text="Checkout / Save Sale", command=self._checkout).pack(side=tk.LEFT, padx=4)
-        ttk.Button(actions, text="Suspend", command=self._suspend).pack(side=tk.LEFT, padx=4)
-        ttk.Button(actions, text="Resume", command=self._resume).pack(side=tk.LEFT, padx=4)
+        # VAT display - will be shown/hidden dynamically
+        self.vat_label = ttk.Label(self.totals_frame, text="VAT:")
+        self.vat_display = ttk.Label(self.totals_frame, textvariable=self.vat_var)
+
+        # Discount input - will be shown/hidden dynamically
+        self.discount_label = ttk.Label(self.totals_frame, text="Discount (%):")
+        self.discount_entry = ttk.Entry(self.totals_frame, textvariable=self.discount_var, width=8)
+        self.discount_entry.bind("<KeyRelease>", lambda _e: self._refresh_cart())
+
+        # Payment method and total (always shown)
+        self.payment_label = ttk.Label(self.totals_frame, text="Payment Method:")
+        from utils.security import get_payment_methods
+        self.pay_combo = ttk.Combobox(self.totals_frame, textvariable=self.payment_method_var, values=get_payment_methods(), width=10, state="readonly")
+        self.total_label = ttk.Label(self.totals_frame, text="Total:")
+        self.total_display = ttk.Label(self.totals_frame, textvariable=self.total_var, font=("Segoe UI", 12, "bold"))
+
+        # Actions section
+        self.actions_frame = ttk.Frame(side)
+        self.actions_frame.pack(pady=(6, 0))
+        ttk.Button(self.actions_frame, text="Checkout / Save Sale", command=self._checkout).pack(side=tk.LEFT, padx=4)
+
+        # Suspend/Resume buttons - will be shown/hidden dynamically
+        self.suspend_button = ttk.Button(self.actions_frame, text="Suspend", command=self._suspend)
+        self.resume_button = ttk.Button(self.actions_frame, text="Resume", command=self._resume)
+
+    def _update_ui_layout(self) -> None:
+        """Update the UI layout based on current cart settings."""
+        # Clear existing grid layout
+        for widget in self.totals_frame.winfo_children():
+            widget.grid_forget()
+
+        # Clear existing pack layout for actions
+        for widget in self.actions_frame.winfo_children():
+            widget.pack_forget()
+
+        # Always show subtotal
+        ttk.Label(self.totals_frame, text="Subtotal:").grid(row=0, column=0, sticky=tk.W)
+        ttk.Label(self.totals_frame, textvariable=self.subtotal_var, font=("Segoe UI", 11, "bold")).grid(row=0, column=1, sticky=tk.W, padx=(8, 0))
+
+        row_idx = 1
+
+        # VAT display - conditionally shown
+        if get_cart_vat_enabled():
+            self.vat_label.grid(row=row_idx, column=0, sticky=tk.W, pady=(2, 0))
+            self.vat_display.grid(row=row_idx, column=1, sticky=tk.W, padx=(8, 0))
+            row_idx += 1
+        else:
+            self.vat_label.grid_forget()
+            self.vat_display.grid_forget()
+
+        # Discount input - conditionally shown
+        if get_cart_discount_enabled():
+            self.discount_label.grid(row=row_idx, column=0, sticky=tk.W, pady=(2, 0))
+            self.discount_entry.grid(row=row_idx, column=1, sticky=tk.W, padx=(8, 0))
+            row_idx += 1
+        else:
+            self.discount_label.grid_forget()
+            self.discount_entry.grid_forget()
+
+        # Payment method (always shown)
+        self.payment_label.grid(row=row_idx, column=0, sticky=tk.W, pady=(2, 0))
+        self.pay_combo.grid(row=row_idx, column=1, sticky=tk.W, padx=(8, 0))
+        row_idx += 1
+
+        # Total (always shown)
+        self.total_label.grid(row=row_idx, column=0, sticky=tk.W, pady=(4, 0))
+        self.total_display.grid(row=row_idx, column=1, sticky=tk.W, padx=(8, 0))
+
+        # Actions - always show checkout button
+        ttk.Button(self.actions_frame, text="Checkout / Save Sale", command=self._checkout).pack(side=tk.LEFT, padx=4)
+
+        # Suspend/Resume buttons - conditionally shown
+        if get_cart_suspend_enabled():
+            self.suspend_button.pack(side=tk.LEFT, padx=4)
+            self.resume_button.pack(side=tk.LEFT, padx=4)
+        else:
+            self.suspend_button.pack_forget()
+            self.resume_button.pack_forget()
 
     def _thumb(self, item: dict) -> tk.PhotoImage | None:
         item_id = item.get("item_id")
@@ -111,6 +209,9 @@ class CartFrame(ttk.Frame):
         return thumb
 
     def _refresh_cart(self) -> None:
+        # Update UI layout based on current settings
+        self._update_ui_layout()
+
         for row in self.tree.get_children():
             self.tree.delete(row)
         subtotal = 0.0
@@ -119,19 +220,28 @@ class CartFrame(ttk.Frame):
             subtotal += line_total
             self.tree.insert("", tk.END, iid=str(entry["item_id"]), values=(entry["name"], f"{self.currency_symbol} {entry['price']:.2f}", entry["quantity"], f"{self.currency_symbol} {line_total:.2f}"))
 
-        try:
-            discount_pct = float(self.discount_var.get() or 0) / 100.0
-        except ValueError:
-            discount_pct = 0.0
-        discount_amt = subtotal * discount_pct
+        # Check settings for VAT and discount functionality
+        vat_enabled = get_cart_vat_enabled()
+        discount_enabled = get_cart_discount_enabled()
+
+        discount_amt = 0.0
+        if discount_enabled:
+            try:
+                discount_pct = float(self.discount_var.get() or 0) / 100.0
+            except ValueError:
+                discount_pct = 0.0
+            discount_amt = subtotal * discount_pct
+
         vat_base = subtotal - discount_amt
         vat_amt = 0.0
-        for entry in self.cart:
-            line_subtotal = entry.get("price", 0) * entry.get("quantity", 0)
-            item_discount = line_subtotal * discount_pct
-            item_vat_base = line_subtotal - item_discount
-            item_vat_rate = entry.get("vat_rate", 16.0) / 100.0
-            vat_amt += item_vat_base * item_vat_rate
+        if vat_enabled:
+            for entry in self.cart:
+                line_subtotal = entry.get("price", 0) * entry.get("quantity", 0)
+                item_discount = line_subtotal * (discount_amt / subtotal if subtotal > 0 else 0) if discount_enabled else 0
+                item_vat_base = line_subtotal - item_discount
+                item_vat_rate = entry.get("vat_rate", 16.0) / 100.0
+                vat_amt += item_vat_base * item_vat_rate
+
         total = vat_base + vat_amt
 
         self.subtotal_var.set(f"{self.currency_symbol} {subtotal:.2f}")
@@ -171,6 +281,7 @@ class CartFrame(ttk.Frame):
             return
         entry["quantity"] = max(1, entry.get("quantity", 1) + delta)
         self._refresh_cart()
+        notify_cart_changed()
 
     def _remove(self) -> None:
         entry = self._selected()
@@ -178,6 +289,7 @@ class CartFrame(ttk.Frame):
             return
         self.cart[:] = [e for e in self.cart if e.get("item_id") != entry.get("item_id")]
         self._refresh_cart()
+        notify_cart_changed()
 
     def _double_click(self) -> None:
         entry = self._selected()
@@ -188,10 +300,12 @@ class CartFrame(ttk.Frame):
         else:
             self.cart[:] = [e for e in self.cart if e.get("item_id") != entry.get("item_id")]
         self._refresh_cart()
+        notify_cart_changed()
 
     def _clear(self) -> None:
         self.cart.clear()
         self._refresh_cart()
+        notify_cart_changed()
 
     def _suspend(self) -> None:
         if not self.cart:
@@ -200,6 +314,7 @@ class CartFrame(ttk.Frame):
         self.suspended_carts.append(self.cart[:])
         self.cart.clear()
         self._refresh_cart()
+        notify_cart_changed()
         messagebox.showinfo("Suspend", f"Cart suspended (total: {len(self.suspended_carts)} suspended)")
 
     def _resume(self) -> None:
@@ -210,6 +325,7 @@ class CartFrame(ttk.Frame):
         self.cart.clear()
         self.cart.extend(recovered)
         self._refresh_cart()
+        notify_cart_changed()
         messagebox.showinfo("Resume", "Cart restored")
 
     def _checkout(self) -> None:

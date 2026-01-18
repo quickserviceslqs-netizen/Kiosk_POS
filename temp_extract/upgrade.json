@@ -1,0 +1,28 @@
+{
+  "version": "1.0.1",
+  "description": "Example upgrade package demonstrating the upgrade system",
+  "min_app_version": "1.0.0",
+  "steps": [
+    {
+      "type": "sql",
+      "file": "sql/add_example_column.sql",
+      "description": "Add an example column to demonstrate SQL upgrades"
+    },
+    {
+      "type": "python",
+      "file": "py/example_migration.py",
+      "description": "Run Python migration script"
+    },
+    {
+      "type": "copy",
+      "src": "config/example_config.json",
+      "dest": "example_config.json",
+      "description": "Copy example configuration file"
+    },
+    {
+      "type": "command",
+      "cmd": "echo 'Upgrade step completed successfully'",
+      "description": "Run a simple command to demonstrate command execution"
+    }
+  ]
+}

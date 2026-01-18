@@ -67,6 +67,10 @@ def get_sale_with_items(sale_id: int) -> dict | None:
             "customer_name": sale_dict.get("customer_name"),
             "customer_phone": sale_dict.get("customer_phone"),
             "customer_email": sale_dict.get("customer_email"),
+            "voided": bool(sale_dict.get("voided", 0)),
+            "void_reason": sale_dict.get("void_reason"),
+            "voided_by": sale_dict.get("voided_by"),
+            "voided_at": sale_dict.get("voided_at"),
             "items": [dict(item) for item in items],
         }
 
@@ -81,6 +85,16 @@ def format_receipt(sale_data: dict, currency_code: str = "KES", store_name: str 
     
     receipt.append(f"Receipt #: {sale_data.get('receipt_number', sale_data['sale_id'])}")
     receipt.append(f"Date: {sale_data['date']} {sale_data['time']}")
+    
+    # Add voided status if applicable
+    if sale_data.get("voided"):
+        receipt.append("")
+        receipt.append("*** VOIDED ***".center(50))
+        if sale_data.get("void_reason"):
+            receipt.append(f"Reason: {sale_data['void_reason']}")
+        if sale_data.get("voided_at"):
+            receipt.append(f"Voided: {sale_data['voided_at']}")
+    
     receipt.append("")
     receipt.append("-" * 50)
     receipt.append(f"{'Item':<25} {'Qty':<8} {'Price':<12}")
@@ -212,11 +226,59 @@ def list_sales_with_search(
                     query += " AND (UPPER(s.receipt_number) LIKE UPPER(?) OR UPPER(u.username) LIKE UPPER(?))"
                     params.extend([f"%{search_term}%"] * 2)
         
+        # Select sales with user and customer info for easier display
+        if has_customers:
+            query = (
+                "SELECT s.*, u.username AS username, c.name AS customer_name "
+                "FROM sales s "
+                "LEFT JOIN users u ON s.user_id = u.user_id "
+                "LEFT JOIN customers c ON s.customer_id = c.customer_id "
+                "WHERE 1=1"
+            )
+        else:
+            query = (
+                "SELECT s.*, u.username AS username, NULL AS customer_name "
+                "FROM sales s "
+                "LEFT JOIN users u ON s.user_id = u.user_id "
+                "WHERE 1=1"
+            )
+        params = []
+        
+        if start_date:
+            query += " AND s.date >= ?"
+            params.append(start_date)
+        if end_date:
+            query += " AND s.date <= ?"
+            params.append(end_date)
+        
+        # Search by sale_id, receipt_number, username, or customer name
+        if search_term:
+            try:
+                search_id = int(search_term)
+                query += " AND (s.sale_id = ? OR s.user_id = ?)"
+                params.extend([search_id, search_id])
+            except ValueError:
+                # Try searching by receipt_number or username or customer name (case-insensitive)
+                if has_customers:
+                    query += " AND (UPPER(s.receipt_number) LIKE UPPER(?) OR UPPER(u.username) LIKE UPPER(?) OR UPPER(c.name) LIKE UPPER(?))"
+                    params.extend([f"%{search_term}%"] * 3)
+                else:
+                    query += " AND (UPPER(s.receipt_number) LIKE UPPER(?) OR UPPER(u.username) LIKE UPPER(?))"
+                    params.extend([f"%{search_term}%"] * 2)
+        
         query += " ORDER BY s.date DESC, s.time DESC LIMIT ?"
         params.append(limit)
         
         rows = conn.execute(query, params).fetchall()
-        return [dict(row) for row in rows]
+        
+        # Add void status to each sale
+        sales = []
+        for row in rows:
+            sale_dict = dict(row)
+            sale_dict["voided"] = bool(sale_dict.get("voided", 0))
+            sales.append(sale_dict)
+        
+        return sales
 
 
 def get_receipt_by_id(sale_id: int) -> str | None:
@@ -227,3 +289,109 @@ def get_receipt_by_id(sale_id: int) -> str | None:
         return None
     currency = get_currency_code()
     return format_receipt(sale_data, currency_code=currency)
+
+
+def void_sale(sale_id: int, void_reason: str, voided_by_user_id: int) -> bool:
+    """Void a sale transaction and restore inventory.
+
+    Args:
+        sale_id: ID of the sale to void
+        void_reason: Reason for voiding the sale
+        voided_by_user_id: ID of the user performing the void
+
+    Returns:
+        True if voided successfully, False otherwise
+    """
+    from datetime import datetime
+    from modules import items
+
+    with get_connection() as conn:
+        try:
+            conn.execute("BEGIN TRANSACTION")
+
+            # Check if sale exists and is not already voided
+            sale = conn.execute(
+                "SELECT voided FROM sales WHERE sale_id = ?",
+                (sale_id,)
+            ).fetchone()
+
+            if not sale:
+                conn.rollback()
+                return False
+
+            if sale["voided"]:
+                conn.rollback()
+                return False  # Already voided
+
+            # Get sale items to restore inventory
+            sale_items = conn.execute(
+                "SELECT item_id, quantity FROM sales_items WHERE sale_id = ?",
+                (sale_id,)
+            ).fetchall()
+
+            # Restore inventory for each item
+            for item in sale_items:
+                items.add_stock(item["item_id"], item["quantity"])
+
+            # Mark sale as voided
+            conn.execute(
+                "UPDATE sales SET voided = 1, void_reason = ?, voided_by = ?, voided_at = ? WHERE sale_id = ?",
+                (void_reason, voided_by_user_id, datetime.now().isoformat(), sale_id)
+            )
+
+            # Log the void action
+            from utils.audit import audit_logger
+            audit_logger.log_action(
+                table_name="sales",
+                record_id=sale_id,
+                action="void",
+                old_values=None,
+                new_values={"voided": 1, "void_reason": void_reason},
+                user_id=voided_by_user_id
+            )
+
+            conn.commit()
+            return True
+
+        except Exception as e:
+            conn.rollback()
+            print(f"Error voiding sale {sale_id}: {e}")
+            return False
+
+
+def is_sale_voided(sale_id: int) -> bool:
+    """Check if a sale is voided."""
+    with get_connection() as conn:
+        result = conn.execute(
+            "SELECT voided FROM sales WHERE sale_id = ?",
+            (sale_id,)
+        ).fetchone()
+        return bool(result and result[0])
+
+
+def get_voided_sales(start_date: str = None, end_date: str = None, limit: int = 100) -> list[dict]:
+    """Get list of voided sales."""
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+
+        query = """
+            SELECT s.*, u.username AS username, v.username AS voided_by_username
+            FROM sales s
+            LEFT JOIN users u ON s.user_id = u.user_id
+            LEFT JOIN users v ON s.voided_by = v.user_id
+            WHERE s.voided = 1
+        """
+        params = []
+
+        if start_date:
+            query += " AND s.voided_at >= ?"
+            params.append(start_date)
+        if end_date:
+            query += " AND s.voided_at <= ?"
+            params.append(end_date)
+
+        query += " ORDER BY s.voided_at DESC LIMIT ?"
+        params.append(limit)
+
+        rows = conn.execute(query, params).fetchall()
+        return [dict(row) for row in rows]

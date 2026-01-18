@@ -10,7 +10,134 @@ def get_currency_code():
         if row:
             return row['value'] if isinstance(row, dict) else row[0]
         return "USD"
- 
+
+
+def get_cart_vat_enabled():
+    """Return True if VAT calculation is enabled for cart."""
+    from database.init_db import get_connection
+    with get_connection() as conn:
+        cursor = conn.execute("SELECT value FROM settings WHERE key = 'vat_enabled'")
+        row = cursor.fetchone()
+        if row:
+            value = row['value'] if isinstance(row, dict) else row[0]
+            return value.lower() == 'true'
+        return True  # Default to enabled
+
+
+def get_cart_discount_enabled():
+    """Return True if discount functionality is enabled for cart."""
+    from database.init_db import get_connection
+    with get_connection() as conn:
+        cursor = conn.execute("SELECT value FROM settings WHERE key = 'discount_enabled'")
+        row = cursor.fetchone()
+        if row:
+            value = row['value'] if isinstance(row, dict) else row[0]
+            return value.lower() == 'true'
+        return True  # Default to enabled
+
+
+def get_cart_suspend_enabled():
+    """Return True if cart suspend/resume functionality is enabled."""
+    from database.init_db import get_connection
+    with get_connection() as conn:
+        cursor = conn.execute("SELECT value FROM settings WHERE key = 'suspend_enabled'")
+        row = cursor.fetchone()
+        if row:
+            value = row['value'] if isinstance(row, dict) else row[0]
+            return value.lower() == 'true'
+        return True  # Default to enabled
+
+
+def set_cart_vat_enabled(enabled: bool):
+    """Set whether VAT calculation is enabled for cart."""
+    from database.init_db import get_connection
+    with get_connection() as conn:
+        conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('vat_enabled', ?)", (str(enabled).lower(),))
+        conn.commit()
+
+
+def set_cart_discount_enabled(enabled: bool):
+    """Set whether discount functionality is enabled for cart."""
+    from database.init_db import get_connection
+    with get_connection() as conn:
+        conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('discount_enabled', ?)", (str(enabled).lower(),))
+        conn.commit()
+
+
+def set_cart_suspend_enabled(enabled: bool):
+    """Set whether cart suspend/resume functionality is enabled."""
+    from database.init_db import get_connection
+    with get_connection() as conn:
+        conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('suspend_enabled', ?)", (str(enabled).lower(),))
+        conn.commit()
+
+
+# Payment methods helpers
+import json
+
+_DEFAULT_PAYMENT_METHODS = ["Cash", "M-Pesa", "Card"]
+
+
+def get_payment_methods() -> list[str]:
+    """Return the configured list of payment methods for the system."""
+    from database.init_db import get_connection
+    with get_connection() as conn:
+        cursor = conn.execute("SELECT value FROM settings WHERE key = 'payment_methods'")
+        row = cursor.fetchone()
+        if row:
+            raw = row['value'] if isinstance(row, dict) else row[0]
+            try:
+                methods = json.loads(raw)
+                if isinstance(methods, list):
+                    return [str(m) for m in methods]
+            except Exception:
+                pass
+    # Return default if not set or error
+    return list(_DEFAULT_PAYMENT_METHODS)
+
+
+def set_payment_methods(methods: list[str]) -> None:
+    """Persist the list of payment methods (JSON encoded) in settings and notify listeners."""
+    from database.init_db import get_connection
+    try:
+        raw = json.dumps(list(methods))
+    except Exception:
+        raw = json.dumps([str(m) for m in methods])
+    with get_connection() as conn:
+        conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('payment_methods', ?)", (raw,))
+        conn.commit()
+    # Notify any in-process subscribers that the payment methods have changed
+    _notify_payment_methods_changed()
+
+
+# Simple in-process pub/sub for payment methods changes
+_payment_methods_listeners: list[callable] = []
+
+def subscribe_payment_methods(cb: callable) -> None:
+    """Register a callback to be notified when payment methods change.
+
+    The callback must be callable without arguments.
+    """
+    if cb not in _payment_methods_listeners:
+        _payment_methods_listeners.append(cb)
+
+
+def unsubscribe_payment_methods(cb: callable) -> None:
+    """Unregister a previously registered callback."""
+    try:
+        _payment_methods_listeners.remove(cb)
+    except ValueError:
+        pass
+
+
+def _notify_payment_methods_changed() -> None:
+    """Call all registered callbacks safely."""
+    for cb in list(_payment_methods_listeners):
+        try:
+            cb()
+        except Exception:
+            # Swallow exceptions from user callbacks to avoid affecting app flow
+            pass
 import hashlib
 import hmac
 import os

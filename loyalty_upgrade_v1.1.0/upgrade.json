@@ -1,0 +1,52 @@
+{
+  "id": "loyalty_points_v1.1.0",
+  "version": "1.1.0",
+  "description": "Add loyalty points system to cart with automatic point calculation and redemption",
+  "min_app_version": "1.0.0",
+  "author": "Development Team",
+  "created": "2026-01-14",
+  "steps": [
+    {
+      "type": "dependency_check",
+      "description": "Verify system requirements for loyalty points feature",
+      "dependencies": [
+        {
+          "type": "python_package",
+          "name": "sqlite3",
+          "version": ""
+        },
+        {
+          "type": "file_exists",
+          "name": "main.py"
+        }
+      ]
+    },
+    {
+      "type": "sql",
+      "description": "Add loyalty points tables and columns to database",
+      "file": "sql/add_loyalty_tables.sql"
+    },
+    {
+      "type": "python",
+      "description": "Initialize loyalty points for existing customers",
+      "file": "py/init_loyalty_data.py"
+    },
+    {
+      "type": "copy",
+      "description": "Update cart module with loyalty points integration",
+      "src": "ui/cart_loyalty.py",
+      "dest": "ui/cart.py"
+    },
+    {
+      "type": "copy",
+      "description": "Add loyalty points configuration",
+      "src": "config/loyalty_config.json",
+      "dest": "loyalty_config.json"
+    },
+    {
+      "type": "command",
+      "description": "Verify loyalty system installation",
+      "cmd": "python -c \"print('Loyalty points system installed successfully')\""
+    }
+  ]
+}

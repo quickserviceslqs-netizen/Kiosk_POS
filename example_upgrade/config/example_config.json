@@ -1,0 +1,14 @@
+{
+  "upgrade_example": {
+    "version": "1.0.1",
+    "description": "This is an example configuration file created by the upgrade system",
+    "features": [
+      "Database schema updates",
+      "Python script execution",
+      "File copying",
+      "Command execution"
+    ],
+    "created_by": "Kiosk POS Upgrade System",
+    "timestamp": "2026-01-14"
+  }
+}
