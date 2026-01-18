@@ -62,14 +62,16 @@ class ReconciliationDialog:
 
     def _build_ui(self) -> None:
         """Build the main UI."""
+        # Top controls (moved outside scrollable area so they remain visible)
+        top_controls_container = ttk.Frame(self.dialog)
+        top_controls_container.pack(fill=tk.X, padx=10, pady=(10, 0))
+        controls_frame = ttk.Frame(top_controls_container)
+        controls_frame.pack(fill=tk.X)
+
         # Main container with scrollable content
         scrollable = ScrollableFrame(self.dialog)
-        scrollable.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        scrollable.pack(fill=tk.BOTH, expand=True, padx=10, pady=(5, 10))
         main_frame = scrollable.scrollable_frame
-
-        # Top controls
-        controls_frame = ttk.Frame(main_frame)
-        controls_frame.pack(fill=tk.X, pady=(0, 10))
 
         # Date selection
         date_frame = ttk.LabelFrame(controls_frame, text="Reconciliation Period", padding=5)
