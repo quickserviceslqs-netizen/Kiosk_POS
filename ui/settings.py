@@ -36,7 +36,7 @@ class CurrencySettingsFrame(ttk.Frame):
 
     def load_currency(self):
         with get_connection() as conn:
-            cursor = conn.execute("SELECT value FROM settings WHERE key = 'currency'")
+            cursor = conn.execute("SELECT value FROM settings WHERE key = 'currency_symbol'")
             row = cursor.fetchone()
             if row:
                 self.currency_var.set(row['value'] if isinstance(row, dict) else row[0])
@@ -54,7 +54,7 @@ class CurrencySettingsFrame(ttk.Frame):
             messagebox.showerror("Error", "Currency symbol cannot be empty.")
             return
         with get_connection() as conn:
-            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", ("currency", symbol_entry))
+            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", ("currency_symbol", symbol_entry))
             conn.commit()
         messagebox.showinfo("Saved", f"Currency set to {symbol_entry}")
         # Stay on the currency settings page and refresh the displayed value
