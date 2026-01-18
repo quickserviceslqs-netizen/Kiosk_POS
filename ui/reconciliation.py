@@ -104,7 +104,6 @@ class ReconciliationDialog:
         ttk.Button(btn_frame, text="Export CSV", command=self._export_csv).pack(side=tk.LEFT, padx=(8,2))
         ttk.Button(btn_frame, text="Download Template", command=self._download_csv_template).pack(side=tk.LEFT, padx=2)
         ttk.Button(btn_frame, text="Import CSV", command=self._import_csv).pack(side=tk.LEFT, padx=2)
-        ttk.Button(btn_frame, text="CSV Guidelines", command=self._show_csv_guidelines).pack(side=tk.LEFT, padx=(8,2))
 
         # Update controls (always visible on top)
         # Initialize vars used by update controls
@@ -467,6 +466,14 @@ class ReconciliationDialog:
             return
         try:
             with open(filename, 'w', newline='', encoding='utf-8') as f:
+                # Write guidance as commented header lines for user clarity
+                f.write('# CSV Import Guidelines\n')
+                f.write('# Columns: payment_method (required), system_amount (informational), actual_amount (required), explanation (optional)\n')
+                f.write("# Ensure payment_method matches the payment methods in the current session.\n")
+                f.write("# actual_amount should be numeric (decimals allowed). Leave blank for 0.\n")
+                f.write("# Rows with unknown payment_method will be skipped during import.\n")
+                f.write("# Example row follows the header.\n\n")
+
                 writer = csv.writer(f)
                 writer.writerow(['payment_method', 'system_amount', 'actual_amount', 'explanation'])
                 # Example rows (system_amount should match system breakdown; actual_amount is what user will fill)
@@ -478,19 +485,7 @@ class ReconciliationDialog:
             logger.error(f"Error saving template: {e}")
             messagebox.showerror("Error", f"Failed to save template: {e}", parent=self.dialog)
 
-    def _show_csv_guidelines(self) -> None:
-        """Show guidelines for CSV import format and behavior."""
-        guidelines = (
-            "CSV Import Guidelines:\n\n"
-            "• Columns: payment_method (required), actual_amount (required), explanation (optional).\n"
-            "• Ensure payment_method text matches the payment methods used in the current reconciliation session.\n"
-            "• actual_amount should be numeric (decimals allowed). Leave blank to import as 0.\n"
-            "• Rows with unknown payment_method will be skipped.\n"
-            "• You will be prompted to confirm before import. A short preview will be shown.\n"
-            "• Use the Download Template button to get a prefilled template.\n\n"
-            "Example row:\npayment_method,system_amount,actual_amount,explanation\nCash,1500.00,1500.00,Counted cash at close"
-        )
-        messagebox.showinfo("CSV Guidelines", guidelines, parent=self.dialog)
+
 
     def _save_draft(self) -> None:
         """Save the current session as draft."""
