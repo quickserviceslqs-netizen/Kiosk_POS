@@ -146,7 +146,7 @@ def get_reconciliation_session(session_id: int) -> Optional[ReconciliationSessio
                 system_amount=row['system_amount'],
                 actual_amount=row['actual_amount'],
                 variance=row['variance'],
-                explanation=row.get('explanation', '')
+                explanation=row['explanation'] if 'explanation' in row.keys() else ''
             )
             for row in entries_rows
         ]
@@ -163,7 +163,7 @@ def get_reconciliation_session(session_id: int) -> Optional[ReconciliationSessio
             status=session_row['status'],
             reconciled_by=session_row['reconciled_by'],
             reconciled_at=session_row['reconciled_at'],
-            notes=session_row.get('notes', ''),
+            notes=session_row['notes'] if 'notes' in session_row.keys() else '',
             entries=entries
         )
 
