@@ -102,7 +102,9 @@ class ReconciliationDialog:
         ttk.Button(btn_frame, text="Load/Create Session", command=self._load_or_create_session).pack(side=tk.LEFT, padx=2)
         ttk.Button(btn_frame, text="View History", command=self._show_history).pack(side=tk.LEFT, padx=2)
         ttk.Button(btn_frame, text="Export CSV", command=self._export_csv).pack(side=tk.LEFT, padx=(8,2))
+        ttk.Button(btn_frame, text="Download Template", command=self._download_csv_template).pack(side=tk.LEFT, padx=2)
         ttk.Button(btn_frame, text="Import CSV", command=self._import_csv).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_frame, text="CSV Guidelines", command=self._show_csv_guidelines).pack(side=tk.LEFT, padx=(8,2))
 
         # Update controls (always visible on top)
         # Initialize vars used by update controls
@@ -405,6 +407,7 @@ class ReconciliationDialog:
         updated = 0
         skipped = 0
         errors = []
+        preview_rows = []
 
         try:
             with open(filename, 'r', newline='', encoding='utf-8') as f:
@@ -413,22 +416,36 @@ class ReconciliationDialog:
                     pm = (row.get('payment_method') or '').strip()
                     amt_str = (row.get('actual_amount') or '').strip()
                     expl = (row.get('explanation') or '').strip()
-                    if not pm:
-                        skipped += 1
-                        continue
-                    try:
-                        actual_amount = float(amt_str) if amt_str != '' else 0.0
-                    except ValueError:
-                        errors.append(f"Invalid amount for {pm}: '{amt_str}'")
-                        continue
+                    preview_rows.append({'payment_method': pm, 'actual_amount': amt_str, 'explanation': expl})
 
-                    # Update if payment method exists in session
-                    exists = any(e.payment_method == pm for e in self.current_session.entries)
-                    if exists:
-                        reconciliation.update_reconciliation_entry(self.current_session.session_id, pm, actual_amount, expl)
-                        updated += 1
-                    else:
-                        skipped += 1
+            # Ask user to confirm import (show count and sample)
+            total_rows = len(preview_rows)
+            sample = "\n".join([f"{r['payment_method']}: {r['actual_amount']} ({r['explanation']})" for r in preview_rows[:5]])
+            confirm = messagebox.askyesno("Confirm Import", f"Found {total_rows} rows in CSV. Sample:\n\n{sample}\n\nProceed to import?", parent=self.dialog)
+            if not confirm:
+                return
+
+            # Proceed with applying the rows
+            for r in preview_rows:
+                pm = r['payment_method']
+                amt_str = r['actual_amount']
+                expl = r['explanation']
+
+                if not pm:
+                    skipped += 1
+                    continue
+                try:
+                    actual_amount = float(amt_str) if amt_str != '' else 0.0
+                except ValueError:
+                    errors.append(f"Invalid amount for {pm}: '{amt_str}'")
+                    continue
+
+                exists = any(e.payment_method == pm for e in self.current_session.entries)
+                if exists:
+                    reconciliation.update_reconciliation_entry(self.current_session.session_id, pm, actual_amount, expl)
+                    updated += 1
+                else:
+                    skipped += 1
 
             # Refresh session
             self.current_session = reconciliation.get_reconciliation_session(self.current_session.session_id)
@@ -441,6 +458,39 @@ class ReconciliationDialog:
         except Exception as e:
             logger.error(f"Error importing CSV: {e}")
             messagebox.showerror("Error", f"Failed to import CSV: {e}", parent=self.dialog)
+
+    def _download_csv_template(self) -> None:
+        """Write a CSV template file with headers and examples."""
+        suggested = "reconciliation_template.csv"
+        filename = filedialog.asksaveasfilename(parent=self.dialog, defaultextension='.csv', filetypes=[('CSV files', '*.csv')], initialfile=suggested)
+        if not filename:
+            return
+        try:
+            with open(filename, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow(['payment_method', 'system_amount', 'actual_amount', 'explanation'])
+                # Example rows (system_amount should match system breakdown; actual_amount is what user will fill)
+                writer.writerow(['Cash', '1500.00', '1500.00', 'Counted cash at close'])
+                writer.writerow(['Card - Visa', '1200.00', '1198.00', 'Net after fees'])
+                writer.writerow(['Mobile Pay', '200.00', '200.00', ''])
+            messagebox.showinfo("Template Saved", f"CSV template saved to {os.path.basename(filename)}", parent=self.dialog)
+        except Exception as e:
+            logger.error(f"Error saving template: {e}")
+            messagebox.showerror("Error", f"Failed to save template: {e}", parent=self.dialog)
+
+    def _show_csv_guidelines(self) -> None:
+        """Show guidelines for CSV import format and behavior."""
+        guidelines = (
+            "CSV Import Guidelines:\n\n"
+            "• Columns: payment_method (required), actual_amount (required), explanation (optional).\n"
+            "• Ensure payment_method text matches the payment methods used in the current reconciliation session.\n"
+            "• actual_amount should be numeric (decimals allowed). Leave blank to import as 0.\n"
+            "• Rows with unknown payment_method will be skipped.\n"
+            "• You will be prompted to confirm before import. A short preview will be shown.\n"
+            "• Use the Download Template button to get a prefilled template.\n\n"
+            "Example row:\npayment_method,system_amount,actual_amount,explanation\nCash,1500.00,1500.00,Counted cash at close"
+        )
+        messagebox.showinfo("CSV Guidelines", guidelines, parent=self.dialog)
 
     def _save_draft(self) -> None:
         """Save the current session as draft."""
