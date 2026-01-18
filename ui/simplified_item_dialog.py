@@ -1010,6 +1010,46 @@ class SimplifiedItemDialog:
         except:
             return []
 
+    def _get_unit_list(self) -> list:
+        """Get list of existing units of measure for the combobox."""
+        try:
+            from modules import units_of_measure
+            units = units_of_measure.list_units()
+            return sorted([unit['name'] for unit in units])
+        except:
+            return ["pieces", "liters", "kilograms", "meters", "grams", "milliliters"]
+
+    def _scan_barcode(self) -> None:
+        """Placeholder for barcode scanning functionality."""
+        messagebox.showinfo("Barcode Scan", "Barcode scanning not yet implemented")
+
+    def _browse_image(self) -> None:
+        """Browse for item image file."""
+        if not self.dialog:
+            return
+
+        filename = filedialog.askopenfilename(
+            title="Select Item Image",
+            parent=self.dialog,
+            filetypes=[("Image files", "*.png *.jpg *.jpeg *.gif *.bmp"), ("All files", "*.*")]
+        )
+        if filename:
+            self.fields["image_path"].set(filename)
+
+    def _on_cancel(self) -> None:
+        """Handle cancel button."""
+        if self.dialog:
+            self.dialog.destroy()
+
+    def _show_dialog(self) -> None:
+        """Show the dialog after it's fully built."""
+        if self.dialog:
+            self.dialog.deiconify()
+            # Ensure combobox values are set after dialog is visible
+            self.dialog.after(100, self._refresh_comboboxes)
+            self.dialog.grab_set()
+            self.dialog.wait_window()
+
 
 class ManagePortionsDialog:
     """Modal dialog to manage preset portions for a fractional item."""
@@ -1152,43 +1192,3 @@ class ManagePortionsDialog:
             self._refresh()
         except Exception as e:
             messagebox.showerror("Error", f"Failed to create default portions: {e}")
-
-    def _get_unit_list(self) -> list:
-        """Get list of existing units of measure for the combobox."""
-        try:
-            from modules import units_of_measure
-            units = units_of_measure.list_units()
-            return sorted([unit['name'] for unit in units])
-        except:
-            return ["pieces", "liters", "kilograms", "meters", "grams", "milliliters"]
-
-    def _scan_barcode(self) -> None:
-        """Placeholder for barcode scanning functionality."""
-        messagebox.showinfo("Barcode Scan", "Barcode scanning not yet implemented")
-
-    def _browse_image(self) -> None:
-        """Browse for item image file."""
-        if not self.dialog:
-            return
-
-        filename = filedialog.askopenfilename(
-            title="Select Item Image",
-            parent=self.dialog,
-            filetypes=[("Image files", "*.png *.jpg *.jpeg *.gif *.bmp"), ("All files", "*.*")]
-        )
-        if filename:
-            self.fields["image_path"].set(filename)
-
-    def _on_cancel(self) -> None:
-        """Handle cancel button."""
-        if self.dialog:
-            self.dialog.destroy()
-
-    def _show_dialog(self) -> None:
-        """Show the dialog after it's fully built."""
-        if self.dialog:
-            self.dialog.deiconify()
-            # Ensure combobox values are set after dialog is visible
-            self.dialog.after(100, self._refresh_comboboxes)
-            self.dialog.grab_set()
-            self.dialog.wait_window()
