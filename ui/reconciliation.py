@@ -5,6 +5,9 @@ import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext, filedialog
 import csv
 import os
+import re
+
+from utils.i18n import get_currency_symbol, format_currency
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 import logging
@@ -255,9 +258,9 @@ class ReconciliationDialog:
 
         # Update summary
         self.summary_vars["period"].set(f"{self.current_session.start_date} to {self.current_session.end_date}")
-        self.summary_vars["system_sales"].set(f"{self.currency_symbol}{self.current_session.total_system_sales:.2f}")
-        self.summary_vars["actual_cash"].set(f"{self.currency_symbol}{self.current_session.total_actual_cash:.2f}")
-        self.summary_vars["variance"].set(f"{self.currency_symbol}{self.current_session.total_variance:.2f}")
+        self.summary_vars["system_sales"].set(format_currency(self.current_session.total_system_sales))
+        self.summary_vars["actual_cash"].set(format_currency(self.current_session.total_actual_cash))
+        self.summary_vars["variance"].set(format_currency(self.current_session.total_variance))
 
         # Clear tree
         for item in self.tree.get_children():
@@ -270,9 +273,9 @@ class ReconciliationDialog:
 
             item_id = self.tree.insert("", tk.END, values=(
                 entry.payment_method,
-                f"{self.currency_symbol}{entry.system_amount:.2f}",
-                f"{self.currency_symbol}{entry.actual_amount:.2f}",
-                f"{self.currency_symbol}{entry.variance:.2f}",
+                format_currency(entry.system_amount),
+                format_currency(entry.actual_amount),
+                format_currency(entry.variance),
                 status
             ))
 
@@ -297,7 +300,8 @@ class ReconciliationDialog:
                 self.selected_method_var.set(values[0])
 
                 # Pre-fill actual amount and explanation
-                actual_str = values[2].replace(self.currency_symbol, "").replace(",", "")
+                # Remove any non-numeric characters to parse amount (handles different currency symbols/formats)
+                actual_str = re.sub(r"[^\d\.\-]", "", str(values[2]))
                 try:
                     actual_amount = float(actual_str)
                     self.actual_amount_var.set(f"{actual_amount:.2f}")
@@ -469,10 +473,11 @@ class ReconciliationDialog:
                 # Write guidance as commented header lines for user clarity
                 f.write('# CSV Import Guidelines\n')
                 f.write('# Columns: payment_method (required), system_amount (informational), actual_amount (required), explanation (optional)\n')
-                f.write("# Ensure payment_method matches the payment methods in the current session.\n")
-                f.write("# actual_amount should be numeric (decimals allowed). Leave blank for 0.\n")
-                f.write("# Rows with unknown payment_method will be skipped during import.\n")
-                f.write("# Example row follows the header.\n\n")
+                f.write('# Currency: {}\n'.format(get_currency_symbol()))
+                f.write('# Ensure payment_method matches the payment methods in the current session.\n')
+                f.write('# actual_amount should be numeric (decimals allowed). Leave blank for 0.\n')
+                f.write('# Rows with unknown payment_method will be skipped during import.\n')
+                f.write('# Example row follows the header.\n\n')
 
                 writer = csv.writer(f)
                 writer.writerow(['payment_method', 'system_amount', 'actual_amount', 'explanation'])
@@ -516,7 +521,7 @@ class ReconciliationDialog:
         if abs(self.current_session.total_variance) > 0.01:
             result = messagebox.askyesno(
                 "Variance Detected",
-                f"There is a variance of {self.currency_symbol}{self.current_session.total_variance:.2f}. Do you want to complete the reconciliation anyway?",
+                f"There is a variance of {format_currency(self.current_session.total_variance)}. Do you want to complete the reconciliation anyway?",
                 parent=self.dialog
             )
             if not result:
