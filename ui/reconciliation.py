@@ -35,7 +35,7 @@ class ReconciliationDialog:
         # Set size and make resizable to show min/max buttons
         self.dialog.geometry("")  # Let widgets determine size
         self.dialog.resizable(True, True)  # Allow resizing to show min/max buttons
-        self.dialog.minsize(800, 600)  # Set minimum size to ensure content fits
+        self.dialog.minsize(900, 750)  # Increased minimum size to ensure content fits
 
         self._build_ui()
         self._show_dialog()
@@ -361,17 +361,21 @@ class ReconciliationDialog:
 
     def _show_dialog(self) -> None:
         """Show the dialog."""
-        # Update geometry to fit content with minimum size
+        # Update geometry to fit content with adequate size
         self.dialog.update_idletasks()
+
+        # Force a second update to ensure all widgets are properly sized
+        self.dialog.update_idletasks()
+
         req_width = self.dialog.winfo_reqwidth()
         req_height = self.dialog.winfo_reqheight()
-        
-        # Ensure minimum dimensions to show all content
-        width = max(req_width, 900)
-        height = max(req_height, 700)
-        
+
+        # Ensure adequate dimensions to show all content with extra padding
+        width = max(req_width + 50, 950)  # Add padding and minimum width
+        height = max(req_height + 100, 800)  # Add more padding for bottom content
+
         self.dialog.geometry(f"{width}x{height}")
-        
+
         self.dialog.deiconify()
         self.dialog.grab_set()
         self.dialog.wait_window()
@@ -390,7 +394,7 @@ class ExplanationDialog:
         set_window_icon(self.dialog)
         self.dialog.transient(parent)
         self.dialog.resizable(True, True)  # Allow resizing to show min/max buttons
-        self.dialog.minsize(500, 350)  # Set minimum size
+        self.dialog.minsize(550, 400)  # Increased minimum size
 
         self._build_ui()
         self._show_dialog()
@@ -472,15 +476,17 @@ class ExplanationDialog:
         """Show the dialog."""
         # Update geometry to fit content
         self.dialog.update_idletasks()
+        self.dialog.update_idletasks()  # Force second update
+
         req_width = self.dialog.winfo_reqwidth()
         req_height = self.dialog.winfo_reqheight()
-        
-        # Ensure minimum dimensions
-        width = max(req_width, 500)
-        height = max(req_height, 350)
-        
+
+        # Ensure adequate dimensions with padding
+        width = max(req_width + 30, 550)
+        height = max(req_height + 50, 400)
+
         self.dialog.geometry(f"{width}x{height}")
-        
+
         self.dialog.deiconify()
         self.dialog.grab_set()
         self.dialog.wait_window()
@@ -497,7 +503,7 @@ class ReconciliationHistoryDialog:
         set_window_icon(self.dialog)
         self.dialog.transient(parent)
         self.dialog.resizable(True, True)  # Allow resizing to show min/max buttons
-        self.dialog.minsize(1000, 600)  # Set minimum size
+        self.dialog.minsize(1100, 700)  # Increased minimum size
 
         self._build_ui()
         self._load_history()
@@ -612,15 +618,17 @@ class ReconciliationHistoryDialog:
         """Show the dialog."""
         # Update geometry to fit content
         self.dialog.update_idletasks()
+        self.dialog.update_idletasks()  # Force second update
+
         req_width = self.dialog.winfo_reqwidth()
         req_height = self.dialog.winfo_reqheight()
-        
-        # Ensure minimum dimensions
-        width = max(req_width, 1000)
-        height = max(req_height, 600)
-        
+
+        # Ensure adequate dimensions with padding
+        width = max(req_width + 50, 1100)
+        height = max(req_height + 80, 700)
+
         self.dialog.geometry(f"{width}x{height}")
-        
+
         self.dialog.deiconify()
         self.dialog.grab_set()
         self.dialog.wait_window()
