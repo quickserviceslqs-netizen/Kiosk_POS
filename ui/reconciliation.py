@@ -95,10 +95,30 @@ class ReconciliationDialog:
 
         # Buttons
         btn_frame = ttk.Frame(controls_frame)
-        btn_frame.pack(side=tk.RIGHT)
+        btn_frame.pack(side=tk.LEFT)
 
         ttk.Button(btn_frame, text="Load/Create Session", command=self._load_or_create_session).pack(side=tk.LEFT, padx=2)
         ttk.Button(btn_frame, text="View History", command=self._show_history).pack(side=tk.LEFT, padx=2)
+
+        # Update controls (always visible on top)
+        # Initialize vars used by update controls
+        self.selected_method_var = tk.StringVar(value='--')
+        self.actual_amount_var = tk.StringVar()
+        self.explanation_var = tk.StringVar()
+
+        update_frame = ttk.Frame(top_controls_container)
+        update_frame.pack(side=tk.RIGHT, padx=(0, 10))
+
+        ttk.Label(update_frame, text="Selected:").grid(row=0, column=0, sticky=tk.W)
+        ttk.Label(update_frame, textvariable=self.selected_method_var, width=20).grid(row=0, column=1, sticky=tk.W, padx=(5, 10))
+
+        ttk.Label(update_frame, text="Actual:").grid(row=0, column=2, sticky=tk.W)
+        ttk.Entry(update_frame, textvariable=self.actual_amount_var, width=12).grid(row=0, column=3, sticky=tk.W, padx=(5, 10))
+
+        ttk.Label(update_frame, text="Explanation:").grid(row=0, column=4, sticky=tk.W)
+        ttk.Entry(update_frame, textvariable=self.explanation_var, width=30).grid(row=0, column=5, sticky=tk.W, padx=(5, 10))
+
+        ttk.Button(update_frame, text="Update Selected", command=self._update_selected_entry).grid(row=0, column=6, sticky=tk.E)
 
         # Main content area
         content_frame = ttk.Frame(main_frame)
@@ -148,19 +168,9 @@ class ReconciliationDialog:
         self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
-        # Entry controls below tree
-        entry_frame = ttk.Frame(right_panel)
-        entry_frame.pack(fill=tk.X, pady=(10, 0))
-
-        ttk.Label(entry_frame, text="Actual Amount:").grid(row=0, column=0, sticky=tk.W, pady=2)
-        self.actual_amount_var = tk.StringVar()
-        ttk.Entry(entry_frame, textvariable=self.actual_amount_var, width=15).grid(row=0, column=1, sticky=tk.W, padx=(5, 0), pady=2)
-
-        ttk.Label(entry_frame, text="Explanation:").grid(row=1, column=0, sticky=tk.W, pady=2)
-        self.explanation_var = tk.StringVar()
-        ttk.Entry(entry_frame, textvariable=self.explanation_var, width=40).grid(row=1, column=1, sticky=tk.W, padx=(5, 0), pady=2)
-
-        ttk.Button(entry_frame, text="Update Selected", command=self._update_selected_entry).grid(row=0, column=2, rowspan=2, padx=(10, 0))
+        # Note: Entry controls were moved to the fixed top area so they remain visible
+        # The controls previously defined here are intentionally removed to avoid duplication
+        pass
 
         # Bottom panel - Notes and Actions (fixed footer)
         bottom_frame = ttk.LabelFrame(self.dialog, text="Notes & Actions", padding=5)
@@ -204,20 +214,20 @@ class ReconciliationDialog:
                 # Load the most recent session
                 session_id = existing_sessions[0]['session_id']
                 self.current_session = reconciliation.get_reconciliation_session(session_id)
-                messagebox.showinfo("Session Loaded", f"Loaded existing reconciliation session for {period_type} period.")
+                messagebox.showinfo("Session Loaded", f"Loaded existing reconciliation session for {period_type} period.", parent=self.dialog)
             else:
                 # Create new session
                 session_id = reconciliation.create_reconciliation_session(
                     date_str, period_type, start_date, end_date, self.user_id
                 )
                 self.current_session = reconciliation.get_reconciliation_session(session_id)
-                messagebox.showinfo("Session Created", f"Created new reconciliation session for {period_type} period.")
+                messagebox.showinfo("Session Created", f"Created new reconciliation session for {period_type} period.", parent=self.dialog)
 
             self._refresh_display()
 
         except Exception as e:
             logger.error(f"Error loading/creating session: {e}")
-            messagebox.showerror("Error", f"Failed to load/create session: {e}")
+            messagebox.showerror("Error", f"Failed to load/create session: {e}", parent=self.dialog)
 
     def _refresh_display(self) -> None:
         """Refresh the display with current session data."""
@@ -264,6 +274,9 @@ class ReconciliationDialog:
             item = self.tree.item(selection[0])
             values = item['values']
             if len(values) >= 4:
+                # Update selected payment method label
+                self.selected_method_var.set(values[0])
+
                 # Pre-fill actual amount and explanation
                 actual_str = values[2].replace(self.currency_symbol, "").replace(",", "")
                 try:
@@ -282,12 +295,12 @@ class ReconciliationDialog:
     def _update_selected_entry(self) -> None:
         """Update the selected entry with new actual amount and explanation."""
         if not self.current_session:
-            messagebox.showwarning("No Session", "Please load or create a reconciliation session first.")
+            messagebox.showwarning("No Session", "Please load or create a reconciliation session first.", parent=self.dialog)
             return
 
         selection = self.tree.selection()
         if not selection:
-            messagebox.showwarning("No Selection", "Please select a payment method to update.")
+            messagebox.showwarning("No Selection", "Please select a payment method to update.", parent=self.dialog)
             return
 
         try:
@@ -308,13 +321,13 @@ class ReconciliationDialog:
             self.current_session = reconciliation.get_reconciliation_session(self.current_session.session_id)
             self._refresh_display()
 
-            messagebox.showinfo("Updated", f"Updated {payment_method} reconciliation entry.")
+            messagebox.showinfo("Updated", f"Updated {payment_method} reconciliation entry.", parent=self.dialog)
 
         except ValueError:
-            messagebox.showerror("Invalid Amount", "Please enter a valid number for the actual amount.")
+            messagebox.showerror("Invalid Amount", "Please enter a valid number for the actual amount.", parent=self.dialog)
         except Exception as e:
             logger.error(f"Error updating entry: {e}")
-            messagebox.showerror("Error", f"Failed to update entry: {e}")
+            messagebox.showerror("Error", f"Failed to update entry: {e}", parent=self.dialog)
 
     def _save_draft(self) -> None:
         """Save the current session as draft."""
@@ -331,21 +344,22 @@ class ReconciliationDialog:
                 )
                 conn.commit()
 
-            messagebox.showinfo("Saved", "Reconciliation draft saved successfully.")
+            messagebox.showinfo("Saved", "Reconciliation draft saved successfully.", parent=self.dialog)
         except Exception as e:
             logger.error(f"Error saving draft: {e}")
-            messagebox.showerror("Error", f"Failed to save draft: {e}")
+            messagebox.showerror("Error", f"Failed to save draft: {e}", parent=self.dialog)
 
     def _complete_reconciliation(self) -> None:
         """Complete the reconciliation."""
         if not self.current_session:
-            messagebox.showwarning("No Session", "Please load or create a reconciliation session first.")
+            messagebox.showwarning("No Session", "Please load or create a reconciliation session first.", parent=self.dialog)
             return
 
         if abs(self.current_session.total_variance) > 0.01:
             result = messagebox.askyesno(
                 "Variance Detected",
-                f"There is a variance of {self.currency_symbol}{self.current_session.total_variance:.2f}. Do you want to complete the reconciliation anyway?"
+                f"There is a variance of {self.currency_symbol}{self.current_session.total_variance:.2f}. Do you want to complete the reconciliation anyway?",
+                parent=self.dialog
             )
             if not result:
                 return
@@ -358,17 +372,17 @@ class ReconciliationDialog:
                 notes
             )
 
-            messagebox.showinfo("Completed", "Reconciliation completed successfully.")
+            messagebox.showinfo("Completed", "Reconciliation completed successfully.", parent=self.dialog)
             self._on_close()
 
         except Exception as e:
             logger.error(f"Error completing reconciliation: {e}")
-            messagebox.showerror("Error", f"Failed to complete reconciliation: {e}")
+            messagebox.showerror("Error", f"Failed to complete reconciliation: {e}", parent=self.dialog)
 
     def _add_explanation(self) -> None:
         """Add a general explanation."""
         if not self.current_session:
-            messagebox.showwarning("No Session", "Please load or create a reconciliation session first.")
+            messagebox.showwarning("No Session", "Please load or create a reconciliation session first.", parent=self.dialog)
             return
 
         dialog = ExplanationDialog(self.dialog, self.current_session.session_id, self.user_id)
@@ -472,7 +486,7 @@ class ExplanationDialog:
             explanation = self.explanation_text.get(1.0, tk.END).strip()
 
             if not explanation:
-                messagebox.showwarning("Missing Explanation", "Please enter an explanation.")
+                messagebox.showwarning("Missing Explanation", "Please enter an explanation.", parent=self.dialog)
                 return
 
             amount = 0.0
@@ -480,7 +494,7 @@ class ExplanationDialog:
                 try:
                     amount = float(self.amount_var.get().strip())
                 except ValueError:
-                    messagebox.showerror("Invalid Amount", "Please enter a valid number for amount.")
+                    messagebox.showerror("Invalid Amount", "Please enter a valid number for amount.", parent=self.dialog)
                     return
 
             reconciliation.add_reconciliation_explanation(
@@ -492,12 +506,12 @@ class ExplanationDialog:
                 self.user_id
             )
 
-            messagebox.showinfo("Saved", "Explanation added successfully.")
+            messagebox.showinfo("Saved", "Explanation added successfully.", parent=self.dialog)
             self.dialog.destroy()
 
         except Exception as e:
             logger.error(f"Error saving explanation: {e}")
-            messagebox.showerror("Error", f"Failed to save explanation: {e}")
+            messagebox.showerror("Error", f"Failed to save explanation: {e}", parent=self.dialog)
 
     def _cancel(self) -> None:
         """Cancel the dialog."""
@@ -648,7 +662,7 @@ class ReconciliationHistoryDialog:
 
         except Exception as e:
             logger.error(f"Error loading history: {e}")
-            messagebox.showerror("Error", f"Failed to load reconciliation history: {e}")
+            messagebox.showerror("Error", f"Failed to load reconciliation history: {e}", parent=self.dialog)
 
     def _close(self) -> None:
         """Close the dialog."""
