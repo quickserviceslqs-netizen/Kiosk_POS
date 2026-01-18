@@ -274,6 +274,16 @@ class SimplifiedItemDialog:
         unit_combo.bind("<<ComboboxSelected>>", lambda e: self._on_unit_change())
         self.error_labels["unit_of_measure"] = ttk.Label(scrollable_frame, text="", foreground="red", font=("Segoe UI", 8))
         self.error_labels["unit_of_measure"].grid(row=row+1, column=1, sticky=tk.W, padx=(0, 10))
+
+        # Manage Portions (only enabled for fractional items and when editing an existing item)
+        self.manage_portions_btn = ttk.Button(scrollable_frame, text="Manage Portions...", command=self._manage_portions, width=18)
+        try:
+            # Place to the right of the unit combobox (column 2)
+            self.manage_portions_btn.grid(row=row, column=2, sticky=tk.W, padx=(8, 0))
+        except Exception:
+            # If layout grid doesn't have a column 2, just pack below
+            self.manage_portions_btn.grid(row=row+2, column=1, sticky=tk.W, padx=(0, 10))
+        self.manage_portions_btn.config(state="disabled")
         def validate_unit_of_measure(*_):
             value = self.fields["unit_of_measure"].get().strip()
             if not value:
@@ -655,6 +665,13 @@ class SimplifiedItemDialog:
         """Handle item type changes to show/hide relevant fields."""
         item_type = self.fields["item_type"].get()
 
+        # Enable/disable Manage Portions button: only enabled for fractional items when editing an existing item
+        if hasattr(self, 'manage_portions_btn'):
+            if item_type == 'fractional' and self.existing and self.existing.get('item_id'):
+                self.manage_portions_btn.config(state='normal')
+            else:
+                self.manage_portions_btn.config(state='disabled')
+
         if item_type == "standard":
             # Standard items: hide package size, price per piece
             if "package_size_label" in self.fields:
@@ -724,6 +741,19 @@ class SimplifiedItemDialog:
                     self.fields["package_size"].set("100")  # 100cm per meter
 
         self._on_item_type_change()
+
+    def _manage_portions(self) -> None:
+        """Open the Manage Portions dialog for the current item.
+
+        If the item is not yet saved, prompt the user to save first.
+        """
+        # Must have an existing item id to manage portions
+        if not self.existing or not self.existing.get('item_id'):
+            messagebox.showinfo("Save Item First", "Please save the item before managing portions.")
+            return
+
+        # Open management dialog
+        ManagePortionsDialog(self.parent, self.existing['item_id'])
 
     def _on_variants_change(self) -> None:
         """Handle has variants checkbox changes to show/hide pricing and quantity fields.
@@ -979,6 +1009,149 @@ class SimplifiedItemDialog:
             return sorted(categories)
         except:
             return []
+
+
+class ManagePortionsDialog:
+    """Modal dialog to manage preset portions for a fractional item."""
+
+    def __init__(self, parent: tk.Misc, item_id: int):
+        self.parent = parent
+        self.item_id = item_id
+        self.top = tk.Toplevel(parent)
+        self.top.title("Manage Portions")
+        set_window_icon(self.top)
+        self.top.transient(parent)
+        self.top.grab_set()
+        self.top.columnconfigure(0, weight=1)
+
+        # Treeview for portions
+        cols = ("portion_name", "portion_ml", "selling_price", "cost_price", "is_active")
+        self.tree = ttk.Treeview(self.top, columns=cols, show="headings", selectmode="browse")
+        self.tree.heading("portion_name", text="Name")
+        self.tree.heading("portion_ml", text="ml")
+        self.tree.heading("selling_price", text="Price")
+        self.tree.heading("cost_price", text="Cost")
+        self.tree.heading("is_active", text="Active")
+        self.tree.column("portion_name", width=200)
+        self.tree.column("portion_ml", width=80, anchor=tk.CENTER)
+        self.tree.column("selling_price", width=100, anchor=tk.E)
+        self.tree.column("cost_price", width=100, anchor=tk.E)
+        self.tree.column("is_active", width=60, anchor=tk.CENTER)
+        self.tree.grid(row=0, column=0, sticky=tk.NSEW, padx=10, pady=(10, 0))
+
+        # Buttons
+        btn_frame = ttk.Frame(self.top)
+        btn_frame.grid(row=1, column=0, sticky=tk.EW, padx=10, pady=10)
+        ttk.Button(btn_frame, text="Add", command=self._add).pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_frame, text="Edit", command=self._edit).pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_frame, text="Delete", command=self._delete).pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_frame, text="Create Defaults", command=self._create_defaults).pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_frame, text="Close", command=self.top.destroy).pack(side=tk.RIGHT)
+
+        self._refresh()
+
+    def _refresh(self) -> None:
+        """Reload portions list."""
+        for i in self.tree.get_children():
+            self.tree.delete(i)
+        from modules import portions
+        rows = portions.list_portions(self.item_id, active_only=False)
+        for r in rows:
+            self.tree.insert("", tk.END, iid=str(r["portion_id"]), values=(r["portion_name"], r["portion_ml"], f"{r["selling_price"]:.2f}", f"{r["cost_price"]:.2f}", "Yes" if r["is_active"] else "No"))
+
+    def _add(self) -> None:
+        self._edit(create=True)
+
+    def _edit(self, create: bool = False) -> None:
+        """Open a small dialog to create or edit a portion."""
+        sel = None if create else self.tree.selection()
+        data = None
+        if sel:
+            pid = int(sel[0])
+            from modules import portions
+            data = portions.get_portion(pid)
+
+        top = tk.Toplevel(self.top)
+        top.title("Add Portion" if create else "Edit Portion")
+        set_window_icon(top)
+        top.transient(self.top)
+        top.grab_set()
+
+        fields = {}
+        ttk.Label(top, text="Name:").grid(row=0, column=0, sticky=tk.W, padx=8, pady=6)
+        fields["name"] = tk.StringVar(value=data["portion_name"] if data else "")
+        ttk.Entry(top, textvariable=fields["name"], width=40).grid(row=0, column=1, padx=8, pady=6)
+
+        ttk.Label(top, text="ml:").grid(row=1, column=0, sticky=tk.W, padx=8, pady=6)
+        fields["ml"] = tk.StringVar(value=str(data["portion_ml"]) if data else "0")
+        ttk.Entry(top, textvariable=fields["ml"], width=20).grid(row=1, column=1, padx=8, pady=6, sticky=tk.W)
+
+        ttk.Label(top, text="Price:").grid(row=2, column=0, sticky=tk.W, padx=8, pady=6)
+        fields["price"] = tk.StringVar(value=f"{data['selling_price']:.2f}" if data else "0.00")
+        ttk.Entry(top, textvariable=fields["price"], width=20).grid(row=2, column=1, padx=8, pady=6, sticky=tk.W)
+
+        ttk.Label(top, text="Cost:").grid(row=3, column=0, sticky=tk.W, padx=8, pady=6)
+        fields["cost"] = tk.StringVar(value=f"{data['cost_price']:.2f}" if data else "0.00")
+        ttk.Entry(top, textvariable=fields["cost"], width=20).grid(row=3, column=1, padx=8, pady=6, sticky=tk.W)
+
+        active_var = tk.BooleanVar(value=(data["is_active"] if data else True))
+        ttk.Checkbutton(top, text="Active", variable=active_var).grid(row=4, column=1, sticky=tk.W, padx=8, pady=6)
+
+        def save():
+            try:
+                name = fields["name"].get().strip()
+                ml = float(fields["ml"].get())
+                price = float(fields["price"].get())
+                cost = float(fields["cost"].get())
+                active = 1 if active_var.get() else 0
+                from modules import portions
+                if create:
+                    portions.create_portion(self.item_id, name, ml, price, cost_price=cost)
+                else:
+                    portions.update_portion(pid, portion_name=name, portion_ml=ml, selling_price=price, cost_price=cost, is_active=active)
+                top.destroy()
+                self._refresh()
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to save portion: {e}")
+
+        ttk.Button(top, text="Save", command=save).grid(row=5, column=0, padx=8, pady=10)
+        ttk.Button(top, text="Cancel", command=top.destroy).grid(row=5, column=1, padx=8, pady=10)
+
+    def _delete(self) -> None:
+        sel = self.tree.selection()
+        if not sel:
+            messagebox.showinfo("Select Portion", "Please select a portion to delete")
+            return
+        pid = int(sel[0])
+        if not messagebox.askyesno("Confirm Delete", "Delete selected portion?"):
+            return
+        from modules import portions
+        try:
+            portions.delete_portion(pid)
+            self._refresh()
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to delete portion: {e}")
+
+    def _create_defaults(self) -> None:
+        # Try to estimate price_per_liter from item data (if available)
+        try:
+            item = None
+            from modules import items
+            item = items.get_item(self.item_id)
+            if not item:
+                messagebox.showerror("Error", "Item not found")
+                return
+            # price_per_liter estimation if unit is liters
+            price_per_liter = 0
+            cost_per_liter = 0
+            if item.get("unit_of_measure") and ("liter" in item.get("unit_of_measure").lower() or item.get("unit_of_measure").lower() == "l"):
+                price_per_liter = item.get("selling_price", 0)
+                cost_per_liter = item.get("cost_price", 0)
+            from modules import portions
+            portions.create_default_portions(self.item_id, price_per_liter, cost_per_liter)
+            self._refresh()
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to create default portions: {e}")
 
     def _get_unit_list(self) -> list:
         """Get list of existing units of measure for the combobox."""
