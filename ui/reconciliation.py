@@ -32,13 +32,9 @@ class ReconciliationDialog:
         set_window_icon(self.dialog)
         self.dialog.transient(parent)
 
-        # Set size
-        screen_w = self.dialog.winfo_screenwidth()
-        screen_h = self.dialog.winfo_screenheight()
-        width = min(1200, int(screen_w * 0.9))
-        height = min(800, int(screen_h * 0.8))
-        self.dialog.geometry(f"{width}x{height}")
-        self.dialog.resizable(True, True)
+        # Set size and make non-resizable
+        self.dialog.geometry("")  # Let widgets determine size
+        self.dialog.resizable(False, False)
 
         self._build_ui()
         self._show_dialog()
@@ -364,6 +360,12 @@ class ReconciliationDialog:
 
     def _show_dialog(self) -> None:
         """Show the dialog."""
+        # Update geometry to fit content
+        self.dialog.update_idletasks()
+        width = self.dialog.winfo_reqwidth()
+        height = self.dialog.winfo_reqheight()
+        self.dialog.geometry(f"{width}x{height}")
+        
         self.dialog.deiconify()
         self.dialog.grab_set()
         self.dialog.wait_window()
@@ -381,7 +383,7 @@ class ExplanationDialog:
         self.dialog.title("Add Explanation")
         set_window_icon(self.dialog)
         self.dialog.transient(parent)
-        self.dialog.geometry("500x300")
+        self.dialog.resizable(False, False)
 
         self._build_ui()
         self._show_dialog()
@@ -461,6 +463,12 @@ class ExplanationDialog:
 
     def _show_dialog(self) -> None:
         """Show the dialog."""
+        # Update geometry to fit content
+        self.dialog.update_idletasks()
+        width = self.dialog.winfo_reqwidth()
+        height = self.dialog.winfo_reqheight()
+        self.dialog.geometry(f"{width}x{height}")
+        
         self.dialog.deiconify()
         self.dialog.grab_set()
         self.dialog.wait_window()
@@ -476,7 +484,7 @@ class ReconciliationHistoryDialog:
         self.dialog.title("Reconciliation History")
         set_window_icon(self.dialog)
         self.dialog.transient(parent)
-        self.dialog.geometry("1000x600")
+        self.dialog.resizable(False, False)
 
         self._build_ui()
         self._load_history()
@@ -589,6 +597,12 @@ class ReconciliationHistoryDialog:
 
     def _show_dialog(self) -> None:
         """Show the dialog."""
+        # Update geometry to fit content
+        self.dialog.update_idletasks()
+        width = self.dialog.winfo_reqwidth()
+        height = self.dialog.winfo_reqheight()
+        self.dialog.geometry(f"{width}x{height}")
+        
         self.dialog.deiconify()
         self.dialog.grab_set()
         self.dialog.wait_window()
