@@ -67,9 +67,7 @@ class OrderHistoryFrame(ttk.Frame):
         super().__init__(master, padding=(12, 12, 12, 20), **kwargs)
         self.on_home = on_home
         self.tree = None
-        print("DEBUG: About to call _build_ui")
         self._build_ui()
-        print("DEBUG: _build_ui completed, tree =", self.tree)
         # Populate dynamic filter lists
         self._load_filter_lists()
         # Defer refresh to ensure UI is fully built
@@ -77,7 +75,6 @@ class OrderHistoryFrame(ttk.Frame):
     
     def _build_ui(self):
         """Build the UI layout."""
-        print("DEBUG: _build_ui started")
         self.columnconfigure(0, weight=1)
         self.rowconfigure(3, weight=1)
         self.grid_propagate(True)
@@ -239,6 +236,20 @@ class OrderHistoryFrame(ttk.Frame):
         
         start = self.start_date.get().strip() or None
         end = self.end_date.get().strip() or None
+        
+        # Validate date range
+        if start and end:
+            from datetime import datetime
+            try:
+                start_dt = datetime.strptime(start, "%Y-%m-%d")
+                end_dt = datetime.strptime(end, "%Y-%m-%d")
+                if start_dt > end_dt:
+                    messagebox.showwarning("Invalid Date Range", "Start date cannot be after end date")
+                    return
+            except ValueError:
+                messagebox.showwarning("Invalid Date Format", "Please use YYYY-MM-DD format for dates")
+                return
+        
         search = self.search_term.get().strip() or None
         payment_filter = self.payment_method_var.get() if hasattr(self, 'payment_method_var') else 'Any'
         status_filter = self.refund_status_var.get() if hasattr(self, 'refund_status_var') else 'Any'
@@ -436,13 +447,25 @@ class OrderHistoryFrame(ttk.Frame):
                 f.write(receipt_text)
                 temp_path = f.name
             
-            # Try to print using Windows notepad (silent print)
+            # Try to print using system default printer
             try:
-                # Open print dialog via notepad
-                subprocess.Popen(['notepad', '/p', temp_path], shell=True)
-            except Exception:
-                # Fallback: just open the file
-                os.startfile(temp_path, 'print')
+                if os.name == 'nt':  # Windows
+                    # Use print command instead of shell=True
+                    subprocess.run(['print', temp_path], check=True, capture_output=True)
+                else:  # Unix-like systems
+                    subprocess.run(['lpr', temp_path], check=True, capture_output=True)
+            except subprocess.CalledProcessError:
+                # Fallback: open with default application
+                try:
+                    os.startfile(temp_path, 'print') if os.name == 'nt' else subprocess.run(['xdg-open', temp_path])
+                except Exception:
+                    messagebox.showwarning("Print Failed", "Could not print receipt. File saved temporarily.")
+            except FileNotFoundError:
+                # Print command not available, try opening file
+                try:
+                    os.startfile(temp_path, 'print') if os.name == 'nt' else subprocess.run(['xdg-open', temp_path])
+                except Exception:
+                    messagebox.showwarning("Print Failed", "Could not print receipt. File saved temporarily.")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to print: {e}")
     
@@ -555,80 +578,80 @@ class OrderHistoryFrame(ttk.Frame):
         except Exception as e:
             messagebox.showerror("Export Error", f"Failed to export orders: {e}")
         
-        def _view_order_details(self) -> None:
-            """Show detailed order information in a popup dialog."""
-            try:
-                sale_id = self._selected_sale_id()
-                if not sale_id:
-                    return
-                
-                # Get full sale details
-                sale_data = receipts.get_sale_with_items(sale_id)
-                if not sale_data:
-                messagebox.showerror("Error", "Order not found")
+    def _view_order_details(self) -> None:
+        """Show detailed order information in a popup dialog."""
+        try:
+            sale_id = self._selected_sale_id()
+            if not sale_id:
                 return
             
-                # Create popup window
-                popup = tk.Toplevel(self)
-                popup.withdraw()  # Hide until fully built
-                popup.title(f"Order Details - {sale_data.get('receipt_number', f'#{sale_id}')}")
-                set_window_icon(popup)
-                popup.transient(self.winfo_toplevel())
-                popup.columnconfigure(0, weight=1)
-                popup.rowconfigure(1, weight=1)
-            
-                currency = get_currency_code()
-            
-                # Header frame
-                header_frame = ttk.Frame(popup, padding=10)
-                header_frame.grid(row=0, column=0, sticky=tk.EW)
-            
-                ttk.Label(header_frame, text=f"Order #{sale_data.get('receipt_number', sale_id)}", 
-                     font=("Segoe UI", 14, "bold")).grid(row=0, column=0, columnspan=4, sticky=tk.W, pady=(0, 10))
-            
-                # Order info
-                ttk.Label(header_frame, text="Date:").grid(row=1, column=0, sticky=tk.W)
-                ttk.Label(header_frame, text=f"{sale_data['date']} {sale_data['time']}").grid(row=1, column=1, sticky=tk.W, padx=(10, 20))
-            
-                ttk.Label(header_frame, text="Customer:").grid(row=1, column=2, sticky=tk.W)
-                ttk.Label(header_frame, text=sale_data.get('customer_name', 'Walk-in')).grid(row=1, column=3, sticky=tk.W, padx=(10, 0))
-            
-                ttk.Label(header_frame, text="Cashier:").grid(row=2, column=0, sticky=tk.W)
-                ttk.Label(header_frame, text=sale_data.get('username', 'Unknown')).grid(row=2, column=1, sticky=tk.W, padx=(10, 20))
-            
-                ttk.Label(header_frame, text="Payment:").grid(row=2, column=2, sticky=tk.W)
-                ttk.Label(header_frame, text=sale_data.get('payment_method', 'Cash')).grid(row=2, column=3, sticky=tk.W, padx=(10, 0))
-            
-                # Items frame
-                items_frame = ttk.Frame(popup, padding=10)
-                items_frame.grid(row=1, column=0, sticky=tk.NSEW, padx=10, pady=(0, 10))
-                items_frame.columnconfigure(0, weight=1)
-                items_frame.rowconfigure(0, weight=1)
-            
-                ttk.Label(items_frame, text="Items:", font=("Segoe UI", 11, "bold")).grid(row=0, column=0, sticky=tk.W, pady=(0, 5))
-            
-                # Items treeview
-                columns = ("item", "qty", "price", "total")
-                items_tree = ttk.Treeview(items_frame, columns=columns, show="headings", height=8)
-                items_tree.heading("item", text="Item")
-                items_tree.heading("qty", text="Quantity")
-                items_tree.heading("price", text="Unit Price")
-                items_tree.heading("total", text="Total")
-            
-                items_tree.column("item", width=200, minwidth=150)
-                items_tree.column("qty", width=80, minwidth=60, anchor=tk.CENTER)
-                items_tree.column("price", width=100, minwidth=80, anchor=tk.E)
-                items_tree.column("total", width=100, minwidth=80, anchor=tk.E)
-            
-                items_tree.grid(row=1, column=0, sticky=tk.NSEW)
-            
-                # Scrollbar for items
-                items_scroll = ttk.Scrollbar(items_frame, orient=tk.VERTICAL, command=items_tree.yview)
-                items_scroll.grid(row=1, column=1, sticky=tk.NS)
-                items_tree.configure(yscrollcommand=items_scroll.set)
-            
-                # Populate items
-                for item in sale_data["items"]:
+            # Get full sale details
+            sale_data = receipts.get_sale_with_items(sale_id)
+            if not sale_data:
+                messagebox.showerror("Error", "Order not found")
+                return
+        
+            # Create popup window
+            popup = tk.Toplevel(self)
+            popup.withdraw()  # Hide until fully built
+            popup.title(f"Order Details - {sale_data.get('receipt_number', f'#{sale_id}')}")
+            set_window_icon(popup)
+            popup.transient(self.winfo_toplevel())
+            popup.columnconfigure(0, weight=1)
+            popup.rowconfigure(1, weight=1)
+        
+            currency = get_currency_code()
+        
+            # Header frame
+            header_frame = ttk.Frame(popup, padding=10)
+            header_frame.grid(row=0, column=0, sticky=tk.EW)
+        
+            ttk.Label(header_frame, text=f"Order #{sale_data.get('receipt_number', sale_id)}", 
+                 font=("Segoe UI", 14, "bold")).grid(row=0, column=0, columnspan=4, sticky=tk.W, pady=(0, 10))
+        
+            # Order info
+            ttk.Label(header_frame, text="Date:").grid(row=1, column=0, sticky=tk.W)
+            ttk.Label(header_frame, text=f"{sale_data['date']} {sale_data['time']}").grid(row=1, column=1, sticky=tk.W, padx=(10, 20))
+        
+            ttk.Label(header_frame, text="Customer:").grid(row=1, column=2, sticky=tk.W)
+            ttk.Label(header_frame, text=sale_data.get('customer_name', 'Walk-in')).grid(row=1, column=3, sticky=tk.W, padx=(10, 0))
+        
+            ttk.Label(header_frame, text="Cashier:").grid(row=2, column=0, sticky=tk.W)
+            ttk.Label(header_frame, text=sale_data.get('username', 'Unknown')).grid(row=2, column=1, sticky=tk.W, padx=(10, 20))
+        
+            ttk.Label(header_frame, text="Payment:").grid(row=2, column=2, sticky=tk.W)
+            ttk.Label(header_frame, text=sale_data.get('payment_method', 'Cash')).grid(row=2, column=3, sticky=tk.W, padx=(10, 0))
+        
+            # Items frame
+            items_frame = ttk.Frame(popup, padding=10)
+            items_frame.grid(row=1, column=0, sticky=tk.NSEW, padx=10, pady=(0, 10))
+            items_frame.columnconfigure(0, weight=1)
+            items_frame.rowconfigure(0, weight=1)
+        
+            ttk.Label(items_frame, text="Items:", font=("Segoe UI", 11, "bold")).grid(row=0, column=0, sticky=tk.W, pady=(0, 5))
+        
+            # Items treeview
+            columns = ("item", "qty", "price", "total")
+            items_tree = ttk.Treeview(items_frame, columns=columns, show="headings", height=8)
+            items_tree.heading("item", text="Item")
+            items_tree.heading("qty", text="Quantity")
+            items_tree.heading("price", text="Unit Price")
+            items_tree.heading("total", text="Total")
+        
+            items_tree.column("item", width=200, minwidth=150)
+            items_tree.column("qty", width=80, minwidth=60, anchor=tk.CENTER)
+            items_tree.column("price", width=100, minwidth=80, anchor=tk.E)
+            items_tree.column("total", width=100, minwidth=80, anchor=tk.E)
+        
+            items_tree.grid(row=1, column=0, sticky=tk.NSEW)
+        
+            # Scrollbar for items
+            items_scroll = ttk.Scrollbar(items_frame, orient=tk.VERTICAL, command=items_tree.yview)
+            items_scroll.grid(row=1, column=1, sticky=tk.NS)
+            items_tree.configure(yscrollcommand=items_scroll.set)
+        
+            # Populate items
+            for item in sale_data["items"]:
                 item_name = item.get("name", "Unknown")
                 qty = item["quantity"]
                 price = item["price"]
@@ -640,76 +663,81 @@ class OrderHistoryFrame(ttk.Frame):
                     f"{currency} {price:.2f}",
                     f"{currency} {total:.2f}"
                 ))
-            
-                # Summary frame
-                summary_frame = ttk.Frame(popup, padding=10)
-                summary_frame.grid(row=2, column=0, sticky=tk.EW)
-            
-                ttk.Label(summary_frame, text="Order Summary:", font=("Segoe UI", 11, "bold")).grid(row=0, column=0, columnspan=2, sticky=tk.W, pady=(0, 10))
-            
-                # Summary details
-                subtotal = sale_data.get("subtotal", sum(item["price"] * item["quantity"] for item in sale_data["items"]))
-                vat_amount = sale_data.get("vat_amount", 0)
-                discount_amount = sale_data.get("discount_amount", 0)
-                total = sale_data["total"]
-            
-                ttk.Label(summary_frame, text="Subtotal:").grid(row=1, column=0, sticky=tk.W)
-                ttk.Label(summary_frame, text=f"{currency} {subtotal:.2f}").grid(row=1, column=1, sticky=tk.E, padx=(10, 0))
-            
-                if vat_amount > 0:
+        
+            # Summary frame
+            summary_frame = ttk.Frame(popup, padding=10)
+            summary_frame.grid(row=2, column=0, sticky=tk.EW)
+        
+            ttk.Label(summary_frame, text="Order Summary:", font=("Segoe UI", 11, "bold")).grid(row=0, column=0, columnspan=2, sticky=tk.W, pady=(0, 10))
+        
+            # Summary details
+            subtotal = sale_data.get("subtotal", sum(item["price"] * item["quantity"] for item in sale_data["items"]))
+            vat_amount = sale_data.get("vat_amount", 0)
+            discount_amount = sale_data.get("discount_amount", 0)
+            total = sale_data["total"]
+        
+            ttk.Label(summary_frame, text="Subtotal:").grid(row=1, column=0, sticky=tk.W)
+            ttk.Label(summary_frame, text=f"{currency} {subtotal:.2f}").grid(row=1, column=1, sticky=tk.E, padx=(10, 0))
+        
+            if vat_amount > 0:
                 ttk.Label(summary_frame, text="VAT:").grid(row=2, column=0, sticky=tk.W)
                 ttk.Label(summary_frame, text=f"{currency} {vat_amount:.2f}").grid(row=2, column=1, sticky=tk.E, padx=(10, 0))
             
-                if discount_amount > 0:
+            if discount_amount > 0:
                 ttk.Label(summary_frame, text="Discount:").grid(row=3, column=0, sticky=tk.W)
                 ttk.Label(summary_frame, text=f"{currency} {discount_amount:.2f}").grid(row=3, column=1, sticky=tk.E, padx=(10, 0))
-            
-                ttk.Label(summary_frame, text="Total:", font=("Segoe UI", 10, "bold")).grid(row=4, column=0, sticky=tk.W, pady=(10, 0))
-                ttk.Label(summary_frame, text=f"{currency} {total:.2f}", font=("Segoe UI", 10, "bold")).grid(row=4, column=1, sticky=tk.E, padx=(10, 0), pady=(10, 0))
-            
-                # Payment info
-                ttk.Label(summary_frame, text="Amount Paid:").grid(row=5, column=0, sticky=tk.W)
-                ttk.Label(summary_frame, text=f"{currency} {sale_data.get('payment_received', total):.2f}").grid(row=5, column=1, sticky=tk.E, padx=(10, 0))
-            
-                change = sale_data.get("change", 0)
-                if change > 0:
+        
+            ttk.Label(summary_frame, text="Total:", font=("Segoe UI", 10, "bold")).grid(row=4, column=0, sticky=tk.W, pady=(10, 0))
+            ttk.Label(summary_frame, text=f"{currency} {total:.2f}", font=("Segoe UI", 10, "bold")).grid(row=4, column=1, sticky=tk.E, padx=(10, 0), pady=(10, 0))
+        
+            # Payment info
+            ttk.Label(summary_frame, text="Amount Paid:").grid(row=5, column=0, sticky=tk.W)
+            ttk.Label(summary_frame, text=f"{currency} {sale_data.get('payment_received', total):.2f}").grid(row=5, column=1, sticky=tk.E, padx=(10, 0))
+        
+            change = sale_data.get("change", 0)
+            if change > 0:
                 ttk.Label(summary_frame, text="Change:").grid(row=6, column=0, sticky=tk.W)
                 ttk.Label(summary_frame, text=f"{currency} {change:.2f}").grid(row=6, column=1, sticky=tk.E, padx=(10, 0))
-            
-                # Status (Voided, Refunded, or Regular Sale)
-                is_voided = sale_data.get("voided", 0) == 1
-                sid = sale_data["sale_id"]
-            
-                if is_voided:
+        
+            # Status (Voided, Refunded, or Regular Sale)
+            is_voided = sale_data.get("voided", 0) == 1
+            sid = sale_data["sale_id"]
+        
+            if is_voided:
                 order_status = "Voided"
                 status_color = "red"
-                elif refunds.is_sale_fully_refunded(sid):
+            elif refunds.is_sale_fully_refunded(sid):
                 order_status = "Fully Refunded"
                 status_color = "orange"
-                elif refunds.get_refunded_quantities_for_sale(sid):
+            elif refunds.get_refunded_quantities_for_sale(sid):
                 order_status = "Partially Refunded"
                 status_color = "orange"
-                else:
+            else:
                 order_status = "Regular Sale"
                 status_color = "green"
-            
-                ttk.Label(summary_frame, text="Status:").grid(row=7, column=0, sticky=tk.W, pady=(10, 0))
-                status_label = ttk.Label(summary_frame, text=order_status, foreground=status_color)
-                status_label.grid(row=7, column=1, sticky=tk.E, padx=(10, 0), pady=(10, 0))
-            
-                # Set geometry and show
-                popup.update_idletasks()
-                popup.geometry("700x600")
-                popup.deiconify()
-            
-                except Exception as e:
+        
+            ttk.Label(summary_frame, text="Status:").grid(row=7, column=0, sticky=tk.W, pady=(10, 0))
+            status_label = ttk.Label(summary_frame, text=order_status, foreground=status_color)
+            status_label.grid(row=7, column=1, sticky=tk.E, padx=(10, 0), pady=(10, 0))
+        
+            # Set geometry and show
+            popup.update_idletasks()
+            popup.geometry("700x600")
+            popup.deiconify()
+        
+        except Exception as e:
             messagebox.showerror("Error", f"Failed to view order details: {e}")
         
-        def _refund_order(self) -> None:
-            """Process a refund for selected order."""
-            try:
+    def _refund_order(self) -> None:
+        """Process a refund for selected order."""
+        try:
             sale_id = self._selected_sale_id()
             if not sale_id:
+                return
+            
+            # Check if sale is voided - cannot refund voided sales
+            if receipts.is_sale_voided(sale_id):
+                messagebox.showwarning("Cannot Refund", "This sale has been voided and cannot be refunded")
                 return
             
             # If the sale is fully refunded, block further refunds; otherwise allow partial/multiple refunds
@@ -725,6 +753,14 @@ class OrderHistoryFrame(ttk.Frame):
             sale_data = receipts.get_sale_with_items(sale_id)
             if not sale_data:
                 messagebox.showerror("Error", "Sale not found")
+                return
+            
+            # Check permissions
+            root = self.winfo_toplevel()
+            current_user = getattr(root, 'current_user', {})
+            from modules import permissions
+            if not permissions.has_permission(current_user, 'process_refunds'):
+                messagebox.showerror("Permission Denied", "You do not have permission to process refunds")
                 return
             
             # Show refund confirmation dialog
@@ -873,6 +909,17 @@ class OrderHistoryFrame(ttk.Frame):
                             q = float(qvar.get()) if qvar else float(item.get("quantity"))
                         except Exception:
                             q = float(item.get("quantity"))
+                        
+                        # Validate quantity doesn't exceed available
+                        already_refunded = refunded_map.get(item.get("sale_item_id"), 0.0)
+                        available_qty = max(0.0, float(item["quantity"]) - float(already_refunded))
+                        if q > available_qty:
+                            messagebox.showerror("Invalid Quantity", f"Cannot refund {q} of item '{item['name']}'. Only {available_qty} available for refund.")
+                            return
+                        if q <= 0:
+                            messagebox.showwarning("Invalid Quantity", f"Refund quantity must be greater than 0 for item '{item['name']}'")
+                            continue
+                            
                         selected_items.append({
                             "sale_item_id": item.get("sale_item_id"),
                             "item_id": item["item_id"],
@@ -908,21 +955,21 @@ class OrderHistoryFrame(ttk.Frame):
             dialog.update_idletasks()
             dialog.geometry("600x500")
             dialog.deiconify()  # Show after fully built
-            except Exception as e:
+        except Exception as e:
             messagebox.showerror("Error", f"Failed to process refund: {e}")
-        
-        def _export_receipt(self) -> None:
-            """Export receipt as text file."""
-            try:
+
+    def _export_receipt(self) -> None:
+        """Export receipt as text file."""
+        try:
             sale_id = self._selected_sale_id()
             if not sale_id:
                 return
-            
+
             receipt_text = receipts.get_receipt_by_id(sale_id)
             if not receipt_text:
                 messagebox.showerror("Error", "Receipt not found")
                 return
-            
+
             filename = filedialog.asksaveasfilename(
                 title="Save Receipt",
                 defaultextension=".txt",
@@ -931,210 +978,212 @@ class OrderHistoryFrame(ttk.Frame):
             )
             if not filename:
                 return
-            
+
             with open(filename, 'w') as f:
                 f.write(receipt_text)
             messagebox.showinfo("Exported", f"Receipt saved to {filename}")
-            
+
             # Log the export action
             current_user = getattr(self.master, 'current_user', {}).get('username', 'Unknown')
             log_audit_action("EXPORT_RECEIPT", sale_id, current_user, f"File: {filename}")
-            
-            except Exception as e:
+
+        except Exception as e:
             messagebox.showerror("Error", f"Failed to export: {e}")
         
-        def _void_sale(self) -> None:
-            """Void a sale transaction."""
+    def _void_sale(self) -> None:
+        """Void a sale transaction."""
+        sale_id = self._selected_sale_id()
+        if not sale_id:
+            return
+        
+        # Check if sale is already voided
+        if receipts.is_sale_voided(sale_id):
+            messagebox.showwarning("Already Voided", "This sale has already been voided")
+            return
+        
+        # Check if sale has refunds
+        if refunds.get_refunded_quantities_for_sale(sale_id):
+            if not messagebox.askyesno("Confirm Void", 
+                "This sale has refunds. Voiding will cancel the entire transaction.\n\nContinue?"):
+                return
+        
+        # Get sale details
+        sale_data = receipts.get_sale_with_items(sale_id)
+        if not sale_data:
+            messagebox.showerror("Error", "Sale not found")
+            return
+        
+        # Check permissions
+        root = self.winfo_toplevel()
+        current_user = getattr(root, 'current_user', {})
+        from modules import permissions
+        if not permissions.has_permission(current_user, 'void_sales'):
+            messagebox.showerror("Permission Denied", "You do not have permission to void sales")
+            return
+        
+        # Show void confirmation dialog
+        dialog = tk.Toplevel(self)
+        dialog.withdraw()
+        receipt_num = sale_data.get("receipt_number", f"#{sale_id}")
+        dialog.title(f"Void Sale {receipt_num}")
+        set_window_icon(dialog)
+        dialog.transient(self.winfo_toplevel())
+        dialog.grab_set()
+        
+        currency = get_currency_code()
+        
+        # Sale summary
+        ttk.Label(dialog, text=f"Void Sale {receipt_num}", font=("Segoe UI", 12, "bold")).grid(row=0, column=0, columnspan=2, pady=8, padx=12)
+        ttk.Label(dialog, text=f"Amount: {currency} {sale_data['total']:.2f}").grid(row=1, column=0, sticky=tk.W, padx=12)
+        ttk.Label(dialog, text=f"Date: {sale_data['date']} {sale_data['time']}").grid(row=1, column=1, sticky=tk.W)
+        ttk.Label(dialog, text=f"Customer: {sale_data.get('customer_name', 'N/A')}").grid(row=2, column=0, sticky=tk.W, padx=12)
+        ttk.Label(dialog, text=f"Cashier: {sale_data.get('username', 'N/A')}").grid(row=2, column=1, sticky=tk.W)
+        
+        # Warning
+        warning_frame = ttk.Frame(dialog)
+        warning_frame.grid(row=3, column=0, columnspan=2, sticky=tk.EW, padx=12, pady=8)
+        ttk.Label(warning_frame, text="⚠️ WARNING: This will cancel the entire sale and restore all inventory!", 
+                 foreground="red", font=("Segoe UI", 9, "bold")).pack()
+        
+        # Void reason
+        ttk.Label(dialog, text="Void Reason:").grid(row=4, column=0, sticky=tk.W, padx=12, pady=(8, 0))
+        reason_var = tk.StringVar()
+        ttk.Combobox(
+            dialog,
+            textvariable=reason_var,
+            values=["Data Entry Error", "Customer Cancelled", "System Error", "Management Override", "Other"],
+            width=40
+        ).grid(row=4, column=1, sticky=tk.W, padx=12, pady=(8, 0))
+        
+        # Buttons
+        button_frame = ttk.Frame(dialog)
+        button_frame.grid(row=5, column=0, columnspan=2, pady=12)
+        
+        def do_void():
             try:
-            sale_id = self._selected_sale_id()
-            if not sale_id:
-                return
-            
-            # Check if sale is already voided
-            if receipts.is_sale_voided(sale_id):
-                messagebox.showwarning("Already Voided", "This sale has already been voided")
-                return
-            
-            # Check if sale has refunds
-            if refunds.get_refunded_quantities_for_sale(sale_id):
+                reason = reason_var.get() or "Management Override"
+                
                 if not messagebox.askyesno("Confirm Void", 
-                    "This sale has refunds. Voiding will cancel the entire transaction.\n\nContinue?"):
+                    f"Are you sure you want to void this sale?\n\nAmount: {currency} {sale_data['total']:.2f}\nReason: {reason}\n\nThis action cannot be undone!"):
                     return
-            
-            # Get sale details
-            sale_data = receipts.get_sale_with_items(sale_id)
-            if not sale_data:
-                messagebox.showerror("Error", "Sale not found")
-                return
-            
-            # Check permissions
-            root = self.winfo_toplevel()
-            current_user = getattr(root, 'current_user', {})
-            from modules import permissions
-            if not permissions.has_permission(current_user, 'void_sales'):
-                messagebox.showerror("Permission Denied", "You do not have permission to void sales")
-                return
-            
-            # Show void confirmation dialog
-            dialog = tk.Toplevel(self)
-            dialog.withdraw()
-            receipt_num = sale_data.get("receipt_number", f"#{sale_id}")
-            dialog.title(f"Void Sale {receipt_num}")
-            set_window_icon(dialog)
-            dialog.transient(self.winfo_toplevel())
-            dialog.grab_set()
-            
-            currency = get_currency_code()
-            
-            # Sale summary
-            ttk.Label(dialog, text=f"Void Sale {receipt_num}", font=("Segoe UI", 12, "bold")).grid(row=0, column=0, columnspan=2, pady=8, padx=12)
-            ttk.Label(dialog, text=f"Amount: {currency} {sale_data['total']:.2f}").grid(row=1, column=0, sticky=tk.W, padx=12)
-            ttk.Label(dialog, text=f"Date: {sale_data['date']} {sale_data['time']}").grid(row=1, column=1, sticky=tk.W)
-            ttk.Label(dialog, text=f"Customer: {sale_data.get('customer_name', 'N/A')}").grid(row=2, column=0, sticky=tk.W, padx=12)
-            ttk.Label(dialog, text=f"Cashier: {sale_data.get('username', 'N/A')}").grid(row=2, column=1, sticky=tk.W)
-            
-            # Warning
-            warning_frame = ttk.Frame(dialog)
-            warning_frame.grid(row=3, column=0, columnspan=2, sticky=tk.EW, padx=12, pady=8)
-            ttk.Label(warning_frame, text="⚠️ WARNING: This will cancel the entire sale and restore all inventory!", 
-                     foreground="red", font=("Segoe UI", 9, "bold")).pack()
-            
-            # Void reason
-            ttk.Label(dialog, text="Void Reason:").grid(row=4, column=0, sticky=tk.W, padx=12, pady=(8, 0))
-            reason_var = tk.StringVar()
-            ttk.Combobox(
-                dialog,
-                textvariable=reason_var,
-                values=["Data Entry Error", "Customer Cancelled", "System Error", "Management Override", "Other"],
-                width=40
-            ).grid(row=4, column=1, sticky=tk.W, padx=12, pady=(8, 0))
-            
-            # Buttons
-            button_frame = ttk.Frame(dialog)
-            button_frame.grid(row=5, column=0, columnspan=2, pady=12)
-            
-            def do_void():
-                try:
-                    reason = reason_var.get() or "Management Override"
+                
+                # Void the sale
+                success = receipts.void_sale(sale_id, reason, current_user['user_id'])
+                
+                if success:
+                    messagebox.showinfo("Sale Voided", f"Sale {receipt_num} has been voided successfully")
                     
-                    if not messagebox.askyesno("Confirm Void", 
-                        f"Are you sure you want to void this sale?\n\nAmount: {currency} {sale_data['total']:.2f}\nReason: {reason}\n\nThis action cannot be undone!"):
-                        return
+                    # Log the void action
+                    log_audit_action("VOID", sale_id, current_user.get('username', 'Unknown'), f"Reason: {reason}")
                     
-                    # Void the sale
-                    success = receipts.void_sale(sale_id, reason, current_user['user_id'])
+                    dialog.destroy()
+                    self._filter_orders()
+                else:
+                    messagebox.showerror("Void Failed", "Failed to void the sale")
                     
-                    if success:
-                        messagebox.showinfo("Sale Voided", f"Sale {receipt_num} has been voided successfully")
-                        
-                        # Log the void action
-                        log_audit_action("VOID", sale_id, current_user.get('username', 'Unknown'), f"Reason: {reason}")
-                        
-                        dialog.destroy()
-                        self._filter_orders()
-                    else:
-                        messagebox.showerror("Void Failed", "Failed to void the sale")
-                        
-                except Exception as e:
-                    messagebox.showerror("Error", f"Void failed: {e}")
-            
-            ttk.Button(button_frame, text="Void Sale", command=do_void, style="danger.TButton").pack(side=tk.LEFT, padx=4)
-            ttk.Button(button_frame, text="Cancel", command=dialog.destroy).pack(side=tk.LEFT, padx=4)
-            
-            # Center dialog
-            dialog.update_idletasks()
-            x = (dialog.winfo_screenwidth() - dialog.winfo_width()) // 2
-            y = (dialog.winfo_screenheight() - dialog.winfo_height()) // 2
-            dialog.geometry(f"+{x}+{y}")
-            dialog.deiconify()
-            
             except Exception as e:
-            messagebox.showerror("Error", f"Failed to open void dialog: {e}")
+                messagebox.showerror("Error", f"Void failed: {e}")
         
-        def _clear_search(self):
-            """Clear the search field and refresh the order list."""
-            self.search_term.set("")
-            self.refresh()
+        ttk.Button(button_frame, text="Void Sale", command=do_void, style="danger.TButton").pack(side=tk.LEFT, padx=4)
+        ttk.Button(button_frame, text="Cancel", command=dialog.destroy).pack(side=tk.LEFT, padx=4)
         
-        def _pick_start_date(self) -> None:
-            """Open calendar picker for start date."""
-            try:
+        # Center dialog
+        dialog.update_idletasks()
+        dialog_width = dialog.winfo_width()
+        dialog_height = dialog.winfo_height()
+        screen_width = dialog.winfo_screenwidth()
+        screen_height = dialog.winfo_screenheight()
+        
+        # Ensure dialog fits on screen
+        x = max(0, (screen_width - dialog_width) // 2)
+        y = max(0, (screen_height - dialog_height) // 2)
+        dialog.geometry(f"+{x}+{y}")
+        dialog.deiconify()
+        
+    def _clear_search(self):
+        """Clear the search field and refresh the order list."""
+        self.search_term.set("")
+        self.refresh()
+        
+    def _pick_start_date(self) -> None:
+        """Open calendar picker for start date."""
+        try:
             current = datetime.strptime(self.start_date.get(), "%Y-%m-%d")
-            except ValueError:
+        except ValueError:
             current = datetime.now()
-            
-            # Create a proper parent window
-            root = self.winfo_toplevel()
-            top = tk.Toplevel(root)
-            top.title("Select Start Date")
-            set_window_icon(top)
-            top.geometry("350x350")
-            top.resizable(True, True)
-            # Make it modal
-            top.transient(root)
-            top.grab_set()
-            
-            cal = tkcalendar.Calendar(
+        
+        # Create a proper parent window
+        root = self.winfo_toplevel()
+        top = tk.Toplevel(root)
+        top.title("Select Start Date")
+        set_window_icon(top)
+        top.geometry("350x350")
+        top.resizable(True, True)
+        # Make it modal
+        top.transient(root)
+        top.grab_set()
+        
+        cal = tkcalendar.Calendar(
             top, 
             year=current.year, 
             month=current.month, 
             day=current.day,
             date_pattern="yyyy-mm-dd"
-            )
-            cal.pack(fill="both", expand=True, padx=10, pady=10)
-            
-            def on_select():
+        )
+        cal.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        def on_select():
             selected = cal.get_date()
             self.start_date.set(selected)
             top.destroy()
             self.refresh()
-            
-            button_frame = ttk.Frame(top)
-            button_frame.pack(pady=10)
-            ttk.Button(button_frame, text="OK", command=on_select).pack(side=tk.LEFT, padx=5)
-            ttk.Button(button_frame, text="Cancel", command=top.destroy).pack(side=tk.LEFT, padx=5)
         
-        def _pick_end_date(self) -> None:
-            """Open calendar picker for end date."""
-            try:
+        button_frame = ttk.Frame(top)
+        button_frame.pack(pady=10)
+        ttk.Button(button_frame, text="OK", command=on_select).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Cancel", command=top.destroy).pack(side=tk.LEFT, padx=5)
+        
+    def _pick_end_date(self) -> None:
+        """Open calendar picker for end date."""
+        try:
             current = datetime.strptime(self.end_date.get(), "%Y-%m-%d")
-            except ValueError:
+        except ValueError:
             current = datetime.now()
-            
-            # Create a proper parent window
-            root = self.winfo_toplevel()
-            top = tk.Toplevel(root)
-            top.title("Select End Date")
-            set_window_icon(top)
-            top.geometry("350x350")
-            top.resizable(True, True)
-            # Make it modal
-            top.transient(root)
-            top.grab_set()
-            
-            cal = tkcalendar.Calendar(
+        
+        # Create a proper parent window
+        root = self.winfo_toplevel()
+        top = tk.Toplevel(root)
+        top.title("Select End Date")
+        set_window_icon(top)
+        top.geometry("350x350")
+        top.resizable(True, True)
+        # Make it modal
+        top.transient(root)
+        top.grab_set()
+        
+        cal = tkcalendar.Calendar(
             top, 
             year=current.year, 
             month=current.month, 
             day=current.day,
             date_pattern="yyyy-mm-dd"
-            )
-            cal.pack(fill="both", expand=True, padx=10, pady=10)
-            
-            def on_select():
+        )
+        cal.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        def on_select():
             selected = cal.get_date()
             self.end_date.set(selected)
             top.destroy()
             self.refresh()
-            
-            button_frame = ttk.Frame(top)
-            button_frame.pack(pady=10)
-            ttk.Button(button_frame, text="OK", command=on_select).pack(side=tk.LEFT, padx=5)
-            ttk.Button(button_frame, text="Cancel", command=top.destroy).pack(side=tk.LEFT, padx=5)
         
-        def _generate_report(self) -> None:
-            """Generate a report of the current filtered order history."""
-            try:
+        button_frame = ttk.Frame(top)
+        button_frame.pack(pady=10)
+        ttk.Button(button_frame, text="OK", command=on_select).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Cancel", command=top.destroy).pack(side=tk.LEFT, padx=5)
+        
+    def _generate_report(self) -> None:
+        """Generate a report of the current filtered order history."""
+        try:
             # Get current filter values
             start = self.start_date.get().strip() or None
             end = self.end_date.get().strip() or None
@@ -1144,8 +1193,8 @@ class OrderHistoryFrame(ttk.Frame):
             user_filter = self.user_var.get() if hasattr(self, 'user_var') else 'Any'
             customer_filter = self.customer_var.get() if hasattr(self, 'customer_var') else 'Any'
             
-            # Get filtered sales
-            sales = receipts.list_sales_with_search(start, end, search, limit=10000)  # Higher limit for reports
+            # Get filtered sales (no limit for reports to ensure completeness)
+            sales = receipts.list_sales_with_search(start, end, search, limit=None)
             
             # Apply filters
             filtered_sales = []
@@ -1226,4 +1275,4 @@ class OrderHistoryFrame(ttk.Frame):
                 messagebox.showinfo("Report Generated", f"Report saved to {filename}")
             
         except Exception as e:
-        messagebox.showerror("Error", f"Failed to generate report: {e}")
+            messagebox.showerror("Error", f"Failed to generate report: {e}")

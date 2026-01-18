@@ -564,14 +564,39 @@ def get_categories() -> List[str]:
     with get_connection() as conn:
         rows = conn.execute("SELECT name FROM inventory_categories ORDER BY name").fetchall()
         if not rows:
-            rows = conn.execute("SELECT DISTINCT category FROM items WHERE category IS NOT NULL AND TRIM(category) != '' ORDER BY category").fetchall()
-            for (cat,) in rows:
-                conn.execute("INSERT OR IGNORE INTO inventory_categories (name) VALUES (?)", (cat,))
+            rows = conn.execute(
+                "SELECT DISTINCT category FROM items WHERE category IS NOT NULL AND TRIM(category) != '' ORDER BY category"
+            ).fetchall()
+            # rows may be tuples or dict-like depending on row_factory; handle both
+            for row in rows:
+                if isinstance(row, dict):
+                    cat = row.get('category') or next(iter(row.values()), None)
+                else:
+                    try:
+                        cat = row[0]
+                    except Exception:
+                        cat = None
+                if cat:
+                    conn.execute("INSERT OR IGNORE INTO inventory_categories (name) VALUES (?)", (cat,))
             conn.commit()
         # Ensure fallback
         conn.execute("INSERT OR IGNORE INTO inventory_categories (name) VALUES (?)", ("Uncategorized",))
         conn.commit()
-    return [r[0] for r in rows]
+
+        # Normalize rows into simple list of strings
+        result: list[str] = []
+        for r in rows:
+            if isinstance(r, dict):
+                name = r.get('name') or r.get('category') or next(iter(r.values()), None)
+            else:
+                try:
+                    name = r[0]
+                except Exception:
+                    name = str(r)
+            if name:
+                result.append(str(name))
+
+    return result
 
 
 def add_category(name: str) -> dict:

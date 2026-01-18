@@ -267,7 +267,9 @@ class SimplifiedItemDialog:
         # Unit of Measure (shown for all types)
         ttk.Label(scrollable_frame, text="Unit of Measure", font=("Segoe UI", 9)).grid(row=row, column=0, sticky=tk.W, pady=5, padx=10)
         unit_combo = ttk.Combobox(scrollable_frame, textvariable=self.fields["unit_of_measure"], width=47, state="readonly")
-        unit_combo['values'] = ["pieces", "liters", "kilograms", "meters", "grams", "milliliters"]
+        unit_combo['values'] = self._get_unit_list()
+        # Refresh the list when the widget receives focus so it stays up-to-date
+        unit_combo.bind("<FocusIn>", lambda e: unit_combo.configure(values=self._get_unit_list()))
         unit_combo.grid(row=row, column=1, sticky=tk.EW, pady=5, padx=(0, 10))
         unit_combo.bind("<<ComboboxSelected>>", lambda e: self._on_unit_change())
         self.error_labels["unit_of_measure"] = ttk.Label(scrollable_frame, text="", foreground="red", font=("Segoe UI", 8))
@@ -977,6 +979,15 @@ class SimplifiedItemDialog:
             return sorted(categories)
         except:
             return []
+
+    def _get_unit_list(self) -> list:
+        """Get list of existing units of measure for the combobox."""
+        try:
+            from modules import units_of_measure
+            units = units_of_measure.list_units()
+            return sorted([unit['name'] for unit in units])
+        except:
+            return ["pieces", "liters", "kilograms", "meters", "grams", "milliliters"]
 
     def _scan_barcode(self) -> None:
         """Placeholder for barcode scanning functionality."""
