@@ -23,6 +23,7 @@ class SimplifiedItemDialog:
         self.currency_symbol = get_currency_symbol()
         self.fields: Dict[str, Any] = {}
         self.dialog: Optional[tk.Toplevel] = None
+        self.trace_ids: Dict[str, str] = {}  # Store trace IDs for cleanup
 
     def show(self) -> None:
         """Show the item dialog."""
@@ -207,7 +208,7 @@ class SimplifiedItemDialog:
                 self.error_labels["name"].config(text="Max 100 characters")
             else:
                 self.error_labels["name"].config(text="")
-        self.fields["name"].trace_add("write", validate_name)
+        self.trace_ids["name"] = self.fields["name"].trace_add("write", validate_name)
         validate_name()
         row += 2
 
@@ -229,7 +230,7 @@ class SimplifiedItemDialog:
                 self.error_labels["category"].config(text="Max 50 characters")
             else:
                 self.error_labels["category"].config(text="")
-        self.fields["category"].trace_add("write", validate_category)
+        self.trace_ids["category"] = self.fields["category"].trace_add("write", validate_category)
         validate_category()
         row += 2
 
@@ -247,7 +248,7 @@ class SimplifiedItemDialog:
                 self.error_labels["barcode"].config(text="Max 50 characters")
             else:
                 self.error_labels["barcode"].config(text="")
-        self.fields["barcode"].trace_add("write", validate_barcode)
+        self.trace_ids["barcode"] = self.fields["barcode"].trace_add("write", validate_barcode)
         validate_barcode()
         row += 2
 
@@ -290,7 +291,7 @@ class SimplifiedItemDialog:
                 self.error_labels["unit_of_measure"].config(text="Required")
             else:
                 self.error_labels["unit_of_measure"].config(text="")
-        self.fields["unit_of_measure"].trace_add("write", validate_unit_of_measure)
+        self.trace_ids["unit_of_measure"] = self.fields["unit_of_measure"].trace_add("write", validate_unit_of_measure)
         validate_unit_of_measure()
         row += 2
 
@@ -313,7 +314,7 @@ class SimplifiedItemDialog:
                     self.error_labels["package_size"].config(text="")
             except Exception:
                 self.error_labels["package_size"].config(text="Invalid number")
-        self.fields["package_size"].trace_add("write", validate_package_size)
+        self.trace_ids["package_size"] = self.fields["package_size"].trace_add("write", validate_package_size)
         validate_package_size()
 
         # Image
@@ -412,7 +413,7 @@ class SimplifiedItemDialog:
                     self.error_labels["base_price"].config(text="Invalid number")
                 else:
                     self.error_labels["base_price"].config(text="Required")
-        self.fields["base_price"].trace_add("write", validate_base_price)
+        self.trace_ids["base_price"] = self.fields["base_price"].trace_add("write", validate_base_price)
         validate_base_price()
         row += 2
 
@@ -444,7 +445,7 @@ class SimplifiedItemDialog:
                     self.error_labels["cost_price"].config(text="Invalid number")
                 else:
                     self.error_labels["cost_price"].config(text="")
-        self.fields["cost_price"].trace_add("write", validate_cost_price)
+        self.trace_ids["cost_price"] = self.fields["cost_price"].trace_add("write", validate_cost_price)
         validate_cost_price()
         row += 2
 
@@ -498,8 +499,8 @@ class SimplifiedItemDialog:
             except ValueError:
                 self.fields["profit_margin"].config(text="--")
 
-        self.fields["base_price"].trace_add("write", update_profit_margin)
-        self.fields["cost_price"].trace_add("write", update_profit_margin)
+        self.trace_ids["base_price_profit"] = self.fields["base_price"].trace_add("write", update_profit_margin)
+        self.trace_ids["cost_price_profit"] = self.fields["cost_price"].trace_add("write", update_profit_margin)
 
         # Configure grid weights
         scrollable_frame.columnconfigure(1, weight=1)
@@ -599,7 +600,7 @@ class SimplifiedItemDialog:
                     self.error_labels["quantity"].config(text="")
             except Exception:
                 self.error_labels["quantity"].config(text="Invalid number")
-        self.fields["quantity"].trace_add("write", validate_quantity)
+        self.trace_ids["quantity"] = self.fields["quantity"].trace_add("write", validate_quantity)
         validate_quantity()
         row += 2
 
@@ -623,7 +624,7 @@ class SimplifiedItemDialog:
                     self.error_labels["low_stock_threshold"].config(text="")
             except Exception:
                 self.error_labels["low_stock_threshold"].config(text="Invalid number")
-        self.fields["low_stock_threshold"].trace_add("write", validate_low_stock)
+        self.trace_ids["low_stock_threshold"] = self.fields["low_stock_threshold"].trace_add("write", validate_low_stock)
         validate_low_stock()
         row += 2
 
@@ -654,7 +655,7 @@ class SimplifiedItemDialog:
                     self.error_labels["vat_rate"].config(text="")
             except Exception:
                 self.error_labels["vat_rate"].config(text="Invalid number")
-        self.fields["vat_rate"].trace_add("write", validate_vat_rate)
+        self.trace_ids["vat_rate"] = self.fields["vat_rate"].trace_add("write", validate_vat_rate)
         validate_vat_rate()
         row += 2
 
@@ -852,6 +853,7 @@ class SimplifiedItemDialog:
                     messagebox.showinfo("Success", "Item created successfully")
 
             # Close dialog and refresh parent
+            self._cleanup_traces()
             if self.dialog:
                 self.dialog.destroy()
             # Note: Parent refresh should be handled by the caller
@@ -1036,8 +1038,20 @@ class SimplifiedItemDialog:
         if filename:
             self.fields["image_path"].set(filename)
 
+    def _cleanup_traces(self) -> None:
+        """Remove all trace variables to prevent tkinter command deletion errors."""
+        for field_name, trace_id in self.trace_ids.items():
+            if trace_id and field_name in self.fields:
+                try:
+                    self.fields[field_name].trace_remove("write", trace_id)
+                except (tk.TclError, KeyError):
+                    # Trace might already be removed or field might not exist
+                    pass
+        self.trace_ids.clear()
+
     def _on_cancel(self) -> None:
         """Handle cancel button."""
+        self._cleanup_traces()
         if self.dialog:
             self.dialog.destroy()
 
