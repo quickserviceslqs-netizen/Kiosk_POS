@@ -351,12 +351,12 @@ class ReconciliationDialog:
             return
 
         dialog = ExplanationDialog(self.dialog, self.current_session.session_id, self.user_id)
-        self.dialog.wait_window(dialog.dialog)
+        # Removed wait_window to prevent Tkinter window path errors
 
     def _show_history(self) -> None:
         """Show reconciliation history."""
         history_dialog = ReconciliationHistoryDialog(self.dialog)
-        self.dialog.wait_window(history_dialog.dialog)
+        # Removed wait_window to prevent Tkinter window path errors
 
     def _on_close(self) -> None:
         """Handle dialog close."""
