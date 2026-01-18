@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import tkinter as tk
-from tkinter import ttk, messagebox, scrolledtext
+from tkinter import ttk, messagebox, scrolledtext, filedialog
+import csv
+import os
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 import logging
@@ -99,6 +101,8 @@ class ReconciliationDialog:
 
         ttk.Button(btn_frame, text="Load/Create Session", command=self._load_or_create_session).pack(side=tk.LEFT, padx=2)
         ttk.Button(btn_frame, text="View History", command=self._show_history).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_frame, text="Export CSV", command=self._export_csv).pack(side=tk.LEFT, padx=(8,2))
+        ttk.Button(btn_frame, text="Import CSV", command=self._import_csv).pack(side=tk.LEFT, padx=2)
 
         # Update controls (always visible on top)
         # Initialize vars used by update controls
@@ -356,6 +360,87 @@ class ReconciliationDialog:
         except Exception as e:
             logger.error(f"Error updating entry: {e}")
             messagebox.showerror("Error", f"Failed to update entry: {e}", parent=self.dialog)
+
+    def _export_csv(self) -> None:
+        """Export current session entries to CSV."""
+        if not self.current_session:
+            messagebox.showwarning("No Session", "Please load or create a reconciliation session first.", parent=self.dialog)
+            return
+
+        suggested = f"reconciliation_{self.current_session.start_date}_{self.current_session.end_date}.csv"
+        filename = filedialog.asksaveasfilename(parent=self.dialog, defaultextension='.csv', filetypes=[('CSV files', '*.csv')], initialfile=suggested)
+        if not filename:
+            return
+
+        try:
+            with open(filename, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow(['payment_method', 'system_amount', 'actual_amount', 'variance', 'explanation'])
+                for entry in self.current_session.entries:
+                    writer.writerow([
+                        entry.payment_method,
+                        f"{entry.system_amount:.2f}",
+                        f"{entry.actual_amount:.2f}",
+                        f"{entry.variance:.2f}",
+                        entry.explanation or ''
+                    ])
+            messagebox.showinfo("Exported", f"Reconciliation exported to {os.path.basename(filename)}", parent=self.dialog)
+        except Exception as e:
+            logger.error(f"Error exporting CSV: {e}")
+            messagebox.showerror("Error", f"Failed to export CSV: {e}", parent=self.dialog)
+
+    def _import_csv(self) -> None:
+        """Import actual amounts from CSV and update session entries.
+
+        Expects CSV with columns: payment_method, actual_amount, explanation (optional)
+        """
+        if not self.current_session:
+            messagebox.showwarning("No Session", "Please load or create a reconciliation session first.", parent=self.dialog)
+            return
+
+        filename = filedialog.askopenfilename(parent=self.dialog, filetypes=[('CSV files', '*.csv')])
+        if not filename:
+            return
+
+        updated = 0
+        skipped = 0
+        errors = []
+
+        try:
+            with open(filename, 'r', newline='', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    pm = (row.get('payment_method') or '').strip()
+                    amt_str = (row.get('actual_amount') or '').strip()
+                    expl = (row.get('explanation') or '').strip()
+                    if not pm:
+                        skipped += 1
+                        continue
+                    try:
+                        actual_amount = float(amt_str) if amt_str != '' else 0.0
+                    except ValueError:
+                        errors.append(f"Invalid amount for {pm}: '{amt_str}'")
+                        continue
+
+                    # Update if payment method exists in session
+                    exists = any(e.payment_method == pm for e in self.current_session.entries)
+                    if exists:
+                        reconciliation.update_reconciliation_entry(self.current_session.session_id, pm, actual_amount, expl)
+                        updated += 1
+                    else:
+                        skipped += 1
+
+            # Refresh session
+            self.current_session = reconciliation.get_reconciliation_session(self.current_session.session_id)
+            self._refresh_display()
+
+            msg_parts = [f"Updated: {updated}", f"Skipped: {skipped}"]
+            if errors:
+                msg_parts.append("Errors:\n" + "\n".join(errors))
+            messagebox.showinfo("Import Complete", "\n".join(msg_parts), parent=self.dialog)
+        except Exception as e:
+            logger.error(f"Error importing CSV: {e}")
+            messagebox.showerror("Error", f"Failed to import CSV: {e}", parent=self.dialog)
 
     def _save_draft(self) -> None:
         """Save the current session as draft."""
