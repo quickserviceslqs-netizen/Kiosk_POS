@@ -241,7 +241,9 @@ def get_currency_code() -> str:
     return _i18n.get_currency_code()
 
 
-def format_currency(amount: float) -> str:
-    """Format amount with current currency."""
-    symbol = get_currency_symbol()
-    return f"{symbol}{amount:.2f}"
+def get_default_currency_symbol_for_code(code: str) -> str:
+    """Get the default currency symbol for a given currency code."""
+    for lang, translations in DEFAULT_TRANSLATIONS.items():
+        if translations.get("currency_code") == code.upper():
+            return translations.get("currency_symbol", "$")
+    return "$"  # fallback

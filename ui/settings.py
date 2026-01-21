@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from database.init_db import get_connection
 import pycountry
+from utils.i18n import get_default_currency_symbol_for_code
 
 class CurrencySettingsFrame(ttk.Frame):
     def __init__(self, parent):
@@ -22,6 +23,7 @@ class CurrencySettingsFrame(ttk.Frame):
         self.currency_combo = ttk.Combobox(self, values=self.all_currencies, textvariable=self.currency_var, width=10)
         self.currency_combo.pack(pady=4)
         self.currency_combo.bind('<KeyRelease>', self._filter_currency_list)
+        self.currency_combo.bind('<<ComboboxSelected>>', self._on_currency_selected)
 
         ttk.Label(self, text="Currency Symbol:").pack(pady=(8, 0))
         currency_entry = ttk.Entry(self, textvariable=self.symbol_var, width=10)
@@ -31,10 +33,99 @@ class CurrencySettingsFrame(ttk.Frame):
 
         self.load_currency()
 
-    def _filter_currency_list(self, event):
-        typed = self.currency_combo.get().lower()
-        filtered = [entry for entry in self.all_currencies if typed in entry.lower()]
-        self.currency_combo['values'] = filtered if filtered else self.all_currencies
+    def _on_currency_selected(self, event=None):
+        """Auto-populate symbol when currency code is selected."""
+        code = self.currency_var.get().strip().upper()
+        if code:
+            default_symbol = get_default_currency_symbol_for_code(code)
+            self.symbol_var.set(default_symbol)
+
+    def _on_currency_selected(self, event):
+        """Auto-populate symbol when currency code is selected."""
+        code = self.currency_var.get().strip().upper()
+        if code:
+            try:
+                currency = pycountry.currencies.get(alpha_3=code)
+                if currency:
+                    # Try to get symbol from pycountry, fallback to common symbols
+                    symbol = getattr(currency, 'symbol', None)
+                    if not symbol:
+                        # Common currency symbols mapping
+                        symbol_map = {
+                            'USD': '$',
+                            'EUR': '€',
+                            'GBP': '£',
+                            'JPY': '¥',
+                            'KES': 'KSh',
+                            'CAD': 'C$',
+                            'AUD': 'A$',
+                            'CHF': 'CHF',
+                            'CNY': '¥',
+                            'INR': '₹',
+                            'BRL': 'R$',
+                            'ZAR': 'R',
+                            'MXN': '$',
+                            'SGD': 'S$',
+                            'HKD': 'HK$',
+                            'NZD': 'NZ$',
+                            'SEK': 'kr',
+                            'NOK': 'kr',
+                            'DKK': 'kr',
+                            'PLN': 'zł',
+                            'CZK': 'Kč',
+                            'HUF': 'Ft',
+                            'ILS': '₪',
+                            'RUB': '₽',
+                            'TRY': '₺',
+                            'KRW': '₩',
+                            'THB': '฿',
+                            'MYR': 'RM',
+                            'PHP': '₱',
+                            'IDR': 'Rp',
+                            'VND': '₫',
+                            'EGP': '£',
+                            'SAR': '﷼',
+                            'AED': 'د.إ',
+                            'QAR': '﷼',
+                            'KWD': 'د.ك',
+                            'BHD': '.د.ب',
+                            'OMR': '﷼',
+                            'JOD': 'د.ا',
+                            'LBP': 'ل.ل',
+                            'JMD': 'J$',
+                            'TTD': 'TT$',
+                            'BBD': 'Bds$',
+                            'BSD': 'B$',
+                            'KYD': 'CI$',
+                            'ANG': 'ƒ',
+                            'AWG': 'ƒ',
+                            'BMD': 'BD$',
+                            'BTN': 'Nu.',
+                            'MNT': '₮',
+                            'KPW': '₩',
+                            'LAK': '₭',
+                            'MOP': 'MOP$',
+                            'MVR': 'Rf',
+                            'NPR': '₨',
+                            'PKR': '₨',
+                            'SCR': '₨',
+                            'LKR': '₨',
+                            'TWD': 'NT$',
+                            'BND': 'B$',
+                            'FJD': 'FJ$',
+                            'PGK': 'K',
+                            'SBD': 'SI$',
+                            'TOP': 'T$',
+                            'VUV': 'VT',
+                            'WST': 'WS$',
+                            'XAF': 'FCFA',
+                            'XOF': 'CFA',
+                            'XPF': 'CFP',
+                        }
+                        symbol = symbol_map.get(code, '$')  # Default to $ if not found
+                    self.symbol_var.set(symbol)
+            except Exception:
+                pass  # Keep current symbol if lookup fails
 
     def load_currency(self):
         with get_connection() as conn:
@@ -42,9 +133,11 @@ class CurrencySettingsFrame(ttk.Frame):
             cursor = conn.execute("SELECT value FROM settings WHERE key = 'currency_code'")
             row = cursor.fetchone()
             if row:
-                self.currency_var.set(row['value'] if isinstance(row, dict) else row[0])
+                code = row['value'] if isinstance(row, dict) else row[0]
+                self.currency_var.set(code)
             else:
                 self.currency_var.set('USD')  # default
+                code = 'USD'
             
             # Load currency symbol
             cursor = conn.execute("SELECT value FROM settings WHERE key = 'currency_symbol'")
@@ -52,7 +145,9 @@ class CurrencySettingsFrame(ttk.Frame):
             if row:
                 self.symbol_var.set(row['value'] if isinstance(row, dict) else row[0])
             else:
-                self.symbol_var.set('$')  # default
+                # Use default symbol for the code
+                default_symbol = get_default_currency_symbol_for_code(code)
+                self.symbol_var.set(default_symbol)
 
     def refresh(self):
         """Reload currency settings from database."""
