@@ -374,6 +374,7 @@ def show_pos(root: tk.Tk) -> None:
     if not _require_permission(root, "access_pos"):
         return
     cart_state = getattr(root, "cart_state", {"items": [], "suspended": []})
+    root.cart_state = cart_state  # Ensure cart_state is stored on root
     frame = _render(root, title="Point of Sale", subtitle="Sell, scan, and collect payments", builder=lambda parent: PosFrame(parent, cart_state=cart_state))
     shell = _ensure_shell(root)
     if shell and frame:
