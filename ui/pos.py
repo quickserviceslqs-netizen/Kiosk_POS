@@ -11,7 +11,7 @@ from ui.checkout import CheckoutDialog
 from utils.cart_pubsub import subscribe_cart_changed, unsubscribe_cart_changed, notify_cart_changed
 from utils.i18n import get_currency_symbol
 from utils.images import load_thumbnail
-from utils.security import get_cart_vat_enabled, get_cart_discount_enabled, get_cart_suspend_enabled
+from utils.security import get_cart_vat_enabled, get_cart_discount_enabled, get_cart_suspend_enabled, subscribe_payment_methods, unsubscribe_payment_methods
 
 
 class PosFrame(ttk.Frame):
