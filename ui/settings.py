@@ -50,13 +50,40 @@ class CurrencySettingsFrame(ttk.Frame):
         # Extract symbol from combobox selection if formatted
         if ' - ' in symbol_entry:
             symbol_entry = symbol_entry.split(' - ')[0].strip()
-        if not symbol_entry:
+        
+        # Check if it's a currency code (3 letters, uppercase)
+        import pycountry
+        currency_code = None
+        currency_symbol = symbol_entry
+        
+        if len(symbol_entry) == 3 and symbol_entry.isupper():
+            # It's a currency code, get the symbol
+            try:
+                currency = pycountry.currencies.get(alpha_3=symbol_entry)
+                if currency:
+                    currency_code = symbol_entry
+                    # Try to get symbol from pycountry, fallback to manual mapping
+                    if hasattr(currency, 'symbol') and currency.symbol:
+                        currency_symbol = currency.symbol
+                    else:
+                        # Manual mapping for common currencies
+                        symbol_map = {'USD': '$', 'EUR': '€', 'GBP': '£', 'KES': 'KSh', 'JPY': '¥', 'CNY': '¥'}
+                        currency_symbol = symbol_map.get(symbol_entry, symbol_entry)
+            except:
+                pass
+        
+        if not currency_symbol:
             messagebox.showerror("Error", "Currency symbol cannot be empty.")
             return
+            
         with get_connection() as conn:
-            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", ("currency_symbol", symbol_entry))
+            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", ("currency_symbol", currency_symbol))
+            if currency_code:
+                conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", ("currency_code", currency_code))
+                conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", ("currency", currency_code))  # For backward compatibility
             conn.commit()
-        messagebox.showinfo("Saved", f"Currency set to {symbol_entry}")
+        
+        messagebox.showinfo("Saved", f"Currency set to {currency_symbol}")
         # Stay on the currency settings page and refresh the displayed value
         self.load_currency()
 
