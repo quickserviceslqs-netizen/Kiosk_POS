@@ -5,7 +5,8 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 
 from ui.checkout import CheckoutDialog
-from utils.security import get_currency_code, get_cart_vat_enabled, get_cart_discount_enabled, get_cart_suspend_enabled, get_payment_methods, subscribe_payment_methods, unsubscribe_payment_methods
+from utils.security import get_cart_vat_enabled, get_cart_discount_enabled, get_cart_suspend_enabled, get_payment_methods, subscribe_payment_methods, unsubscribe_payment_methods
+from utils.i18n import get_currency_symbol
 from utils.cart_pubsub import subscribe_cart_changed, unsubscribe_cart_changed, notify_cart_changed
 from utils.images import load_thumbnail
 
@@ -17,7 +18,7 @@ class CartFrame(ttk.Frame):
         self.cart = self.cart_state.setdefault("items", [])
         self.suspended_carts = self.cart_state.setdefault("suspended", [])
         self.on_back = on_back
-        self.currency_symbol = get_currency_code()
+        self.currency_symbol = get_currency_symbol()
 
         self.subtotal_var = tk.StringVar(value="0.00")
         self.vat_var = tk.StringVar(value="0.00")
