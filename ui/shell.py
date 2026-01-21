@@ -62,7 +62,6 @@ class AppShell(ttk.Frame):
         nav_items = [
             ("dashboard", "🏠 Dashboard"),
             ("pos", "🛒 Point of Sale"),
-            ("cart", "🧾 Cart"),
             ("inventory", "📦 Inventory"),
             ("reports", "📈 Reports"),
             ("order_history", "📜 Order History"),

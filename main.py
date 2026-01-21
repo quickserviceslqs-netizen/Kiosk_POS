@@ -174,8 +174,6 @@ def _handle_nav(root: tk.Tk, key: str) -> None:
         show_home(root, getattr(root, "current_user", {}))
     elif key == "pos":
         show_pos(root)
-    elif key == "cart":
-        show_cart(root)
     elif key == "inventory":
         show_inventory(root)
     elif key == "reports":
@@ -385,17 +383,6 @@ def show_pos(root: tk.Tk) -> None:
             frame.ensure_populated(force=True)
         except Exception:
             pass
-
-
-def show_cart(root: tk.Tk) -> None:
-    """Show the dedicated cart review page."""
-    if not _require_permission(root, "access_pos"):
-        return
-    cart_state = getattr(root, "cart_state", {"items": [], "suspended": []})
-    frame = _render(root, title="Cart", subtitle="Review and checkout", builder=lambda parent: CartFrame(parent, cart_state=cart_state, on_back=lambda: show_pos(root)))
-    shell = _ensure_shell(root)
-    if shell and frame:
-        shell.activate_nav("cart")
 
 
 def show_user_mgmt(root: tk.Tk) -> None:
