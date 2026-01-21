@@ -18,11 +18,13 @@ class CurrencySettingsFrame(ttk.Frame):
         for currency in pycountry.currencies:
             self.all_currencies.append(currency.alpha_3)
         self.currency_var = tk.StringVar()
+        self.symbol_var = tk.StringVar()
         self.currency_combo = ttk.Combobox(self, values=self.all_currencies, textvariable=self.currency_var, width=10)
         self.currency_combo.pack(pady=4)
         self.currency_combo.bind('<KeyRelease>', self._filter_currency_list)
 
-        currency_entry = ttk.Entry(self, textvariable=self.currency_var, width=10)
+        ttk.Label(self, text="Currency Symbol:").pack(pady=(8, 0))
+        currency_entry = ttk.Entry(self, textvariable=self.symbol_var, width=10)
         currency_entry.pack(pady=8)
 
         ttk.Button(self, text="Save Currency", command=self.save_currency).pack(pady=16)
@@ -36,54 +38,43 @@ class CurrencySettingsFrame(ttk.Frame):
 
     def load_currency(self):
         with get_connection() as conn:
-            cursor = conn.execute("SELECT value FROM settings WHERE key = 'currency_symbol'")
+            # Load currency code
+            cursor = conn.execute("SELECT value FROM settings WHERE key = 'currency_code'")
             row = cursor.fetchone()
             if row:
                 self.currency_var.set(row['value'] if isinstance(row, dict) else row[0])
+            else:
+                self.currency_var.set('USD')  # default
+            
+            # Load currency symbol
+            cursor = conn.execute("SELECT value FROM settings WHERE key = 'currency_symbol'")
+            row = cursor.fetchone()
+            if row:
+                self.symbol_var.set(row['value'] if isinstance(row, dict) else row[0])
+            else:
+                self.symbol_var.set('$')  # default
 
     def refresh(self):
         """Reload currency settings from database."""
         self.load_currency()
 
     def save_currency(self):
-        symbol_entry = self.currency_var.get().strip()
-        # Extract symbol from combobox selection if formatted
-        if ' - ' in symbol_entry:
-            symbol_entry = symbol_entry.split(' - ')[0].strip()
+        code = self.currency_var.get().strip().upper()
+        symbol = self.symbol_var.get().strip()
         
-        # Check if it's a currency code (3 letters, uppercase)
-        import pycountry
-        currency_code = None
-        currency_symbol = symbol_entry
-        
-        if len(symbol_entry) == 3 and symbol_entry.isupper():
-            # It's a currency code, get the symbol
-            try:
-                currency = pycountry.currencies.get(alpha_3=symbol_entry)
-                if currency:
-                    currency_code = symbol_entry
-                    # Try to get symbol from pycountry, fallback to manual mapping
-                    if hasattr(currency, 'symbol') and currency.symbol:
-                        currency_symbol = currency.symbol
-                    else:
-                        # Manual mapping for common currencies
-                        symbol_map = {'USD': '$', 'EUR': '€', 'GBP': '£', 'KES': 'KSh', 'JPY': '¥', 'CNY': '¥'}
-                        currency_symbol = symbol_map.get(symbol_entry, symbol_entry)
-            except:
-                pass
-        
-        if not currency_symbol:
+        if not code:
+            messagebox.showerror("Error", "Currency code cannot be empty.")
+            return
+        if not symbol:
             messagebox.showerror("Error", "Currency symbol cannot be empty.")
             return
-            
+        
         with get_connection() as conn:
-            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", ("currency_symbol", currency_symbol))
-            if currency_code:
-                conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", ("currency_code", currency_code))
-                conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", ("currency", currency_code))  # For backward compatibility
+            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", ("currency_code", code))
+            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", ("currency_symbol", symbol))
             conn.commit()
         
-        messagebox.showinfo("Saved", f"Currency set to {currency_symbol}")
+        messagebox.showinfo("Saved", f"Currency set to {code} ({symbol})")
         # Stay on the currency settings page and refresh the displayed value
         self.load_currency()
 

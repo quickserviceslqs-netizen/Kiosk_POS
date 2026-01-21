@@ -9,7 +9,6 @@ from modules import portions
 from modules import units_of_measure as uom
 from ui.checkout import CheckoutDialog
 from utils.cart_pubsub import subscribe_cart_changed, unsubscribe_cart_changed, notify_cart_changed
-from utils.security import get_currency_code, get_cart_vat_enabled, get_cart_discount_enabled, get_cart_suspend_enabled, get_payment_methods, subscribe_payment_methods, unsubscribe_payment_methods, get_payment_methods, subscribe_payment_methods, unsubscribe_payment_methods
 from utils.i18n import get_currency_symbol
 from utils.images import load_thumbnail
 
