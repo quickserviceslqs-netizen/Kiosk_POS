@@ -1,0 +1,1045 @@
+﻿"""
+Consolidated Reconciliation Module for Kiosk POS System
+
+This module provides a complete reconciliation system where:
+- System amounts are automatically fetched from real account balances
+- Users manually enter actual (counted/verified) amounts
+- Variances are calculated automatically
+- Review and completion workflow is streamlined
+
+Architecture:
+- reconciliation_core.py: Complete business logic, data models, and database operations
+- reconciliation_ui.py: Clean UI implementation
+- External account integration for automatic balance fetching
+"""
+
+from __future__ import annotations
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Tuple
+import logging
+import sqlite3
+
+from database.init_db import get_connection
+from modules import reports
+from modules.external_accounts import account_manager
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ReconciliationItem:
+    """Represents a single payment method reconciliation item."""
+    payment_method: str
+    system_amount: float  # From external accounts
+    actual_amount: float = 0.0  # Manually entered
+    variance: float = 0.0
+    is_reviewed: bool = False
+    notes: str = ""
+
+    @property
+    def is_reconciled(self) -> bool:
+        """Check if this item is reconciled (no variance or reviewed)."""
+        return abs(self.variance) < 0.01 or self.is_reviewed
+
+    def update_variance(self) -> None:
+        """Recalculate variance between system and actual amounts."""
+        self.variance = self.actual_amount - self.system_amount
+
+
+@dataclass
+class ReconciliationSession:
+    """Represents a complete reconciliation session."""
+    session_id: Optional[int]
+    date: str
+    period_type: str  # 'daily', 'weekly', 'monthly'
+    start_date: str
+    end_date: str
+    items: List[ReconciliationItem]
+    status: str  # 'draft', 'completed', 'cancelled'
+    created_by: int
+    created_at: str
+    completed_at: Optional[str] = None
+    notes: str = ""
+    explanations: List[VarianceExplanation] = None  # In-memory explanations for unsaved sessions
+    explanations_loaded: bool = False  # Track if explanations have been loaded from DB
+
+    def __post_init__(self):
+        """Initialize explanations list if not provided."""
+        if self.explanations is None:
+            self.explanations = []
+
+    @property
+    def total_system_amount(self) -> float:
+        """Total system amount across all payment methods."""
+        return sum(item.system_amount for item in self.items)
+
+    @property
+    def total_actual_amount(self) -> float:
+        """Total actual amount across all payment methods."""
+        return sum(item.actual_amount for item in self.items)
+
+    @property
+    def total_variance(self) -> float:
+        """Total variance across all payment methods."""
+        return sum(item.variance for item in self.items)
+
+    @property
+    def is_complete(self) -> bool:
+        """Check if all items are reconciled."""
+        return all(item.is_reconciled for item in self.items)
+
+    @property
+    def unreviewed_count(self) -> int:
+        """Count of unreviewed items with variance."""
+        return sum(1 for item in self.items if not item.is_reviewed and abs(item.variance) >= 0.01)
+
+
+@dataclass
+class ReconciliationEntry:
+    """Represents a reconciliation entry for a payment method (database model)."""
+    payment_method: str
+    system_amount: float
+    actual_amount: float = 0.0
+    variance: float = 0.0
+    explanation: str = ""
+
+
+@dataclass
+class VarianceExplanation:
+    """Represents a variance explanation entry."""
+    explanation_id: Optional[int]
+    session_id: int
+    payment_method: str
+    explanation: str
+    amount: float
+    created_by: Optional[int]
+    created_at: str
+
+    @property
+    def is_unexplained(self) -> bool:
+        """Check if this is an unexplained variance entry."""
+        return self.explanation.lower().strip() == "unexplained"
+
+
+@dataclass
+class DBReconciliationSession:
+    """Represents a reconciliation session (database model)."""
+    session_id: Optional[int]
+    reconciliation_date: str
+    period_type: str
+    start_date: str
+    end_date: str
+    total_system_sales: float
+    total_actual_cash: float
+    total_variance: float
+    status: str
+    reconciled_by: Optional[int]
+    reconciled_at: Optional[str]
+    notes: str
+    entries: List[ReconciliationEntry]
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+# Database functions (moved from old reconciliation.py)
+
+def get_sales_by_payment_method_for_period(start_date: str, end_date: str) -> List[Dict[str, Any]]:
+    """Get sales breakdown by payment method for a specific period."""
+    return reports.get_sales_by_payment_method(start_date, end_date)
+
+
+def calculate_date_range(period_type: str, reference_date: str = None) -> Tuple[str, str]:
+    """Calculate start and end dates for different period types."""
+    if reference_date is None:
+        reference_date = datetime.now().strftime("%Y-%m-%d")
+
+    ref_date = datetime.strptime(reference_date, "%Y-%m-%d")
+
+    if period_type == "daily":
+        start_date = end_date = reference_date
+    elif period_type == "weekly":
+        # Start of week (Monday)
+        start_of_week = ref_date - timedelta(days=ref_date.weekday())
+        end_of_week = start_of_week + timedelta(days=6)
+        start_date = start_of_week.strftime("%Y-%m-%d")
+        end_date = end_of_week.strftime("%Y-%m-%d")
+    elif period_type == "monthly":
+        # Start of month
+        start_of_month = ref_date.replace(day=1)
+        # End of month
+        next_month = start_of_month.replace(month=start_of_month.month % 12 + 1, day=1)
+        end_of_month = next_month - timedelta(days=1)
+        start_date = start_of_month.strftime("%Y-%m-%d")
+        end_date = end_of_month.strftime("%Y-%m-%d")
+    elif period_type == "yearly":
+        # Start of year
+        start_of_year = ref_date.replace(month=1, day=1)
+        # End of year
+        end_of_year = ref_date.replace(month=12, day=31)
+        start_date = start_of_year.strftime("%Y-%m-%d")
+        end_date = end_of_year.strftime("%Y-%m-%d")
+    else:
+        # Custom - return the reference date as both start and end
+        start_date = end_date = reference_date
+
+    return start_date, end_date
+
+
+def create_reconciliation_session(
+    reconciliation_date: str,
+    period_type: str,
+    start_date: str,
+    end_date: str,
+    user_id: int
+) -> int:
+    """Create a new reconciliation session and return the session ID."""
+    # Get external account balances for the period
+    account_balances = account_manager.get_balances_by_payment_method()
+    total_system_balance = sum(account_balances.values())
+
+    # Also get sales data for reference and include any sales-only payment methods
+    sales_data = get_sales_by_payment_method_for_period(start_date, end_date)
+    sales_payment_methods = {entry['payment_method'] for entry in sales_data}
+    account_payment_methods = set(account_balances.keys())
+
+    # Add sales-only amounts into system total as fallback
+    missing_pm_total = 0.0
+    for pm in sales_payment_methods - account_payment_methods:
+        sales_amount = next((entry['total_sales'] for entry in sales_data if entry['payment_method'] == pm), 0.0)
+        missing_pm_total += sales_amount
+
+    total_system_balance = total_system_balance + missing_pm_total
+
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO reconciliation_sessions
+            (reconciliation_date, period_type, start_date, end_date,
+             total_system_sales, total_actual_cash, total_variance, status, reconciled_by)
+            VALUES (?, ?, ?, ?, ?, 0, ?, 'draft', NULL)
+            """,
+            (reconciliation_date, period_type, start_date, end_date,
+             total_system_balance, -total_system_balance)
+        )
+        session_id = cursor.lastrowid
+
+        # Create entries for each payment method from external accounts
+        for payment_method, balance in account_balances.items():
+            conn.execute(
+                """
+                INSERT INTO reconciliation_entries
+                (session_id, payment_method, system_amount, actual_amount, variance)
+                VALUES (?, ?, ?, 0, ?)
+                """,
+                (session_id, payment_method, balance, -balance)
+            )
+
+        # If there are payment methods in sales data that aren't in account balances, add them with 0 balance
+        sales_payment_methods = {entry['payment_method'] for entry in sales_data}
+        account_payment_methods = set(account_balances.keys())
+
+        for payment_method in sales_payment_methods - account_payment_methods:
+            # Find the sales amount for this payment method
+            sales_amount = next((entry['total_sales'] for entry in sales_data
+                               if entry['payment_method'] == payment_method), 0.0)
+            conn.execute(
+                """
+                INSERT INTO reconciliation_entries
+                (session_id, payment_method, system_amount, actual_amount, variance)
+                VALUES (?, ?, ?, 0, ?)
+                """,
+                (session_id, payment_method, sales_amount, -sales_amount)
+            )
+
+        conn.commit()
+        return session_id
+
+
+def get_reconciliation_session(session_id: int) -> Optional[DBReconciliationSession]:
+    """Get a reconciliation session by ID."""
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+
+        # Get session data
+        session_row = conn.execute(
+            "SELECT * FROM reconciliation_sessions WHERE session_id = ?",
+            (session_id,)
+        ).fetchone()
+
+        if not session_row:
+            return None
+
+        # Get entries
+        entries_rows = conn.execute(
+            "SELECT * FROM reconciliation_entries WHERE session_id = ? ORDER BY payment_method",
+            (session_id,)
+        ).fetchall()
+
+        entries = []
+        for row in entries_rows:
+            reviewed = False
+            try:
+                reviewed = bool(row['reviewed'])
+            except Exception:
+                reviewed = False
+
+            entries.append(
+                ReconciliationEntry(
+                    payment_method=row['payment_method'],
+                    system_amount=row['system_amount'],
+                    actual_amount=row['actual_amount'],
+                    variance=row['variance'],
+                    explanation=row['explanation'] if 'explanation' in row.keys() else '',
+                )
+            )
+            # Attach reviewed flag to entry dict for UI consumption if needed
+            entries[-1].reviewed = reviewed
+
+        return DBReconciliationSession(
+            session_id=session_row['session_id'],
+            reconciliation_date=session_row['reconciliation_date'],
+            period_type=session_row['period_type'],
+            start_date=session_row['start_date'],
+            end_date=session_row['end_date'],
+            total_system_sales=session_row['total_system_sales'],
+            total_actual_cash=session_row['total_actual_cash'],
+            total_variance=session_row['total_variance'],
+            status=session_row['status'],
+            reconciled_by=session_row['reconciled_by'],
+            reconciled_at=session_row['reconciled_at'],
+            notes=session_row['notes'] if 'notes' in session_row.keys() else '',
+            created_at=session_row['created_at'] if 'created_at' in session_row.keys() else None,
+            updated_at=session_row['updated_at'] if 'updated_at' in session_row.keys() else None,
+            entries=entries
+        )
+
+
+def update_reconciliation_entry(
+    session_id: int,
+    payment_method: str,
+    actual_amount: float,
+    explanation: str = ""
+) -> None:
+    """Update an entry in a reconciliation session."""
+    variance = actual_amount - get_system_amount_for_payment_method(session_id, payment_method)
+
+    with get_connection() as conn:
+        conn.execute(
+            """
+            UPDATE reconciliation_entries
+            SET actual_amount = ?, variance = ?, explanation = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE session_id = ? AND payment_method = ?
+            """,
+            (actual_amount, variance, explanation, session_id, payment_method)
+        )
+        conn.commit()
+
+        # Update session totals
+        _update_session_totals(session_id)
+
+
+def set_entry_reviewed(session_id: int, payment_method: str, reviewed: bool = True) -> None:
+    """Set the reviewed flag for a specific reconciliation entry. Adds the column if it doesn't exist."""
+    with get_connection() as conn:
+        # Ensure the column exists (backwards compatibility)
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(reconciliation_entries)").fetchall()]
+        if 'reviewed' not in cols:
+            try:
+                conn.execute("ALTER TABLE reconciliation_entries ADD COLUMN reviewed INTEGER NOT NULL DEFAULT 0")
+                conn.commit()
+            except Exception:
+                # If add failed for any reason, continue; update may still fail
+                pass
+
+        try:
+            conn.execute(
+                """
+                UPDATE reconciliation_entries
+                SET reviewed = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE session_id = ? AND payment_method = ?
+                """,
+                (1 if reviewed else 0, session_id, payment_method)
+            )
+            conn.commit()
+        except Exception as e:
+            # As a fallback, store a note in explanations table
+            logger.warning(f"Failed to set reviewed flag for {payment_method} in session {session_id}: {e}")
+            try:
+                conn.execute(
+                    "INSERT INTO reconciliation_explanations (session_id, explanation_type, payment_method, explanation, amount, created_by) VALUES (?, 'variance', ?, ?, 0, NULL)",
+                    (session_id, payment_method, f"Reviewed={reviewed}")
+                )
+                conn.commit()
+            except Exception:
+                pass
+
+
+def create_reconciliation_entry(session_id: int, payment_method: str, system_amount: float, actual_amount: float = 0.0) -> int:
+    """Create an entry for a reconciliation session."""
+    variance = actual_amount - system_amount
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO reconciliation_entries
+            (session_id, payment_method, system_amount, actual_amount, variance)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (session_id, payment_method, system_amount, actual_amount, variance)
+        )
+        conn.commit()
+        _update_session_totals(session_id)
+        return cursor.lastrowid
+
+
+def get_system_amount_for_payment_method(session_id: int, payment_method: str) -> float:
+    """Get the system amount for a payment method in a session."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT system_amount FROM reconciliation_entries WHERE session_id = ? AND payment_method = ?",
+            (session_id, payment_method)
+        ).fetchone()
+        return row['system_amount'] if row else 0.0
+
+
+def _update_session_totals(session_id: int) -> None:
+    """Update the total actual cash and variance for a session."""
+    with get_connection() as conn:
+        # Calculate totals from entries
+        totals = conn.execute(
+            """
+            SELECT
+                SUM(actual_amount) as total_actual,
+                SUM(variance) as total_variance
+            FROM reconciliation_entries
+            WHERE session_id = ?
+            """,
+            (session_id,)
+        ).fetchone()
+
+        conn.execute(
+            """
+            UPDATE reconciliation_sessions
+            SET total_actual_cash = ?, total_variance = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE session_id = ?
+            """,
+            (totals['total_actual'] or 0, totals['total_variance'] or 0, session_id)
+        )
+        conn.commit()
+
+
+def complete_reconciliation_session(session_id: int, user_id: int, notes: str = "") -> None:
+    """Mark a reconciliation session as completed."""
+    with get_connection() as conn:
+        conn.execute(
+            """
+            UPDATE reconciliation_sessions
+            SET status = 'completed', reconciled_by = ?, reconciled_at = CURRENT_TIMESTAMP,
+                notes = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE session_id = ?
+            """,
+            (user_id, notes, session_id)
+        )
+        conn.commit()
+
+
+def get_reconciliation_sessions(
+    start_date: str = None,
+    end_date: str = None,
+    status: str = None,
+    limit: int = 50,
+    offset: int = 0
+) -> List[Dict[str, Any]]:
+    """Get reconciliation sessions with optional filters."""
+    query = """
+        SELECT rs.*, u.username as reconciled_by_name
+        FROM reconciliation_sessions rs
+        LEFT JOIN users u ON rs.reconciled_by = u.user_id
+        WHERE 1=1
+    """
+    params = []
+
+    if start_date:
+        query += " AND rs.reconciliation_date >= ?"
+        params.append(start_date)
+
+    if end_date:
+        query += " AND rs.reconciliation_date <= ?"
+        params.append(end_date)
+
+    if status:
+        query += " AND rs.status = ?"
+        params.append(status)
+
+    query += " ORDER BY rs.reconciliation_date DESC, rs.created_at DESC LIMIT ? OFFSET ?"
+    params.extend([limit, offset])
+
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(query, params).fetchall()
+        return [dict(row) for row in rows]
+
+
+def add_reconciliation_explanation(
+    session_id: int,
+    explanation_type: str,
+    explanation: str,
+    payment_method: str = None,
+    amount: float = 0,
+    user_id: int = None
+) -> None:
+    """Add an explanation/note to a reconciliation session."""
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO reconciliation_explanations
+            (session_id, explanation_type, payment_method, explanation, amount, created_by)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (session_id, explanation_type, payment_method, explanation, amount, user_id)
+        )
+        conn.commit()
+
+
+def get_reconciliation_explanations(session_id: int) -> List[Dict[str, Any]]:
+    """Get explanations for a reconciliation session."""
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT re.*, u.username as created_by_name
+            FROM reconciliation_explanations re
+            LEFT JOIN users u ON re.created_by = u.user_id
+            WHERE re.session_id = ? ORDER BY re.created_at DESC
+            """,
+            (session_id,)
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def get_reconciliation_summary(period_type: str, reference_date: str = None) -> Dict[str, Any]:
+    """Get a summary of reconciliation data for reporting."""
+    start_date, end_date = calculate_date_range(period_type, reference_date)
+
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+
+        # Get sessions for the period
+        sessions = conn.execute(
+            """
+            SELECT * FROM reconciliation_sessions
+            WHERE start_date >= ? AND end_date <= ? AND status = 'completed'
+            ORDER BY reconciliation_date DESC
+            """,
+            (start_date, end_date)
+        ).fetchall()
+
+        total_sessions = len(sessions)
+        total_variance = sum(session['total_variance'] for session in sessions)
+        avg_variance = total_variance / total_sessions if total_sessions > 0 else 0
+
+        return {
+            'period_type': period_type,
+            'start_date': start_date,
+            'end_date': end_date,
+            'total_sessions': total_sessions,
+            'total_variance': total_variance,
+            'avg_variance': avg_variance,
+            'sessions': [dict(session) for session in sessions]
+        }
+
+
+class ReconciliationService:
+    """Core service for reconciliation operations (DB-backed)."""
+
+    def __init__(self):
+        self.account_manager = account_manager
+
+    def create_session(self, date: str, period_type: str, user_id: int) -> ReconciliationSession:
+        """Create a new reconciliation session and persist it to DB, then return a loaded session."""
+        start_date, end_date = self._calculate_date_range(period_type, date)
+
+        # Use DB-backed creation which pulls external balances
+        session_id = create_reconciliation_session(date, period_type, start_date, end_date, user_id)
+
+        # Load the session from DB and convert to our dataclass
+        db_session = get_reconciliation_session(session_id)
+        return self._convert_db_session(db_session)
+
+    def load_session(self, session_id: int) -> Optional[ReconciliationSession]:
+        """Load an existing reconciliation session from database and convert to dataclass. Retries briefly if needed."""
+        import time
+        attempts = 3
+        for i in range(attempts):
+            db_session = get_reconciliation_session(session_id)
+            if db_session:
+                return self._convert_db_session(db_session)
+            time.sleep(0.05)
+        return None
+
+    def _convert_db_session(self, db_session) -> ReconciliationSession:
+        """Convert a DBReconciliationSession to ReconciliationSession dataclass."""
+        items = []
+        for e in getattr(db_session, 'entries', []):
+            ri = ReconciliationItem(
+                payment_method=e.payment_method,
+                system_amount=getattr(e, 'system_amount', 0.0),
+                actual_amount=getattr(e, 'actual_amount', 0.0),
+                variance=getattr(e, 'variance', 0.0),
+                is_reviewed=getattr(e, 'reviewed', False),
+                notes=getattr(e, 'explanation', '') or ''
+            )
+            items.append(ri)
+
+        return ReconciliationSession(
+            session_id=db_session.session_id,
+            date=db_session.reconciliation_date,
+            period_type=db_session.period_type,
+            start_date=db_session.start_date,
+            end_date=db_session.end_date,
+            items=items,
+            status=db_session.status,
+            created_by=db_session.reconciled_by or 0,
+            created_at=getattr(db_session, 'created_at', datetime.now().isoformat()),
+            completed_at=db_session.reconciled_at if hasattr(db_session, 'reconciled_at') else None,
+            notes=db_session.notes if hasattr(db_session, 'notes') else '',
+            explanations_loaded=True  # DB sessions have explanations available
+        )
+
+    def save_session(self, session: ReconciliationSession) -> int:
+        """Save reconciliation session to database. If session has no ID, create it; else update entries."""
+        if session.session_id is None:
+            session_id = create_reconciliation_session(
+                session.date, session.period_type, session.start_date, session.end_date, session.created_by
+            )
+            session.session_id = session_id
+
+            # Save in-memory explanations to database
+            for explanation in session.explanations:
+                add_variance_explanation_to_db(
+                    session_id=session_id,
+                    payment_method=explanation.payment_method,
+                    explanation=explanation.explanation,
+                    amount=explanation.amount,
+                    user_id=explanation.created_by
+                )
+                # Update the explanation with the real database ID
+                explanation.session_id = session_id
+
+            return session_id
+        else:
+            # Update existing session entries (basic implementation)
+            for item in session.items:
+                try:
+                    update_reconciliation_entry(session.session_id, item.payment_method, item.actual_amount, item.notes)
+                    set_entry_reviewed(session.session_id, item.payment_method, item.is_reviewed)
+                except Exception as e:
+                    logger.error(f"Error saving entry {item.payment_method}: {e}")
+            return session.session_id
+
+    def update_item_actual_amount(self, session: ReconciliationSession,
+                                payment_method: str, actual_amount: float) -> None:
+        """Update the actual amount for a payment method and recalculate variance; persist change."""
+        if not session.session_id:
+            # In-memory update
+            for item in session.items:
+                if item.payment_method == payment_method:
+                    item.actual_amount = actual_amount
+                    item.update_variance()
+                    break
+            return
+
+        # Persist to DB
+        update_reconciliation_entry(session.session_id, payment_method, actual_amount)
+        # Reload session state directly from DB (avoid load_session's retry pitfalls)
+        db_session = get_reconciliation_session(session.session_id)
+        if db_session:
+            updated = self._convert_db_session(db_session)
+            session.items = updated.items
+            session.status = updated.status
+            session.start_date = updated.start_date
+            session.end_date = updated.end_date
+        else:
+            logger.warning(f"Could not reload session {session.session_id} after updating item {payment_method}")
+
+    def add_manual_entry(self, session: ReconciliationSession, payment_method: str, system_amount: float, actual_amount: float = 0.0) -> int:
+        """Add a manual payment method entry to an existing DB-backed session."""
+        if not session.session_id:
+            raise ValueError("Session must be persisted before adding manual entries")
+
+        entry_id = create_reconciliation_entry(session.session_id, payment_method, system_amount, actual_amount)
+        # Reload session
+        updated = self.load_session(session.session_id)
+        if updated:
+            session.items = updated.items
+        return entry_id
+
+    def mark_item_reviewed(self, session: ReconciliationSession,
+                          payment_method: str, reviewed: bool = True) -> None:
+        """Mark a payment method as reviewed and persist to DB if session exists."""
+        if session.session_id is None:
+            for item in session.items:
+                if item.payment_method == payment_method:
+                    item.is_reviewed = reviewed
+                    break
+            return
+
+        set_entry_reviewed(session.session_id, payment_method, reviewed)
+        # Reload session state
+        updated = self.load_session(session.session_id)
+        if updated:
+            session.items = updated.items
+
+    def complete_session(self, session: ReconciliationSession, notes: str = "", user_id: int | None = None) -> bool:
+        """Complete the reconciliation session if all items are reconciled. Persist status to DB.
+
+        user_id: the id of the user performing the completion. If None, reconciled_by will be NULL.
+        """
+        if not session.is_complete:
+            return False
+
+        if session.session_id is None:
+            # save session first
+            self.save_session(session)
+
+        # Use provided user_id (caller should provide current user id), or None
+        complete_reconciliation_session(session.session_id, user_id, notes)
+        updated = self.load_session(session.session_id)
+        if updated:
+            session.status = updated.status
+            session.completed_at = updated.reconciled_at if hasattr(updated, 'reconciled_at') else None
+            session.notes = updated.notes
+        return True
+
+    def get_variance_explanations(self, session_or_id, payment_method: str = None) -> List[VarianceExplanation]:
+        """Get variance explanations for a session, optionally filtered by payment method.
+
+        Args:
+            session_or_id: Either a ReconciliationSession object or a session_id (int)
+            payment_method: Optional filter by payment method
+        """
+        # Handle in-memory session
+        if isinstance(session_or_id, ReconciliationSession):
+            session = session_or_id
+            # For saved sessions, ensure explanations are loaded from database into memory
+            if session.session_id is not None and not session.explanations_loaded:
+                # Load explanations from database into memory
+                db_explanations = self.get_variance_explanations_from_db(session.session_id, payment_method)
+                session.explanations.extend(db_explanations)
+                session.explanations_loaded = True
+
+            # Return from memory
+            if payment_method:
+                return [exp for exp in session.explanations if exp.payment_method == payment_method]
+            return session.explanations.copy()
+        else:
+            # Direct session_id call - get from database
+            return self.get_variance_explanations_from_db(session_or_id, payment_method)
+
+    def get_variance_explanations_from_db(self, session_id: int, payment_method: str = None) -> List[VarianceExplanation]:
+        """Get variance explanations from database for a saved session."""
+        with get_connection() as conn:
+            conn.row_factory = sqlite3.Row
+
+            if payment_method:
+                rows = conn.execute(
+                    """
+                    SELECT * FROM reconciliation_explanations
+                    WHERE session_id = ? AND payment_method = ? AND explanation_type = 'variance'
+                    ORDER BY created_at
+                    """,
+                    (session_id, payment_method)
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT * FROM reconciliation_explanations
+                    WHERE session_id = ? AND explanation_type = 'variance'
+                    ORDER BY payment_method, created_at
+                    """,
+                    (session_id,)
+                ).fetchall()
+
+            explanations = []
+            for row in rows:
+                explanations.append(VarianceExplanation(
+                    explanation_id=row['explanation_id'],
+                    session_id=row['session_id'],
+                    payment_method=row['payment_method'] or '',
+                    explanation=row['explanation'],
+                    amount=row['amount'],
+                    created_by=row['created_by'],
+                    created_at=row['created_at']
+                ))
+
+            return explanations
+
+    def add_variance_explanation(self, session_or_id, payment_method: str, explanation: str, amount: float, user_id: int = None) -> int:
+        """Add a variance explanation for a payment method.
+
+        Args:
+            session_or_id: Either a ReconciliationSession object or a session_id (int)
+            payment_method: Payment method for the explanation
+            explanation: The explanation text
+            amount: The amount being explained
+            user_id: User who created the explanation
+        """
+        from datetime import datetime
+
+        # Handle in-memory session
+        if isinstance(session_or_id, ReconciliationSession):
+            session = session_or_id
+            # Always add to in-memory explanations
+            explanation_id = len(session.explanations) + 1  # Temporary ID for in-memory
+            variance_exp = VarianceExplanation(
+                explanation_id=explanation_id,
+                session_id=session.session_id,  # Will be set when session is saved if None
+                payment_method=payment_method,
+                explanation=explanation,
+                amount=amount,
+                created_by=user_id,
+                created_at=datetime.now().isoformat()
+            )
+            session.explanations.append(variance_exp)
+            return explanation_id
+        else:
+            # Direct session_id call - for saved sessions, add to database immediately
+            self.add_variance_explanation_to_db(session_or_id, payment_method, explanation, amount, user_id)
+            return 0  # Database doesn't return the explanation_id in the same way
+
+    def add_variance_explanation_to_db(self, session_id: int, payment_method: str, explanation: str, amount: float, user_id: int = None) -> int:
+        """Add a variance explanation to the database for a saved session."""
+        with get_connection() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO reconciliation_explanations
+                (session_id, explanation_type, payment_method, explanation, amount, created_by)
+                VALUES (?, 'variance', ?, ?, ?, ?)
+                """,
+                (session_id, payment_method, explanation, amount, user_id)
+            )
+            conn.commit()
+            return cursor.lastrowid
+
+    def update_variance_explanation(self, session_or_id, explanation_id: int, explanation: str, amount: float) -> None:
+        """Update a variance explanation.
+
+        Args:
+            session_or_id: Either a ReconciliationSession object or a session_id (int)
+            explanation_id: The ID of the explanation to update
+            explanation: New explanation text
+            amount: New amount
+        """
+        # Handle in-memory session
+        if isinstance(session_or_id, ReconciliationSession):
+            session = session_or_id
+            # Update in-memory explanation
+            for exp in session.explanations:
+                if exp.explanation_id == explanation_id:
+                    exp.explanation = explanation
+                    exp.amount = amount
+                    break
+        else:
+            # Direct session_id call - update in database
+            self.update_variance_explanation_in_db(explanation_id, explanation, amount)
+
+    def update_variance_explanation_in_db(self, explanation_id: int, explanation: str, amount: float) -> None:
+        """Update a variance explanation in the database."""
+        with get_connection() as conn:
+            conn.execute(
+                """
+                UPDATE reconciliation_explanations
+                SET explanation = ?, amount = ?
+                WHERE explanation_id = ?
+                """,
+                (explanation, amount, explanation_id)
+            )
+            conn.commit()
+
+    def delete_variance_explanation(self, session_or_id, explanation_id: int) -> None:
+        """Delete a variance explanation.
+
+        Args:
+            session_or_id: Either a ReconciliationSession object or a session_id (int)
+            explanation_id: The ID of the explanation to delete
+        """
+        # Handle in-memory session
+        if isinstance(session_or_id, ReconciliationSession):
+            session = session_or_id
+            # Remove from in-memory explanations
+            session.explanations = [exp for exp in session.explanations if exp.explanation_id != explanation_id]
+        else:
+            # Direct session_id call - delete from database
+            self.delete_variance_explanation_from_db(explanation_id)
+
+    def delete_variance_explanation_from_db(self, explanation_id: int) -> None:
+        """Delete a variance explanation from the database."""
+        with get_connection() as conn:
+            conn.execute(
+                "DELETE FROM reconciliation_explanations WHERE explanation_id = ?",
+                (explanation_id,)
+            )
+            conn.commit()
+
+    def get_explained_variance_total(self, session_or_id, payment_method: str) -> float:
+        """Get the total explained variance amount for a payment method.
+
+        Args:
+            session_or_id: Either a ReconciliationSession object or a session_id (int)
+            payment_method: Payment method to get explained variance for
+        """
+        explanations = self.get_variance_explanations(session_or_id, payment_method)
+        total_abs_amount = sum(abs(exp.amount) for exp in explanations)
+        
+        # Get the variance sign to determine the direction of explanation
+        if isinstance(session_or_id, ReconciliationSession):
+            session = session_or_id
+            item = next((item for item in session.items if item.payment_method == payment_method), None)
+            if not item:
+                return 0.0
+            variance_sign = 1 if item.variance >= 0 else -1
+        else:
+            with get_connection() as conn:
+                row = conn.execute(
+                    "SELECT variance FROM reconciliation_entries WHERE session_id = ? AND payment_method = ?",
+                    (session_or_id, payment_method)
+                ).fetchone()
+                if not row:
+                    return 0.0
+                variance_sign = 1 if row['variance'] >= 0 else -1
+        
+        # Explanations always reduce the variance, so they have the opposite sign of variance
+        return total_abs_amount * variance_sign
+
+    def get_unexplained_variance(self, session_or_id, payment_method: str) -> float:
+        """Get the unexplained variance for a payment method.
+
+        Args:
+            session_or_id: Either a ReconciliationSession object or a session_id (int)
+            payment_method: Payment method to get unexplained variance for
+        """
+        # Get the actual variance from the reconciliation item
+        if isinstance(session_or_id, ReconciliationSession):
+            session = session_or_id
+            # Find the item for this payment method
+            item = next((item for item in session.items if item.payment_method == payment_method), None)
+            if not item:
+                return 0.0
+            actual_variance = item.variance
+        else:
+            # Get from database
+            with get_connection() as conn:
+                row = conn.execute(
+                    "SELECT variance FROM reconciliation_entries WHERE session_id = ? AND payment_method = ?",
+                    (session_or_id, payment_method)
+                ).fetchone()
+                if not row:
+                    return 0.0
+                actual_variance = row['variance']
+
+        explained_total = self.get_explained_variance_total(session_or_id, payment_method)
+        return actual_variance - explained_total
+
+    def _calculate_date_range(self, period_type: str, reference_date: str) -> Tuple[str, str]:
+        """Calculate start and end dates for different period types."""
+        # Parse reference date
+        if reference_date == 'today':
+            ref_date = datetime.now().date()
+        else:
+            ref_date = datetime.strptime(reference_date, '%Y-%m-%d').date()
+
+        if period_type == 'daily':
+            start_date = ref_date
+            end_date = ref_date
+        elif period_type == 'weekly':
+            # Start of week (Monday)
+            start_date = ref_date - timedelta(days=ref_date.weekday())
+            end_date = start_date + timedelta(days=6)
+        elif period_type == 'monthly':
+            # Start of month
+            start_date = ref_date.replace(day=1)
+            # End of month
+            if start_date.month == 12:
+                end_date = start_date.replace(year=start_date.year + 1, month=1, day=1) - timedelta(days=1)
+            else:
+                end_date = start_date.replace(month=start_date.month + 1, day=1) - timedelta(days=1)
+        else:
+            raise ValueError(f"Unknown period type: {period_type}")
+
+        return start_date.isoformat(), end_date.isoformat()
+
+
+# Global service instance
+reconciliation_service = ReconciliationService()
+
+
+def save_reconciliation_session(session_id: int, user_id: int) -> None:
+    """Save/update a reconciliation session (mark as draft)."""
+    with get_connection() as conn:
+        conn.execute(
+            """
+            UPDATE reconciliation_sessions
+            SET status = 'draft', reconciled_by = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE session_id = ?
+            """,
+            (user_id, session_id)
+        )
+        conn.commit()
+
+
+def complete_reconciliation_session(session_id: int, user_id: int) -> None:
+    """Complete a reconciliation session (mark as completed)."""
+    with get_connection() as conn:
+        conn.execute(
+            """
+            UPDATE reconciliation_sessions
+            SET status = 'completed', reconciled_by = ?, completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+            WHERE session_id = ?
+            """,
+            (user_id, session_id)
+        )
+        conn.commit()
+
+ 
+ 
+ #   B a c k w a r d   c o m p a t i b i l i t y   w r a p p e r s 
+ d e f   g e t _ v a r i a n c e _ e x p l a n a t i o n s ( s e s s i o n _ o r _ i d ,   p a y m e n t _ m e t h o d :   s t r   =   N o n e )   - >   L i s t [ V a r i a n c e E x p l a n a t i o n ] : 
+         r e t u r n   r e c o n c i l i a t i o n _ s e r v i c e . g e t _ v a r i a n c e _ e x p l a n a t i o n s ( s e s s i o n _ o r _ i d ,   p a y m e n t _ m e t h o d ) 
+ 
+ 
+ d e f   g e t _ v a r i a n c e _ e x p l a n a t i o n s _ f r o m _ d b ( s e s s i o n _ i d :   i n t ,   p a y m e n t _ m e t h o d :   s t r   =   N o n e )   - >   L i s t [ V a r i a n c e E x p l a n a t i o n ] : 
+         r e t u r n   r e c o n c i l i a t i o n _ s e r v i c e . g e t _ v a r i a n c e _ e x p l a n a t i o n s _ f r o m _ d b ( s e s s i o n _ i d ,   p a y m e n t _ m e t h o d ) 
+ 
+ 
+ d e f   a d d _ v a r i a n c e _ e x p l a n a t i o n ( s e s s i o n _ o r _ i d ,   p a y m e n t _ m e t h o d :   s t r ,   e x p l a n a t i o n :   s t r ,   a m o u n t :   f l o a t ,   u s e r _ i d :   i n t   =   N o n e )   - >   i n t : 
+         r e t u r n   r e c o n c i l i a t i o n _ s e r v i c e . a d d _ v a r i a n c e _ e x p l a n a t i o n ( s e s s i o n _ o r _ i d ,   p a y m e n t _ m e t h o d ,   e x p l a n a t i o n ,   a m o u n t ,   u s e r _ i d ) 
+ 
+ 
+ d e f   a d d _ v a r i a n c e _ e x p l a n a t i o n _ t o _ d b ( s e s s i o n _ i d :   i n t ,   p a y m e n t _ m e t h o d :   s t r ,   e x p l a n a t i o n :   s t r ,   a m o u n t :   f l o a t ,   u s e r _ i d :   i n t   =   N o n e )   - >   i n t : 
+         r e t u r n   r e c o n c i l i a t i o n _ s e r v i c e . a d d _ v a r i a n c e _ e x p l a n a t i o n _ t o _ d b ( s e s s i o n _ i d ,   p a y m e n t _ m e t h o d ,   e x p l a n a t i o n ,   a m o u n t ,   u s e r _ i d ) 
+ 
+ 
+ d e f   u p d a t e _ v a r i a n c e _ e x p l a n a t i o n ( s e s s i o n _ o r _ i d ,   e x p l a n a t i o n _ i d :   i n t ,   e x p l a n a t i o n :   s t r ,   a m o u n t :   f l o a t )   - >   N o n e : 
+         r e c o n c i l i a t i o n _ s e r v i c e . u p d a t e _ v a r i a n c e _ e x p l a n a t i o n ( s e s s i o n _ o r _ i d ,   e x p l a n a t i o n _ i d ,   e x p l a n a t i o n ,   a m o u n t ) 
+ 
+ 
+ d e f   u p d a t e _ v a r i a n c e _ e x p l a n a t i o n _ i n _ d b ( e x p l a n a t i o n _ i d :   i n t ,   e x p l a n a t i o n :   s t r ,   a m o u n t :   f l o a t )   - >   N o n e : 
+         r e c o n c i l i a t i o n _ s e r v i c e . u p d a t e _ v a r i a n c e _ e x p l a n a t i o n _ i n _ d b ( e x p l a n a t i o n _ i d ,   e x p l a n a t i o n ,   a m o u n t ) 
+ 
+ 
+ d e f   d e l e t e _ v a r i a n c e _ e x p l a n a t i o n ( s e s s i o n _ o r _ i d ,   e x p l a n a t i o n _ i d :   i n t )   - >   N o n e : 
+         r e c o n c i l i a t i o n _ s e r v i c e . d e l e t e _ v a r i a n c e _ e x p l a n a t i o n ( s e s s i o n _ o r _ i d ,   e x p l a n a t i o n _ i d ) 
+ 
+ 
+ d e f   d e l e t e _ v a r i a n c e _ e x p l a n a t i o n _ f r o m _ d b ( e x p l a n a t i o n _ i d :   i n t )   - >   N o n e : 
+         r e c o n c i l i a t i o n _ s e r v i c e . d e l e t e _ v a r i a n c e _ e x p l a n a t i o n _ f r o m _ d b ( e x p l a n a t i o n _ i d ) 
+ 
+ 
+ d e f   g e t _ e x p l a i n e d _ v a r i a n c e _ t o t a l ( s e s s i o n _ o r _ i d ,   p a y m e n t _ m e t h o d :   s t r )   - >   f l o a t : 
+         r e t u r n   r e c o n c i l i a t i o n _ s e r v i c e . g e t _ e x p l a i n e d _ v a r i a n c e _ t o t a l ( s e s s i o n _ o r _ i d ,   p a y m e n t _ m e t h o d ) 
+ 
+ 
+ d e f   g e t _ u n e x p l a i n e d _ v a r i a n c e ( s e s s i o n _ o r _ i d ,   p a y m e n t _ m e t h o d :   s t r )   - >   f l o a t : 
+         r e t u r n   r e c o n c i l i a t i o n _ s e r v i c e . g e t _ u n e x p l a i n e d _ v a r i a n c e ( s e s s i o n _ o r _ i d ,   p a y m e n t _ m e t h o d ) 
+ 
+ 

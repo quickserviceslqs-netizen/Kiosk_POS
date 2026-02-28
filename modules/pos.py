@@ -5,10 +5,13 @@ import sqlite3
 import random
 import string
 from datetime import datetime
-from typing import Iterable, List
+from typing import Iterable, List, Tuple, Optional
+import logging
 
 from database.init_db import get_connection
 from modules import reports
+
+logger = logging.getLogger(__name__)
 
 
 class InsufficientStock(Exception):
@@ -153,30 +156,50 @@ def create_sale(
                 item_id = entry["item_id"]
                 qty = entry["quantity"]
                 price = entry["price"]
-                cost_price = entry["cost_price"]
                 stock_units = entry["stock_units"]
                 variant_id = entry.get("variant_id")
                 portion_id = entry.get("portion_id")
                 
-                # Insert sale item with variant and portion tracking
-                conn.execute(
-                    "INSERT INTO sales_items (sale_id, item_id, variant_id, portion_id, quantity, price, cost_price) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (sale_id, item_id, variant_id, portion_id, qty, price, cost_price),
-                )
+                # Determine cost price using lot-based costing if available
+                actual_cost_price = entry["cost_price"]
+                lot_allocations = []
                 
-                # Deduct stock from appropriate table
-                if variant_id:
-                    # Deduct from variant stock
-                    conn.execute(
-                        "UPDATE item_variants SET quantity = quantity - ? WHERE variant_id = ?",
-                        (stock_units, variant_id),
-                    )
+                try:
+                    # Try to use lot-based costing
+                    lot_allocations = _allocate_from_lots(conn, item_id, int(stock_units), variant_id)
+                    if lot_allocations:
+                        # Calculate weighted average cost from lot allocations
+                        total_cost = sum(a["quantity"] * a["unit_cost"] for a in lot_allocations)
+                        total_qty = sum(a["quantity"] for a in lot_allocations)
+                        if total_qty > 0:
+                            actual_cost_price = total_cost / total_qty
+                except Exception as e:
+                    # Fall back to item's cost_price if lot allocation fails
+                    logger.debug(f"Lot allocation skipped for item {item_id}: {e}")
+                
+                # Insert sale item with variant and portion tracking
+                cursor = conn.execute(
+                    "INSERT INTO sales_items (sale_id, item_id, variant_id, portion_id, quantity, price, cost_price) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (sale_id, item_id, variant_id, portion_id, qty, price, actual_cost_price),
+                )
+                sale_item_id = cursor.lastrowid
+                
+                # Record lot allocations if we have them
+                if lot_allocations:
+                    _record_lot_deductions(conn, item_id, lot_allocations, sale_item_id, variant_id)
                 else:
-                    # Deduct from base item stock
-                    conn.execute(
-                        "UPDATE items SET quantity = quantity - ? WHERE item_id = ?",
-                        (stock_units, item_id),
-                    )
+                    # Legacy: Deduct stock directly without lot tracking
+                    if variant_id:
+                        conn.execute(
+                            "UPDATE item_variants SET quantity = quantity - ? WHERE variant_id = ?",
+                            (stock_units, variant_id),
+                        )
+                    else:
+                        conn.execute(
+                            "UPDATE items SET quantity = quantity - ? WHERE item_id = ?",
+                            (stock_units, item_id),
+                        )
+                        
             conn.commit()
             return {"sale_id": sale_id, "receipt_number": receipt_number}
         except Exception:
@@ -185,3 +208,157 @@ def create_sale(
         finally:
             # Invalidate report cache after sale creation
             reports.invalidate_cache()
+
+
+def _allocate_from_lots(
+    conn: sqlite3.Connection,
+    item_id: int,
+    quantity_needed: int,
+    variant_id: Optional[int] = None
+) -> List[dict]:
+    """Allocate stock from lots using the configured costing method.
+    
+    Args:
+        conn: Database connection
+        item_id: Item ID
+        quantity_needed: Quantity to allocate
+        variant_id: Optional variant ID
+        
+    Returns:
+        List of allocation dicts with lot_id, quantity, unit_cost
+    """
+    # Check if item has any stock lots
+    query = "SELECT COUNT(*) FROM stock_lots WHERE item_id = ? AND quantity_remaining > 0"
+    params = [item_id]
+    if variant_id:
+        query += " AND variant_id = ?"
+        params.append(variant_id)
+    
+    lot_count = conn.execute(query, params).fetchone()[0]
+    if lot_count == 0:
+        return []  # No lots, use legacy method
+    
+    # Get costing method from settings
+    method_row = conn.execute(
+        "SELECT value FROM settings WHERE key = 'inventory_costing_method'"
+    ).fetchone()
+    method = method_row[0] if method_row else "FIFO"
+    
+    # Build allocation query based on method
+    if method == "LIFO":
+        order_by = "ORDER BY purchase_date DESC, lot_id DESC"
+    else:  # FIFO is default
+        order_by = "ORDER BY purchase_date ASC, lot_id ASC"
+    
+    query = f"""
+        SELECT lot_id, quantity_remaining, cost_price
+        FROM stock_lots
+        WHERE item_id = ? AND quantity_remaining > 0
+    """
+    params = [item_id]
+    if variant_id:
+        query += " AND variant_id = ?"
+        params.append(variant_id)
+    query += f" {order_by}"
+    
+    lots = conn.execute(query, params).fetchall()
+    
+    allocations = []
+    remaining = quantity_needed
+    
+    for lot in lots:
+        if remaining <= 0:
+            break
+        
+        take = min(remaining, lot[1])  # lot[1] = quantity_remaining
+        allocations.append({
+            "lot_id": lot[0],
+            "quantity": take,
+            "unit_cost": lot[2]  # lot[2] = cost_price
+        })
+        remaining -= take
+    
+    # For WAC method, adjust all costs to weighted average
+    if method == "WAC" and allocations:
+        # Calculate weighted average from all lots with stock
+        wac_query = """
+            SELECT SUM(quantity_remaining * cost_price) / SUM(quantity_remaining)
+            FROM stock_lots
+            WHERE item_id = ? AND quantity_remaining > 0
+        """
+        wac_params = [item_id]
+        if variant_id:
+            wac_query = wac_query.replace("WHERE item_id = ?", "WHERE item_id = ? AND variant_id = ?")
+            wac_params.append(variant_id)
+        
+        wac_result = conn.execute(wac_query, wac_params).fetchone()
+        wac = wac_result[0] if wac_result and wac_result[0] else 0
+        
+        # Apply WAC to all allocations
+        for alloc in allocations:
+            alloc["unit_cost"] = wac
+    
+    return allocations
+
+
+def _record_lot_deductions(
+    conn: sqlite3.Connection,
+    item_id: int,
+    allocations: List[dict],
+    sale_item_id: int,
+    variant_id: Optional[int] = None
+) -> None:
+    """Deduct stock from lots and record allocations.
+    
+    Args:
+        conn: Database connection
+        item_id: Item ID
+        allocations: List of allocation dicts
+        sale_item_id: Sale item ID for reference
+        variant_id: Optional variant ID
+    """
+    total_qty = 0
+    
+    for alloc in allocations:
+        # Deduct from lot
+        conn.execute(
+            "UPDATE stock_lots SET quantity_remaining = quantity_remaining - ? WHERE lot_id = ?",
+            (alloc["quantity"], alloc["lot_id"])
+        )
+        
+        # Record stock movement
+        conn.execute(
+            """
+            INSERT INTO stock_movements
+            (item_id, variant_id, lot_id, movement_type, quantity, unit_cost, total_cost,
+             reference_id, reference_type)
+            VALUES (?, ?, ?, 'sale', ?, ?, ?, ?, 'sale_item')
+            """,
+            (item_id, variant_id, alloc["lot_id"], -alloc["quantity"],
+             alloc["unit_cost"], alloc["quantity"] * alloc["unit_cost"], sale_item_id)
+        )
+        
+        # Record lot allocation for sale item
+        conn.execute(
+            """
+            INSERT INTO sale_lot_allocations
+            (sale_item_id, lot_id, quantity, unit_cost)
+            VALUES (?, ?, ?, ?)
+            """,
+            (sale_item_id, alloc["lot_id"], alloc["quantity"], alloc["unit_cost"])
+        )
+        
+        total_qty += alloc["quantity"]
+    
+    # Update item's total quantity
+    conn.execute(
+        "UPDATE items SET quantity = quantity - ? WHERE item_id = ?",
+        (total_qty, item_id)
+    )
+    
+    # Update variant quantity if applicable
+    if variant_id:
+        conn.execute(
+            "UPDATE item_variants SET quantity = quantity - ? WHERE variant_id = ?",
+            (total_qty, variant_id)
+        )

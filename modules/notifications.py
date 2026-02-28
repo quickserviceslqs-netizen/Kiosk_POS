@@ -72,7 +72,8 @@ def send_email(subject: str, body: str, to_emails: list[str], config: dict) -> b
 
 def generate_daily_report_email() -> str:
     """Generate daily sales report email body."""
-    today = datetime.now().strftime("%Y-%m-%d")
+    from utils.date_utils import format_date
+    today = format_date(datetime.now())
     
     summary = dashboard.get_today_summary()
     top_products = dashboard.get_top_products(5)
@@ -101,7 +102,7 @@ TOP SELLING PRODUCTS:
         for cat in category_breakdown:
             body += f"{cat['category']}: {cat['quantity']} items, KSH {cat['revenue']:.2f}\n"
     
-    body += f"\n\nReport generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+    body += f"\n\nReport generated on {format_date(datetime.now())} {datetime.now().strftime('%H:%M:%S')}\n"
     body += "This is an automated email from your Kiosk POS system.\n"
     
     return body
@@ -109,6 +110,7 @@ TOP SELLING PRODUCTS:
 
 def generate_low_stock_alert_email(threshold: int = 10) -> Optional[str]:
     """Generate low stock alert email body with items that have alerts."""
+    from utils.date_utils import format_date
     low_stock = dashboard.get_low_stock_items(threshold)
     
     if not low_stock:
@@ -162,7 +164,7 @@ The following items are running low on stock and need attention:
     body += f"""
 ACTION REQUIRED: Please restock these items as soon as possible.
 
-Alert generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Alert generated on {format_date(datetime.now())} {datetime.now().strftime('%H:%M:%S')}
 This is an automated email from your Kiosk POS system.
 """
     
@@ -179,7 +181,7 @@ def send_daily_report() -> bool:
     if not config.get("to_emails"):
         return False
     
-    subject = f"Daily Sales Report - {datetime.now().strftime('%Y-%m-%d')}"
+    subject = f"Daily Sales Report - {format_date(datetime.now())}"
     body = generate_daily_report_email()
     
     return send_email(subject, body, config['to_emails'], config)
@@ -264,6 +266,7 @@ def test_email_configuration(config: dict) -> tuple[bool, str]:
         return False, "Socket module not available for connectivity testing"
     
     subject = "Test Email from Kiosk POS"
+    from utils.date_utils import format_date
     body = f"""
 This is a test email from your Kiosk POS system.
 
@@ -274,7 +277,7 @@ Configuration Details:
 - From: {config['from_email']}
 - To: {', '.join(config['to_emails'])}
 
-Sent at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Sent at: {format_date(datetime.now())} {datetime.now().strftime('%H:%M:%S')}
 """
     
     try:

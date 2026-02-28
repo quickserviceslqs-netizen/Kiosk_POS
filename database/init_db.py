@@ -152,7 +152,7 @@ CREATE TABLE IF NOT EXISTS reconciliation_sessions (
     total_system_sales REAL NOT NULL DEFAULT 0,
     total_actual_cash REAL NOT NULL DEFAULT 0,
     total_variance REAL NOT NULL DEFAULT 0,
-    status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'completed', 'approved')),
+    status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'completed', 'approved', 'rejected')),
     reconciled_by INTEGER,
     reconciled_at TEXT,
     notes TEXT,
@@ -169,6 +169,7 @@ CREATE TABLE IF NOT EXISTS reconciliation_entries (
     actual_amount REAL NOT NULL DEFAULT 0,
     variance REAL NOT NULL DEFAULT 0,
     explanation TEXT,
+    reviewed INTEGER NOT NULL DEFAULT 0,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (session_id) REFERENCES reconciliation_sessions(session_id) ON DELETE CASCADE
@@ -192,6 +193,110 @@ CREATE INDEX IF NOT EXISTS idx_reconciliation_sessions_date ON reconciliation_se
 CREATE INDEX IF NOT EXISTS idx_reconciliation_sessions_period ON reconciliation_sessions(start_date, end_date);
 CREATE INDEX IF NOT EXISTS idx_reconciliation_entries_session ON reconciliation_entries(session_id);
 CREATE INDEX IF NOT EXISTS idx_reconciliation_explanations_session ON reconciliation_explanations(session_id);
+
+-- Stock Reconciliation tables for daily stock counting vs POS sales
+CREATE TABLE IF NOT EXISTS stock_reconciliation_sessions (
+    session_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    reconciliation_date TEXT NOT NULL,
+    period_type TEXT NOT NULL DEFAULT 'daily' CHECK(period_type IN ('daily', 'weekly', 'monthly', 'custom')),
+    start_date TEXT NOT NULL DEFAULT '',
+    end_date TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'completed')),
+    created_by INTEGER,
+    completed_at TEXT,
+    notes TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (created_by) REFERENCES users(user_id)
+);
+
+CREATE TABLE IF NOT EXISTS stock_reconciliation_entries (
+    entry_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER NOT NULL,
+    item_id INTEGER NOT NULL,
+    item_name TEXT NOT NULL,
+    opening_stock REAL NOT NULL DEFAULT 0,
+    stock_received REAL NOT NULL DEFAULT 0,
+    system_sales REAL NOT NULL DEFAULT 0,
+    other_out REAL NOT NULL DEFAULT 0,
+    expected_closing REAL NOT NULL DEFAULT 0,
+    actual_closing REAL NOT NULL DEFAULT 0,
+    variance REAL NOT NULL DEFAULT 0,
+    notes TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (session_id) REFERENCES stock_reconciliation_sessions(session_id) ON DELETE CASCADE,
+    FOREIGN KEY (item_id) REFERENCES items(item_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_stock_recon_sessions_date ON stock_reconciliation_sessions(reconciliation_date);
+CREATE INDEX IF NOT EXISTS idx_stock_recon_entries_session ON stock_reconciliation_entries(session_id);
+CREATE INDEX IF NOT EXISTS idx_stock_recon_entries_item ON stock_reconciliation_entries(item_id);
+
+-- Stock Lots table for tracking inventory batches with individual cost prices
+CREATE TABLE IF NOT EXISTS stock_lots (
+    lot_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id INTEGER NOT NULL,
+    variant_id INTEGER,
+    purchase_date TEXT NOT NULL,
+    quantity_received INTEGER NOT NULL,
+    quantity_remaining INTEGER NOT NULL,
+    cost_price REAL NOT NULL,
+    supplier TEXT,
+    reference_number TEXT,
+    expiry_date TEXT,
+    notes TEXT,
+    created_by INTEGER,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (item_id) REFERENCES items(item_id) ON DELETE CASCADE,
+    FOREIGN KEY (variant_id) REFERENCES item_variants(variant_id) ON DELETE SET NULL,
+    FOREIGN KEY (created_by) REFERENCES users(user_id)
+);
+
+-- Stock Movements table for audit trail of all inventory changes
+CREATE TABLE IF NOT EXISTS stock_movements (
+    movement_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id INTEGER NOT NULL,
+    variant_id INTEGER,
+    lot_id INTEGER,
+    movement_type TEXT NOT NULL CHECK(movement_type IN 
+        ('purchase', 'sale', 'return', 'adjustment', 'transfer', 'waste', 'opening_stock')),
+    quantity INTEGER NOT NULL,
+    unit_cost REAL,
+    total_cost REAL,
+    reference_id INTEGER,
+    reference_type TEXT,
+    user_id INTEGER,
+    notes TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (item_id) REFERENCES items(item_id) ON DELETE CASCADE,
+    FOREIGN KEY (variant_id) REFERENCES item_variants(variant_id) ON DELETE SET NULL,
+    FOREIGN KEY (lot_id) REFERENCES stock_lots(lot_id) ON DELETE SET NULL,
+    FOREIGN KEY (user_id) REFERENCES users(user_id)
+);
+
+-- Sale Lot Allocations table for tracking which lots were used for each sale item
+CREATE TABLE IF NOT EXISTS sale_lot_allocations (
+    allocation_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sale_item_id INTEGER NOT NULL,
+    lot_id INTEGER NOT NULL,
+    quantity INTEGER NOT NULL,
+    unit_cost REAL NOT NULL,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (sale_item_id) REFERENCES sales_items(sale_item_id) ON DELETE CASCADE,
+    FOREIGN KEY (lot_id) REFERENCES stock_lots(lot_id) ON DELETE SET NULL
+);
+
+-- Indexes for stock lot tables
+CREATE INDEX IF NOT EXISTS idx_stock_lots_item ON stock_lots(item_id);
+CREATE INDEX IF NOT EXISTS idx_stock_lots_variant ON stock_lots(variant_id);
+CREATE INDEX IF NOT EXISTS idx_stock_lots_date ON stock_lots(purchase_date);
+CREATE INDEX IF NOT EXISTS idx_stock_lots_remaining ON stock_lots(quantity_remaining);
+CREATE INDEX IF NOT EXISTS idx_stock_movements_item ON stock_movements(item_id);
+CREATE INDEX IF NOT EXISTS idx_stock_movements_lot ON stock_movements(lot_id);
+CREATE INDEX IF NOT EXISTS idx_stock_movements_type ON stock_movements(movement_type);
+CREATE INDEX IF NOT EXISTS idx_stock_movements_date ON stock_movements(created_at);
+CREATE INDEX IF NOT EXISTS idx_sale_lot_allocations_sale_item ON sale_lot_allocations(sale_item_id);
+CREATE INDEX IF NOT EXISTS idx_sale_lot_allocations_lot ON sale_lot_allocations(lot_id);
 """
 
 
@@ -211,7 +316,7 @@ def _pragma_columns(conn: sqlite3.Connection, table_name: str) -> set:
 
 
 def _ensure_expense_columns(conn: sqlite3.Connection) -> None:
-    """Add user tracking columns to expenses table if missing."""
+    """Add user tracking and payment method columns to expenses table if missing."""
     existing_columns = _pragma_columns(conn, 'expenses')
     if "user_id" not in existing_columns:
         conn.execute("ALTER TABLE expenses ADD COLUMN user_id INTEGER")
@@ -221,6 +326,10 @@ def _ensure_expense_columns(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE expenses ADD COLUMN created_at TEXT")
     if "currency_code" not in existing_columns:
         conn.execute("ALTER TABLE expenses ADD COLUMN currency_code TEXT DEFAULT NULL")
+    if "payment_method" not in existing_columns:
+        conn.execute("ALTER TABLE expenses ADD COLUMN payment_method TEXT DEFAULT 'Cash'")
+    if "reference_number" not in existing_columns:
+        conn.execute("ALTER TABLE expenses ADD COLUMN reference_number TEXT")
 
 
 def _ensure_refunds_table(conn: sqlite3.Connection) -> None:
@@ -582,6 +691,62 @@ def _ensure_item_portions_table(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _ensure_reconciliation_tables(conn: sqlite3.Connection) -> None:
+    """Ensure reconciliation tables have all required columns."""
+    # Check if reconciliation_entries table exists
+    existing_tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    
+    if "reconciliation_entries" in existing_tables:
+        existing = _pragma_columns(conn, 'reconciliation_entries')
+        
+        # Add reviewed column if missing (for marking entries as reviewed)
+        if "reviewed" not in existing:
+            try:
+                conn.execute("ALTER TABLE reconciliation_entries ADD COLUMN reviewed INTEGER NOT NULL DEFAULT 0")
+            except Exception:
+                pass
+        
+        # Add explanation column if missing (for entry notes)
+        if "explanation" not in existing:
+            try:
+                conn.execute("ALTER TABLE reconciliation_entries ADD COLUMN explanation TEXT")
+            except Exception:
+                pass
+        
+        # Add updated_at column if missing
+        if "updated_at" not in existing:
+            try:
+                conn.execute("ALTER TABLE reconciliation_entries ADD COLUMN updated_at TEXT DEFAULT CURRENT_TIMESTAMP")
+            except Exception:
+                pass
+
+        # Add opening_balance column if missing (for opening/closing balance reconciliation)
+        if "opening_balance" not in existing:
+            try:
+                conn.execute("ALTER TABLE reconciliation_entries ADD COLUMN opening_balance REAL NOT NULL DEFAULT 0")
+            except Exception:
+                pass
+
+        # Add cash_out column if missing (money removed: deposits, expenses)
+        if "cash_out" not in existing:
+            try:
+                conn.execute("ALTER TABLE reconciliation_entries ADD COLUMN cash_out REAL NOT NULL DEFAULT 0")
+            except Exception:
+                pass
+    
+    if "reconciliation_sessions" in existing_tables:
+        existing = _pragma_columns(conn, 'reconciliation_sessions')
+        
+        # Add updated_at column if missing
+        if "updated_at" not in existing:
+            try:
+                conn.execute("ALTER TABLE reconciliation_sessions ADD COLUMN updated_at TEXT DEFAULT CURRENT_TIMESTAMP")
+            except Exception:
+                pass
+    
+    conn.commit()
+
+
 def _ensure_sales_columns(conn: sqlite3.Connection) -> None:
     """Add missing columns to sales table used by POS logic."""
     existing = _pragma_columns(conn, 'sales')
@@ -627,6 +792,116 @@ def _ensure_sales_items_columns(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _ensure_stock_lots_tables(conn: sqlite3.Connection) -> None:
+    """Ensure stock_lots, stock_movements, and sale_lot_allocations tables exist for inventory costing.
+    
+    Also adds the inventory_costing_method setting if not present.
+    """
+    # Check which tables exist
+    existing_tables = {row[0] for row in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    )}
+    
+    # Create stock_lots table if missing
+    if "stock_lots" not in existing_tables:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS stock_lots (
+                lot_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                item_id INTEGER NOT NULL,
+                variant_id INTEGER,
+                purchase_date TEXT NOT NULL,
+                quantity_received INTEGER NOT NULL,
+                quantity_remaining INTEGER NOT NULL,
+                cost_price REAL NOT NULL,
+                supplier TEXT,
+                reference_number TEXT,
+                expiry_date TEXT,
+                notes TEXT,
+                created_by INTEGER,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (item_id) REFERENCES items(item_id) ON DELETE CASCADE,
+                FOREIGN KEY (variant_id) REFERENCES item_variants(variant_id) ON DELETE SET NULL,
+                FOREIGN KEY (created_by) REFERENCES users(user_id)
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_stock_lots_item ON stock_lots(item_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_stock_lots_variant ON stock_lots(variant_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_stock_lots_date ON stock_lots(purchase_date)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_stock_lots_remaining ON stock_lots(quantity_remaining)")
+    
+    # Create stock_movements table if missing
+    if "stock_movements" not in existing_tables:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS stock_movements (
+                movement_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                item_id INTEGER NOT NULL,
+                variant_id INTEGER,
+                lot_id INTEGER,
+                movement_type TEXT NOT NULL CHECK(movement_type IN 
+                    ('purchase', 'sale', 'return', 'adjustment', 'transfer', 'waste', 'opening_stock')),
+                quantity INTEGER NOT NULL,
+                unit_cost REAL,
+                total_cost REAL,
+                reference_id INTEGER,
+                reference_type TEXT,
+                user_id INTEGER,
+                notes TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (item_id) REFERENCES items(item_id) ON DELETE CASCADE,
+                FOREIGN KEY (variant_id) REFERENCES item_variants(variant_id) ON DELETE SET NULL,
+                FOREIGN KEY (lot_id) REFERENCES stock_lots(lot_id) ON DELETE SET NULL,
+                FOREIGN KEY (user_id) REFERENCES users(user_id)
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_stock_movements_item ON stock_movements(item_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_stock_movements_lot ON stock_movements(lot_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_stock_movements_type ON stock_movements(movement_type)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_stock_movements_date ON stock_movements(created_at)")
+    
+    # Create sale_lot_allocations table if missing
+    if "sale_lot_allocations" not in existing_tables:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS sale_lot_allocations (
+                allocation_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sale_item_id INTEGER NOT NULL,
+                lot_id INTEGER NOT NULL,
+                quantity INTEGER NOT NULL,
+                unit_cost REAL NOT NULL,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (sale_item_id) REFERENCES sales_items(sale_item_id) ON DELETE CASCADE,
+                FOREIGN KEY (lot_id) REFERENCES stock_lots(lot_id) ON DELETE SET NULL
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_sale_lot_allocations_sale_item ON sale_lot_allocations(sale_item_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_sale_lot_allocations_lot ON sale_lot_allocations(lot_id)")
+    
+    # Add default inventory costing method setting if not present
+    existing_setting = conn.execute(
+        "SELECT value FROM settings WHERE key = 'inventory_costing_method'"
+    ).fetchone()
+    if not existing_setting:
+        conn.execute(
+            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+            ('inventory_costing_method', 'FIFO')  # Default to FIFO
+        )
+    
+    conn.commit()
+
+
+def _ensure_stock_recon_period_columns(conn: sqlite3.Connection) -> None:
+    """Add period_type, start_date, end_date columns to stock_reconciliation_sessions if missing."""
+    cols = _pragma_columns(conn, "stock_reconciliation_sessions")
+    if not cols:
+        return  # Table doesn't exist yet (SCHEMA will create it)
+    if "period_type" not in cols:
+        conn.execute("ALTER TABLE stock_reconciliation_sessions ADD COLUMN period_type TEXT NOT NULL DEFAULT 'daily'")
+    if "start_date" not in cols:
+        conn.execute("ALTER TABLE stock_reconciliation_sessions ADD COLUMN start_date TEXT NOT NULL DEFAULT ''")
+    if "end_date" not in cols:
+        conn.execute("ALTER TABLE stock_reconciliation_sessions ADD COLUMN end_date TEXT NOT NULL DEFAULT ''")
+    conn.commit()
+
+
 def _seed_default_vat_rates(conn: sqlite3.Connection) -> None:
     """Seed default VAT rates if table is empty."""
     count = conn.execute("SELECT COUNT(*) FROM vat_rates").fetchone()[0]
@@ -645,25 +920,100 @@ def _seed_default_vat_rates(conn: sqlite3.Connection) -> None:
 
 
 def _seed_default_units_of_measure(conn: sqlite3.Connection) -> None:
-    """Seed default units of measure if table is empty."""
-    count = conn.execute("SELECT COUNT(*) FROM units_of_measure").fetchone()[0]
-    if count == 0:
-        default_units = [
-            ("pieces", "pcs", 1, None),
-            ("kilograms", "kg", 1000, "grams"),
-            ("grams", "g", 1, None),
-            ("liters", "L", 1000, "milliliters"),
-            ("milliliters", "ml", 1, None),
-            ("meters", "m", 100, "centimeters"),
-            ("centimeters", "cm", 1, None),
-            ("boxes", "box", 1, None),
-            ("packs", "pk", 1, None),
-            ("bottles", "btl", 1, None),
-        ]
-        conn.executemany(
-            "INSERT INTO units_of_measure (name, abbreviation, conversion_factor, base_unit, is_active) VALUES (?, ?, ?, ?, 1)",
-            default_units
-        )
+    """Seed default units of measure if table is empty or add missing units."""
+    
+    # Complete list of units for both discrete and measurable items
+    all_units = [
+        # Discrete units (for items sold as whole units)
+        ("piece", "pc", 1, None, "discrete"),
+        ("unit", "un", 1, None, "discrete"),
+        ("pack", "pk", 1, None, "discrete"),
+        ("box", "bx", 1, None, "discrete"),
+        ("bottle", "btl", 1, None, "discrete"),
+        ("can", "cn", 1, None, "discrete"),
+        ("bag", "bg", 1, None, "discrete"),
+        ("carton", "ctn", 1, None, "discrete"),
+        ("dozen", "dz", 12, "piece", "discrete"),
+        ("pair", "pr", 2, "piece", "discrete"),
+        ("set", "set", 1, None, "discrete"),
+        ("roll", "rl", 1, None, "discrete"),
+        ("bundle", "bdl", 1, None, "discrete"),
+        
+        # Measurable units - Weight
+        ("kg", "kg", 1000, "g", "measurable"),
+        ("g", "g", 1, None, "measurable"),
+        ("lb", "lb", 453.592, "g", "measurable"),
+        ("oz", "oz", 28.3495, "g", "measurable"),
+        
+        # Measurable units - Volume
+        ("liter", "L", 1000, "ml", "measurable"),
+        ("ml", "ml", 1, None, "measurable"),
+        ("gallon", "gal", 3785.41, "ml", "measurable"),
+        ("quart", "qt", 946.353, "ml", "measurable"),
+        ("pint", "pt", 473.176, "ml", "measurable"),
+        
+        # Measurable units - Length
+        ("meter", "m", 100, "cm", "measurable"),
+        ("cm", "cm", 1, None, "measurable"),
+        ("yard", "yd", 91.44, "cm", "measurable"),
+        ("foot", "ft", 30.48, "cm", "measurable"),
+        ("inch", "in", 2.54, "cm", "measurable"),
+    ]
+    
+    # Check existing units
+    existing = {row[0].lower() for row in conn.execute("SELECT name FROM units_of_measure").fetchall()}
+    
+    # Add category column if it doesn't exist
+    cols = [c[1] for c in conn.execute("PRAGMA table_info(units_of_measure)").fetchall()]
+    if 'category' not in cols:
+        conn.execute("ALTER TABLE units_of_measure ADD COLUMN category TEXT DEFAULT 'discrete'")
+    
+    # Insert missing units
+    for name, abbrev, conv_factor, base_unit, category in all_units:
+        if name.lower() not in existing:
+            conn.execute(
+                "INSERT INTO units_of_measure (name, abbreviation, conversion_factor, base_unit, category, is_active) VALUES (?, ?, ?, ?, ?, 1)",
+                (name, abbrev, conv_factor, base_unit, category)
+            )
+    
+    # Update existing units that might be missing category or have wrong category
+    # First set all old measurement units to measurable
+    conn.execute("""
+        UPDATE units_of_measure SET category = 'measurable' 
+        WHERE LOWER(name) IN ('kg', 'kilograms', 'g', 'grams', 'lb', 'oz', 
+                              'liter', 'liters', 'ml', 'milliliters', 'gallon', 'quart', 'pint',
+                              'meter', 'meters', 'cm', 'centimeters', 'yard', 'foot', 'inch')
+    """)
+    # Then set discrete units
+    conn.execute("""
+        UPDATE units_of_measure SET category = 'discrete' 
+        WHERE LOWER(name) IN ('piece', 'pieces', 'unit', 'pack', 'packs', 'box', 'boxes', 
+                              'bottle', 'bottles', 'can', 'bag', 'carton', 'dozen', 'pair', 
+                              'set', 'roll', 'bundle')
+    """)
+    
+    # Remove duplicate units (keep shorter forms)
+    duplicates = ['kilograms', 'grams', 'liters', 'meters', 'centimeters', 'milliliters',
+                  'pieces', 'boxes', 'bottles', 'packs']
+    for dup in duplicates:
+        conn.execute("DELETE FROM units_of_measure WHERE name = ?", (dup,))
+    
+    # Migrate items with old unit names to new short forms
+    unit_migrations = [
+        ('pieces', 'piece'),
+        ('kilograms', 'kg'),
+        ('liters', 'liter'),
+        ('grams', 'g'),
+        ('meters', 'meter'),
+        ('centimeters', 'cm'),
+        ('milliliters', 'ml'),
+        ('boxes', 'box'),
+        ('bottles', 'bottle'),
+        ('packs', 'pack'),
+    ]
+    for old_name, new_name in unit_migrations:
+        conn.execute("UPDATE items SET unit_of_measure = ? WHERE unit_of_measure = ?", (new_name, old_name))
+    
     conn.commit()
 
 
@@ -690,24 +1040,70 @@ def _seed_default_inventory_categories(conn: sqlite3.Connection) -> None:
 
 
 def _seed_default_expense_categories(conn: sqlite3.Connection) -> None:
-    """Seed default expense categories if table is empty."""
-    count = conn.execute("SELECT COUNT(*) FROM expense_categories").fetchone()[0]
-    if count == 0:
-        default_categories = [
-            "Rent & Utilities",
-            "Salaries & Wages",
-            "Supplies & Materials",
-            "Marketing & Advertising",
-            "Insurance",
-            "Equipment & Maintenance",
-            "Transportation",
-            "Professional Services",
-            "Miscellaneous",
-        ]
-        conn.executemany(
-            "INSERT INTO expense_categories (name) VALUES (?)",
-            [(cat,) for cat in default_categories]
+    """Seed default expense categories, replacing legacy ones if needed."""
+    default_categories = [
+        "Meals & Refreshments",
+        "Cleaning Supplies",
+        "Rent",
+        "Utilities",
+        "Transport & Delivery",
+        "Shop Supplies",
+        "Salaries & Wages",
+        "Equipment & Repairs",
+        "Airtime & Data",
+        "Packaging",
+        "Security",
+        "Licence & Permits",
+        "Bank Charges",
+        "Miscellaneous",
+    ]
+
+    # Map old category names → best new equivalent
+    _legacy_map = {
+        "Rent & Utilities": "Rent",
+        "Supplies & Materials": "Shop Supplies",
+        "Marketing & Advertising": "Miscellaneous",
+        "Insurance": "Miscellaneous",
+        "Equipment & Maintenance": "Equipment & Repairs",
+        "Transportation": "Transport & Delivery",
+        "Professional Services": "Miscellaneous",
+        "Uncategorized": "Miscellaneous",
+        "Meals": "Meals & Refreshments",
+    }
+
+    existing = {
+        r[0] for r in conn.execute("SELECT name FROM expense_categories")
+    }
+    new_set = set(default_categories)
+
+    # Remap expenses that reference legacy categories being removed
+    legacy_in_db = existing - new_set
+    for old_name in legacy_in_db:
+        new_name = _legacy_map.get(old_name, "Miscellaneous")
+        conn.execute(
+            "UPDATE expenses SET category = ? WHERE category = ?",
+            (new_name, old_name),
         )
+
+    # Remove legacy categories that are not in the new list
+    if legacy_in_db:
+        conn.execute(
+            "DELETE FROM expense_categories WHERE name NOT IN ({})".format(
+                ",".join("?" for _ in default_categories)
+            ),
+            default_categories,
+        )
+
+    # Insert any missing new categories (UNIQUE constraint prevents duplicates)
+    for cat in default_categories:
+        if cat not in existing:
+            try:
+                conn.execute(
+                    "INSERT INTO expense_categories (name) VALUES (?)", (cat,)
+                )
+            except Exception:
+                pass  # already exists
+
     conn.commit()
 
 
@@ -721,7 +1117,25 @@ def get_connection(db_path: Path | None = None) -> sqlite3.Connection:
     Uses thread-local storage to cache connections and improve performance.
     """
     global DB_PATH
-    resolved = Path(db_path) if db_path else DB_PATH
+    if db_path is None:
+        # If no path provided, check if DB_PATH has been set by initialization
+        if DB_PATH != Path(__file__).parent / "pos.db":
+            resolved = DB_PATH
+        else:
+            # Check for config.json to get the correct database path
+            config_path = Path(__file__).parent.parent / "config.json"
+            if config_path.exists():
+                try:
+                    import json
+                    with open(config_path, "r", encoding="utf-8") as f:
+                        config = json.load(f)
+                    resolved = Path(config.get("db_path", str(DB_PATH)))
+                except Exception:
+                    resolved = DB_PATH
+            else:
+                resolved = DB_PATH
+    else:
+        resolved = Path(db_path)
     resolved = Path(resolved)
 
     # Check if we have a cached connection for this thread
@@ -884,6 +1298,9 @@ def initialize_database(db_path: Path | None = None) -> Path:
         _ensure_units_of_measure_table(conn)
         _ensure_item_variants_table(conn)
         _ensure_item_portions_table(conn)
+        _ensure_reconciliation_tables(conn)
+        _ensure_stock_lots_tables(conn)
+        _ensure_stock_recon_period_columns(conn)
         _seed_default_vat_rates(conn)
         _seed_default_units_of_measure(conn)
         _seed_default_inventory_categories(conn)

@@ -18,9 +18,11 @@ import time
 from pathlib import Path
 from typing import Optional, Dict, Any
 import json
+from datetime import datetime
 
 from modules import upgrades
 from utils import set_window_icon
+from utils.date_utils import format_date
 
 
 class StatusDialog(tk.Toplevel):
@@ -36,6 +38,7 @@ class StatusDialog(tk.Toplevel):
 
         self.operation_type = operation_type
         self.success = None
+        self.cancelled = False  # Track cancellation state
 
         # Set the app's custom icon
         set_window_icon(self)
@@ -198,6 +201,10 @@ class StatusDialog(tk.Toplevel):
 class UpgradeManagerFrame(ttk.Frame):
     """Enhanced upgrade manager with full feature set."""
 
+    # Recent packages file
+    RECENT_PACKAGES_FILE = "upgrade_recent.json"
+    MAX_RECENT_PACKAGES = 5
+
     def __init__(self, master=None, **kwargs):
         super().__init__(master, padding=16, **kwargs)
         self.pkg_path: Optional[Path] = None
@@ -205,11 +212,22 @@ class UpgradeManagerFrame(ttk.Frame):
         self.cancellation_token = threading.Event()
         self.signing_key: Optional[str] = None
         self.status_dialog: Optional[StatusDialog] = None
+        self.package_info: Optional[Dict[str, Any]] = None
+        self.recent_packages: list = []
+        
+        # Signature verification settings (used by _run_upgrade)
+        self.verify_sig_var = tk.BooleanVar(value=False)
+        
+        # Load recent packages
+        self._load_recent_packages()
         
         # Setup custom styles
         self._setup_styles()
         
         self._build_ui()
+        
+        # Bind keyboard shortcuts
+        self._bind_shortcuts()
 
     def _setup_styles(self):
         """Setup custom styles for the UI."""
@@ -252,74 +270,101 @@ class UpgradeManagerFrame(ttk.Frame):
 
     def _build_upgrade_tab(self, parent):
         """Build the main upgrade application tab."""
-        # Title
-        title = ttk.Label(parent, text="System Upgrade Manager", font=("Segoe UI", 14, "bold"))
-        title.pack(anchor=tk.W, pady=(0, 16))
+        # Title with keyboard shortcut hint
+        title_frame = ttk.Frame(parent)
+        title_frame.pack(fill=tk.X, pady=(0, 12))
+        
+        ttk.Label(title_frame, text="System Upgrade Manager", font=("Segoe UI", 14, "bold")).pack(side=tk.LEFT)
+        ttk.Label(title_frame, text="Ctrl+O: Open | Ctrl+D: Dry Run | Ctrl+Enter: Apply", 
+                 font=("Segoe UI", 8), foreground="gray").pack(side=tk.RIGHT)
 
-        # Package selection frame
+        # Package selection frame with recent packages
         pkg_frame = ttk.LabelFrame(parent, text="Upgrade Package", padding=10)
-        pkg_frame.pack(fill=tk.X, pady=(0, 16))
+        pkg_frame.pack(fill=tk.X, pady=(0, 12))
 
-        self.pkg_label = ttk.Label(pkg_frame, text="No package selected", foreground="gray")
+        # Recent packages dropdown
+        recent_frame = ttk.Frame(pkg_frame)
+        recent_frame.pack(fill=tk.X, pady=(0, 8))
+        
+        ttk.Label(recent_frame, text="Recent:").pack(side=tk.LEFT)
+        self.recent_combo = ttk.Combobox(recent_frame, state="readonly", width=50)
+        self.recent_combo.pack(side=tk.LEFT, padx=(8, 0), fill=tk.X, expand=True)
+        self.recent_combo.bind("<<ComboboxSelected>>", self._on_recent_selected)
+        self._update_recent_combo()
+
+        # Current package display
+        current_frame = ttk.Frame(pkg_frame)
+        current_frame.pack(fill=tk.X)
+        
+        self.pkg_label = ttk.Label(current_frame, text="No package selected", foreground="gray")
         self.pkg_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        btn_frame = ttk.Frame(pkg_frame)
+        btn_frame = ttk.Frame(current_frame)
         btn_frame.pack(side=tk.RIGHT)
 
-        self.select_btn = ttk.Button(btn_frame, text="📁 Select Package", command=self.choose_package)
-        self.select_btn.pack(side=tk.LEFT, padx=(0, 8))
+        self.select_btn = ttk.Button(btn_frame, text="📁 Browse...", command=self.choose_package, width=12)
+        self.select_btn.pack(side=tk.LEFT, padx=(0, 4))
 
-        self.preview_btn = ttk.Button(btn_frame, text="👁️ Preview", command=self.preview, state=tk.DISABLED)
-        self.preview_btn.pack(side=tk.LEFT)
+        self.clear_btn = ttk.Button(btn_frame, text="✕", command=self._clear_package, width=3, state=tk.DISABLED)
+        self.clear_btn.pack(side=tk.LEFT)
 
-        # Security frame
-        security_frame = ttk.LabelFrame(parent, text="Security", padding=10)
-        security_frame.pack(fill=tk.X, pady=(0, 16))
+        # Package info panel (shows details after selection)
+        self.info_frame = ttk.LabelFrame(parent, text="Package Information", padding=10)
+        self.info_frame.pack(fill=tk.X, pady=(0, 12))
+        
+        # Info grid
+        info_grid = ttk.Frame(self.info_frame)
+        info_grid.pack(fill=tk.X)
+        
+        self.info_labels = {}
+        info_fields = [("Version:", "version"), ("Description:", "description"), 
+                       ("Steps:", "steps"), ("Status:", "status")]
+        for i, (label, key) in enumerate(info_fields):
+            ttk.Label(info_grid, text=label, font=("Segoe UI", 9, "bold")).grid(row=i, column=0, sticky=tk.W, pady=2)
+            self.info_labels[key] = ttk.Label(info_grid, text="-", foreground="gray")
+            self.info_labels[key].grid(row=i, column=1, sticky=tk.W, padx=(8, 0), pady=2)
+        
+        info_grid.columnconfigure(1, weight=1)
 
-        ttk.Label(security_frame, text="Signing Key:").grid(row=0, column=0, sticky=tk.W, pady=2)
-        self.key_entry = ttk.Entry(security_frame, show="*")
-        self.key_entry.grid(row=0, column=1, sticky=tk.EW, padx=(8, 0), pady=2)
+        # Quick action buttons (more prominent)
+        action_frame = ttk.Frame(parent)
+        action_frame.pack(fill=tk.X, pady=(0, 12))
 
-        self.verify_sig_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(security_frame, text="Verify package signature",
-                       variable=self.verify_sig_var).grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=2)
-
-        security_frame.columnconfigure(1, weight=1)
-
-        # Action buttons frame
-        action_frame = ttk.LabelFrame(parent, text="Actions", padding=10)
-        action_frame.pack(fill=tk.X, pady=(0, 16))
-
-        self.dry_run_btn = ttk.Button(action_frame, text="🔍 Dry Run", command=self.dry_run, state=tk.DISABLED)
+        self.dry_run_btn = ttk.Button(action_frame, text="🔍 Validate & Dry Run (Ctrl+D)", 
+                                      command=self.dry_run, state=tk.DISABLED, width=25)
         self.dry_run_btn.pack(side=tk.LEFT, padx=(0, 8))
 
-        self.apply_btn = ttk.Button(action_frame, text="⚡ Apply Upgrade", command=self.apply, state=tk.DISABLED)
+        self.apply_btn = ttk.Button(action_frame, text="⚡ Apply Upgrade (Ctrl+Enter)", 
+                                    command=self.apply, state=tk.DISABLED, width=25)
         self.apply_btn.pack(side=tk.LEFT, padx=(0, 8))
 
-        self.cancel_btn = ttk.Button(action_frame, text="⏹️ Cancel", command=self.cancel_operation, state=tk.DISABLED)
+        self.cancel_btn = ttk.Button(action_frame, text="⏹️ Cancel", 
+                                     command=self.cancel_operation, state=tk.DISABLED, width=12)
         self.cancel_btn.pack(side=tk.LEFT)
 
-        # Progress frame
-        progress_frame = ttk.LabelFrame(parent, text="Progress", padding=10)
-        progress_frame.pack(fill=tk.X, pady=(0, 16))
+        # Progress frame (more compact)
+        progress_frame = ttk.LabelFrame(parent, text="Progress", padding=8)
+        progress_frame.pack(fill=tk.X, pady=(0, 12))
 
+        progress_inner = ttk.Frame(progress_frame)
+        progress_inner.pack(fill=tk.X)
+        
         self.progress_var = tk.StringVar(value="Ready")
-        self.progress_label = ttk.Label(progress_frame, textvariable=self.progress_var)
-        self.progress_label.pack(anchor=tk.W)
+        self.progress_label = ttk.Label(progress_inner, textvariable=self.progress_var, width=50, anchor=tk.W)
+        self.progress_label.pack(side=tk.LEFT)
+        
+        self.step_label = ttk.Label(progress_inner, text="", foreground="gray")
+        self.step_label.pack(side=tk.RIGHT)
 
         self.progress_bar = ttk.Progressbar(progress_frame, mode='determinate', maximum=100,
                                      style="Green.Horizontal.TProgressbar")
         self.progress_bar.pack(fill=tk.X, pady=(8, 0))
 
-        # Log frame
-        log_frame = ttk.LabelFrame(parent, text="Activity Log", padding=10)
+        # Log frame (collapsible style)
+        log_frame = ttk.LabelFrame(parent, text="Activity Log", padding=8)
         log_frame.pack(fill=tk.BOTH, expand=True)
 
-        # Create text widget with scrollbar
-        text_frame = ttk.Frame(log_frame)
-        text_frame.pack(fill=tk.BOTH, expand=True)
-
-        self.log_text = scrolledtext.ScrolledText(text_frame, height=15, wrap=tk.WORD,
+        self.log_text = scrolledtext.ScrolledText(log_frame, height=10, wrap=tk.WORD,
                                                  font=("Consolas", 9))
         self.log_text.pack(fill=tk.BOTH, expand=True)
 
@@ -327,8 +372,9 @@ class UpgradeManagerFrame(ttk.Frame):
         control_frame = ttk.Frame(log_frame)
         control_frame.pack(fill=tk.X, pady=(8, 0))
 
-        ttk.Button(control_frame, text="🗑️ Clear Log", command=self.clear_log).pack(side=tk.LEFT, padx=(0, 8))
-        ttk.Button(control_frame, text="💾 Save Log", command=self.save_log).pack(side=tk.LEFT)
+        ttk.Button(control_frame, text="🗑️ Clear", command=self.clear_log, width=10).pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Button(control_frame, text="💾 Save", command=self.save_log, width=10).pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Button(control_frame, text="📋 Copy", command=self._copy_log, width=10).pack(side=tk.LEFT)
 
     def _build_history_tab(self, parent):
         """Build the upgrade history tab."""
@@ -392,24 +438,9 @@ class UpgradeManagerFrame(ttk.Frame):
         title = ttk.Label(parent, text="Upgrade Settings", font=("Segoe UI", 14, "bold"))
         title.pack(anchor=tk.W, pady=(0, 16))
 
-        # Security settings
-        security_frame = ttk.LabelFrame(parent, text="Security Settings", padding=10)
-        security_frame.pack(fill=tk.X, pady=(0, 16))
-
-        ttk.Label(security_frame, text="Master Signing Key:").grid(row=0, column=0, sticky=tk.W, pady=2)
-        self.master_key_entry = ttk.Entry(security_frame, show="*")
-        self.master_key_entry.grid(row=0, column=1, sticky=tk.EW, padx=(8, 0), pady=2)
-
-        ttk.Button(security_frame, text="🔑 Generate New Key",
-                  command=self.generate_key).grid(row=1, column=0, pady=8)
-        ttk.Button(security_frame, text="💾 Save Key",
-                  command=self.save_key).grid(row=1, column=1, pady=8)
-
-        security_frame.columnconfigure(1, weight=1)
-
-        # Backup settings
+        # Backup settings (more prominent)
         backup_frame = ttk.LabelFrame(parent, text="Backup Settings", padding=10)
-        backup_frame.pack(fill=tk.X, pady=(0, 16))
+        backup_frame.pack(fill=tk.X, pady=(0, 12))
 
         self.backup_db_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(backup_frame, text="Backup database before upgrade",
@@ -418,17 +449,56 @@ class UpgradeManagerFrame(ttk.Frame):
         self.keep_backups_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(backup_frame, text="Keep backup files after successful upgrade",
                        variable=self.keep_backups_var).pack(anchor=tk.W)
+        
+        # Backup management buttons
+        backup_btn_frame = ttk.Frame(backup_frame)
+        backup_btn_frame.pack(fill=tk.X, pady=(8, 0))
+        
+        ttk.Button(backup_btn_frame, text="📂 View Backups", 
+              command=self._view_backups).pack(side=tk.LEFT, padx=(0, 8), fill=tk.X, expand=True)
+        ttk.Button(backup_btn_frame, text="🗑️ Cleanup Old Backups", 
+              command=self._cleanup_backups).pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        # Security settings
+        security_frame = ttk.LabelFrame(parent, text="Security Settings", padding=10)
+        security_frame.pack(fill=tk.X, pady=(0, 12))
+
+        ttk.Label(security_frame, text="Master Signing Key:").grid(row=0, column=0, sticky=tk.W, pady=2)
+        self.master_key_entry = ttk.Entry(security_frame, show="*", width=40)
+        self.master_key_entry.grid(row=0, column=1, sticky=tk.EW, padx=(8, 0), pady=2)
+        
+        key_btn_frame = ttk.Frame(security_frame)
+        key_btn_frame.grid(row=1, column=0, columnspan=2, sticky=tk.W+tk.E, pady=(8, 0))
+        ttk.Button(key_btn_frame, text="🔑 Generate", command=self.generate_key).pack(side=tk.LEFT, padx=(0, 4), fill=tk.X, expand=True)
+        ttk.Button(key_btn_frame, text="💾 Save", command=self.save_key).pack(side=tk.LEFT, padx=(0, 4), fill=tk.X, expand=True)
+        ttk.Button(key_btn_frame, text="📂 Load", command=self._load_key).pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        security_frame.columnconfigure(1, weight=1)
 
         # Advanced settings
         advanced_frame = ttk.LabelFrame(parent, text="Advanced Settings", padding=10)
-        advanced_frame.pack(fill=tk.X, pady=(0, 16))
+        advanced_frame.pack(fill=tk.X, pady=(0, 12))
 
-        ttk.Label(advanced_frame, text="Timeout (seconds):").grid(row=0, column=0, sticky=tk.W, pady=2)
-        self.timeout_entry = ttk.Entry(advanced_frame)
+        ttk.Label(advanced_frame, text="Operation Timeout:").grid(row=0, column=0, sticky=tk.W, pady=2)
+        timeout_inner = ttk.Frame(advanced_frame)
+        timeout_inner.grid(row=0, column=1, sticky=tk.W, padx=(8, 0), pady=2)
+        self.timeout_entry = ttk.Entry(timeout_inner, width=10)
         self.timeout_entry.insert(0, "300")
-        self.timeout_entry.grid(row=0, column=1, sticky=tk.EW, padx=(8, 0), pady=2)
+        self.timeout_entry.pack(side=tk.LEFT)
+        ttk.Label(timeout_inner, text="seconds").pack(side=tk.LEFT, padx=(4, 0))
 
         advanced_frame.columnconfigure(1, weight=1)
+        
+        # Maintenance section
+        maint_frame = ttk.LabelFrame(parent, text="Maintenance", padding=10)
+        maint_frame.pack(fill=tk.X, pady=(0, 12))
+        
+        maint_btn_frame = ttk.Frame(maint_frame)
+        maint_btn_frame.pack(fill=tk.X)
+        ttk.Button(maint_btn_frame, text="🗑️ Clear Recent Packages", 
+              command=self._clear_recent).pack(side=tk.LEFT, padx=(0, 8), fill=tk.X, expand=True)
+        ttk.Button(maint_btn_frame, text="📋 Clear Upgrade History", 
+              command=self._clear_history).pack(side=tk.LEFT, fill=tk.X, expand=True)
 
     def choose_package(self):
         """Select an upgrade package file."""
@@ -437,14 +507,244 @@ class UpgradeManagerFrame(ttk.Frame):
             filetypes=[("ZIP files", "*.zip"), ("All files", "*.*")]
         )
         if filename:
-            self.pkg_path = Path(filename)
-            self.pkg_label.config(text=f"📦 {self.pkg_path.name}", foreground="black")
-            self._append_log(f"Selected package: {self.pkg_path}")
+            self._set_package(Path(filename))
 
-            # Enable action buttons
-            self.preview_btn.config(state=tk.NORMAL)
-            self.dry_run_btn.config(state=tk.NORMAL)
-            self.apply_btn.config(state=tk.NORMAL)
+    def _set_package(self, pkg_path: Path):
+        """Set the current package and auto-validate."""
+        self.pkg_path = pkg_path
+        self.pkg_label.config(text=f"📦 {self.pkg_path.name}", foreground="black")
+        self._append_log(f"Selected package: {self.pkg_path}")
+
+        # Enable buttons
+        self.dry_run_btn.config(state=tk.NORMAL)
+        self.apply_btn.config(state=tk.NORMAL)
+        self.clear_btn.config(state=tk.NORMAL)
+        
+        # Add to recent packages
+        self._add_to_recent(str(self.pkg_path))
+
+        # Auto-validate and show package info
+        self._auto_validate_package()
+
+    def _auto_validate_package(self):
+        """Auto-validate package and show info."""
+        if not self.pkg_path:
+            return
+            
+        def validate():
+            try:
+                # Quick validation
+                manifest = upgrades.validate_package(str(self.pkg_path))
+                self.package_info = manifest
+                
+                # Update info panel on main thread
+                self.after(0, lambda: self._update_package_info(manifest, valid=True))
+                
+            except Exception as e:
+                self.after(0, lambda: self._update_package_info(None, valid=False, error=str(e)))
+        
+        # Run validation in background
+        threading.Thread(target=validate, daemon=True).start()
+
+    def _update_package_info(self, manifest: Optional[Dict], valid: bool, error: str = None):
+        """Update the package info panel."""
+        if valid and manifest:
+            self.info_labels["version"].config(text=manifest.get("version", "Unknown"), foreground="black")
+            self.info_labels["description"].config(text=manifest.get("description", "No description")[:80], foreground="black")
+            
+            steps = manifest.get("steps", [])
+            step_types = [s.get("type", "?") for s in steps]
+            step_summary = f"{len(steps)} steps: {', '.join(step_types)}"
+            self.info_labels["steps"].config(text=step_summary, foreground="black")
+            
+            self.info_labels["status"].config(text="✓ Valid package", foreground="green")
+            self._append_log(f"✓ Package validated: v{manifest.get('version')}, {len(steps)} steps")
+        else:
+            self.info_labels["version"].config(text="-", foreground="gray")
+            self.info_labels["description"].config(text="-", foreground="gray")
+            self.info_labels["steps"].config(text="-", foreground="gray")
+            self.info_labels["status"].config(text=f"✗ {error or 'Invalid'}", foreground="red")
+            self._append_log(f"✗ Validation failed: {error}")
+
+    def _clear_package(self):
+        """Clear the current package selection."""
+        self.pkg_path = None
+        self.package_info = None
+        self.pkg_label.config(text="No package selected", foreground="gray")
+        
+        # Disable buttons
+        self.dry_run_btn.config(state=tk.DISABLED)
+        self.apply_btn.config(state=tk.DISABLED)
+        self.clear_btn.config(state=tk.DISABLED)
+        
+        # Clear info panel
+        for label in self.info_labels.values():
+            label.config(text="-", foreground="gray")
+        
+        self._append_log("Package selection cleared")
+
+    def _on_recent_selected(self, event):
+        """Handle recent package selection."""
+        selection = self.recent_combo.get()
+        if selection and Path(selection).exists():
+            self._set_package(Path(selection))
+        elif selection:
+            messagebox.showwarning("File Not Found", f"Package file no longer exists:\n{selection}")
+            self._remove_from_recent(selection)
+
+    def _load_recent_packages(self):
+        """Load recent packages from file."""
+        try:
+            recent_file = Path(__file__).parent.parent / "database" / self.RECENT_PACKAGES_FILE
+            if recent_file.exists():
+                with open(recent_file, 'r') as f:
+                    self.recent_packages = json.load(f)
+        except Exception:
+            self.recent_packages = []
+
+    def _save_recent_packages(self):
+        """Save recent packages to file."""
+        try:
+            recent_file = Path(__file__).parent.parent / "database" / self.RECENT_PACKAGES_FILE
+            with open(recent_file, 'w') as f:
+                json.dump(self.recent_packages, f)
+        except Exception:
+            pass
+
+    def _add_to_recent(self, path: str):
+        """Add a package to recent list."""
+        if path in self.recent_packages:
+            self.recent_packages.remove(path)
+        self.recent_packages.insert(0, path)
+        self.recent_packages = self.recent_packages[:self.MAX_RECENT_PACKAGES]
+        self._save_recent_packages()
+        self._update_recent_combo()
+
+    def _remove_from_recent(self, path: str):
+        """Remove a package from recent list."""
+        if path in self.recent_packages:
+            self.recent_packages.remove(path)
+            self._save_recent_packages()
+            self._update_recent_combo()
+
+    def _update_recent_combo(self):
+        """Update the recent packages combobox."""
+        if hasattr(self, 'recent_combo'):
+            self.recent_combo['values'] = self.recent_packages if self.recent_packages else ["(No recent packages)"]
+            if self.recent_packages:
+                self.recent_combo.set("")
+            else:
+                self.recent_combo.set("(No recent packages)")
+
+    def _clear_recent(self):
+        """Clear recent packages list."""
+        if messagebox.askyesno("Clear Recent", "Clear all recent packages?"):
+            self.recent_packages = []
+            self._save_recent_packages()
+            self._update_recent_combo()
+            self._append_log("Recent packages cleared")
+
+    def _copy_log(self):
+        """Copy log to clipboard."""
+        log_content = self.log_text.get(1.0, tk.END)
+        self.clipboard_clear()
+        self.clipboard_append(log_content)
+        self._append_log("Log copied to clipboard")
+
+    def _bind_shortcuts(self):
+        """Bind keyboard shortcuts."""
+        # Get the toplevel window
+        top = self.winfo_toplevel()
+        top.bind("<Control-o>", lambda e: self.choose_package())
+        top.bind("<Control-d>", lambda e: self._shortcut_dry_run())
+        top.bind("<Control-Return>", lambda e: self._shortcut_apply())
+
+    def _shortcut_dry_run(self):
+        """Keyboard shortcut for dry run."""
+        if self.pkg_path and str(self.dry_run_btn['state']) != 'disabled':
+            self.dry_run()
+
+    def _shortcut_apply(self):
+        """Keyboard shortcut for apply."""
+        if self.pkg_path and str(self.apply_btn['state']) != 'disabled':
+            self.apply()
+
+    def _view_backups(self):
+        """View backup files."""
+        import tempfile
+        backup_dir = Path(tempfile.gettempdir())
+        backup_dirs = list(backup_dir.glob("upgrade_backup_*"))
+        
+        if not backup_dirs:
+            messagebox.showinfo("Backups", "No backup directories found.")
+            return
+        
+        # Show backup info
+        info = "Backup directories found:\n\n"
+        total_size = 0
+        for bd in sorted(backup_dirs, key=lambda x: x.stat().st_mtime, reverse=True)[:10]:
+            size = sum(f.stat().st_size for f in bd.rglob("*") if f.is_file()) / 1024 / 1024
+            total_size += size
+            mtime = f"{format_date(datetime.fromtimestamp(bd.stat().st_mtime))} {datetime.fromtimestamp(bd.stat().st_mtime).strftime('%H:%M')}"
+            info += f"• {bd.name} ({size:.1f} MB) - {mtime}\n"
+        
+        info += f"\nTotal: {len(backup_dirs)} directories, {total_size:.1f} MB"
+        messagebox.showinfo("Backup Directories", info)
+
+    def _cleanup_backups(self):
+        """Clean up old backup directories."""
+        import tempfile
+        backup_dir = Path(tempfile.gettempdir())
+        backup_dirs = list(backup_dir.glob("upgrade_backup_*"))
+        
+        if not backup_dirs:
+            messagebox.showinfo("Cleanup", "No backup directories to clean up.")
+            return
+        
+        if messagebox.askyesno("Cleanup Backups", 
+                              f"Delete {len(backup_dirs)} backup directories?\n\n"
+                              "Warning: This cannot be undone. You will lose the ability to manually restore from these backups."):
+            deleted = 0
+            for bd in backup_dirs:
+                try:
+                    import shutil
+                    shutil.rmtree(bd)
+                    deleted += 1
+                except Exception:
+                    pass
+            
+            self._append_log(f"Cleaned up {deleted} backup directories")
+            messagebox.showinfo("Cleanup Complete", f"Deleted {deleted} backup directories.")
+
+    def _load_key(self):
+        """Load signing key from file."""
+        filename = filedialog.askopenfilename(
+            title="Load Signing Key",
+            filetypes=[("Key files", "*.key"), ("Text files", "*.txt"), ("All files", "*.*")]
+        )
+        if filename:
+            try:
+                with open(filename, 'r') as f:
+                    key = f.read().strip()
+                self.master_key_entry.delete(0, tk.END)
+                self.master_key_entry.insert(0, key)
+                messagebox.showinfo("Success", "Key loaded successfully")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to load key:\n{str(e)}")
+
+    def _clear_history(self):
+        """Clear upgrade history."""
+        if messagebox.askyesno("Clear History", 
+                              "Clear all upgrade history?\n\nWarning: This will remove all records of applied upgrades."):
+            try:
+                history_file = Path(__file__).parent.parent / "database" / "upgrade_history.json"
+                if history_file.exists():
+                    history_file.unlink()
+                self.load_history()
+                self._append_log("Upgrade history cleared")
+                messagebox.showinfo("Success", "Upgrade history cleared")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to clear history:\n{str(e)}")
 
     def preview(self):
         """Preview the upgrade package contents."""
@@ -553,9 +853,9 @@ class UpgradeManagerFrame(ttk.Frame):
 
         # Disable buttons
         self.select_btn.config(state=tk.DISABLED)
-        self.preview_btn.config(state=tk.DISABLED)
         self.dry_run_btn.config(state=tk.DISABLED)
         self.apply_btn.config(state=tk.DISABLED)
+        self.clear_btn.config(state=tk.DISABLED)
         self.cancel_btn.config(state=tk.NORMAL)
 
         # Clear progress
@@ -563,18 +863,18 @@ class UpgradeManagerFrame(ttk.Frame):
         self.progress_var.set("Starting...")
 
         # Get settings
-        signature = None
+        # Note: Signature verification requires the package to have been pre-signed
+        # The signing key should be used to verify, not to sign at apply time
         signing_key = None
+        signature = None  # Would need to be loaded from package or external file
 
-        if self.verify_sig_var.get():
-            key_text = self.key_entry.get().strip()
+        if self.verify_sig_var.get() and hasattr(self, 'master_key_entry'):
+            key_text = self.master_key_entry.get().strip()
             if key_text:
                 signing_key = key_text
-                try:
-                    signature = upgrades.UpgradeSigner.sign_package(str(self.pkg_path), signing_key)
-                except Exception as e:
-                    self._append_log(f"Failed to sign package: {e}")
-                    return
+                # Signature should be embedded in package or provided separately
+                # For now, we skip signature verification if no signature is available
+                self._append_log("Note: Signature verification enabled but no signature file provided")
 
         # Run in background thread
         def run_upgrade():
@@ -603,11 +903,16 @@ class UpgradeManagerFrame(ttk.Frame):
         def update():
             self.progress_var.set(message)
             self.progress_bar.config(value=percentage)
+            
+            # Update step label with percentage
+            if hasattr(self, 'step_label'):
+                self.step_label.config(text=f"{percentage:.0f}%")
 
             # Also update status dialog if it exists
             if self.status_dialog:
                 self.status_dialog.update_status(message, percentage)
                 self.status_dialog.update_operation(message)
+                self.status_dialog.add_log(f"[{percentage:.0f}%] {message}")
 
         self.after(0, update)
 
@@ -615,10 +920,11 @@ class UpgradeManagerFrame(ttk.Frame):
         """Handle upgrade completion."""
         # Re-enable buttons
         self.select_btn.config(state=tk.NORMAL)
-        self.preview_btn.config(state=tk.NORMAL)
         self.dry_run_btn.config(state=tk.NORMAL)
         self.apply_btn.config(state=tk.NORMAL)
+        self.clear_btn.config(state=tk.NORMAL)
         self.cancel_btn.config(state=tk.DISABLED)
+        self.step_label.config(text="")
 
         # Update progress
         self.progress_var.set("Completed")
@@ -669,9 +975,9 @@ class UpgradeManagerFrame(ttk.Frame):
         """Handle upgrade error."""
         # Re-enable buttons
         self.select_btn.config(state=tk.NORMAL)
-        self.preview_btn.config(state=tk.NORMAL)
         self.dry_run_btn.config(state=tk.NORMAL)
         self.apply_btn.config(state=tk.NORMAL)
+        self.clear_btn.config(state=tk.NORMAL)
         self.cancel_btn.config(state=tk.DISABLED)
 
         self.progress_var.set("Operation failed")
@@ -761,7 +1067,7 @@ class UpgradeManagerFrame(ttk.Frame):
 
             for upgrade in reversed(history):  # Most recent first
                 success_text = "✓ Success" if upgrade.success else "✗ Failed"
-                applied_at = upgrade.applied_at.strftime("%Y-%m-%d %H:%M")
+                applied_at = format_date(upgrade.applied_at, "%Y-%m-%d %H:%M")
 
                 self.history_tree.insert("", tk.END, values=(
                     upgrade.id,
@@ -791,7 +1097,7 @@ class UpgradeManagerFrame(ttk.Frame):
             if upgrade:
                 details = f"""Upgrade ID: {upgrade.id}
 Version: {upgrade.version}
-Applied: {upgrade.applied_at.strftime('%Y-%m-%d %H:%M:%S')}
+Applied: {format_date(upgrade.applied_at, '%Y-%m-%d %H:%M:%S')}
 Success: {'Yes' if upgrade.success else 'No'}
 Duration: {upgrade.manifest.get('duration_seconds', 'N/A')} seconds
 
@@ -877,22 +1183,6 @@ Logs:
         timestamp = time.strftime("%H:%M:%S")
         self.log_text.insert(tk.END, f"[{timestamp}] {message}\n")
         self.log_text.see(tk.END)  # Auto-scroll to bottom
-
-    def choose_package(self):
-        """Select an upgrade package file."""
-        filename = filedialog.askopenfilename(
-            title="Select Upgrade Package",
-            filetypes=[("ZIP files", "*.zip"), ("All files", "*.*")]
-        )
-        if filename:
-            self.pkg_path = Path(filename)
-            self.pkg_label.config(text=f"📦 {self.pkg_path.name}", foreground="black")
-            self._append_log(f"Selected package: {self.pkg_path}")
-
-            # Enable action buttons
-            self.preview_btn.config(state=tk.NORMAL)
-            self.dry_run_btn.config(state=tk.NORMAL)
-            self.apply_btn.config(state=tk.NORMAL)
 
     def _set_operation_status(self, message: str):
         """Set the operation status message."""

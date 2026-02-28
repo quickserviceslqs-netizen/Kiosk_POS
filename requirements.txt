@@ -1,3 +1,7 @@
 pillow>=10.4,<11
 tkcalendar>=1.6.1
 pycountry>=22.3.5
+requests>=2.31.0
+pandas>=2.0.0
+openpyxl>=3.1.0
+reportlab>=4.0.0

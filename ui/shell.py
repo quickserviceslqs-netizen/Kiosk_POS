@@ -19,6 +19,7 @@ class AppShell(ttk.Frame):
         self.title_var = tk.StringVar(value="")
         self.subtitle_var = tk.StringVar(value="")
         self.nav_history: list[str] = ["dashboard"]  # Track navigation history
+        self.cached_frames: dict[str, tk.Widget] = {}  # Cache frames by nav key
 
         self._init_styles()
         self._build_ui()
@@ -63,9 +64,12 @@ class AppShell(ttk.Frame):
             ("dashboard", "🏠 Dashboard"),
             ("pos", "🛒 Point of Sale"),
             ("inventory", "📦 Inventory"),
+            ("stock_receiving", "📥 Stock Receiving"),
             ("reports", "📈 Reports"),
             ("order_history", "📜 Order History"),
             ("expenses", "💸 Expenses"),
+            ("reconciliation", "💰 Payment Reconciliation"),
+            ("stock_recon", "📊 Stock Reconciliation"),
             ("backup", "🗄 Backup"),
             ("settings", "⚙ Settings"),
         ]
@@ -112,9 +116,8 @@ class AppShell(ttk.Frame):
         header.columnconfigure(0, weight=1)
         ttk.Label(header, textvariable=self.title_var, style="Shell.Title.TLabel").grid(row=0, column=0, sticky=tk.W)
         ttk.Label(header, textvariable=self.subtitle_var, style="Shell.Subtitle.TLabel").grid(row=1, column=0, sticky=tk.W, pady=(2, 0))
-        self.header_button = ttk.Button(header, text="Refresh", style="Shell.Primary.TButton", command=lambda: self._nav(self._active_key()))
+        self.header_button = ttk.Button(header, text="🏠 Home", style="Shell.Primary.TButton", command=lambda: self._nav("dashboard"))
         self.header_button.grid(row=0, column=1, rowspan=2, sticky=tk.E, padx=(12, 0))
-        self.header_button_action = lambda: self._nav(self._active_key())  # Default action
 
         body = ttk.Frame(self, style="Shell.Body.TFrame", padding=(18, 12))
         body.grid(row=1, column=1, sticky=tk.NSEW)
@@ -158,13 +161,31 @@ class AppShell(ttk.Frame):
             return prev_key
         return None
 
-    def set_content(self, frame: tk.Widget, *, title: str, subtitle: str | None = None) -> None:
+    def set_content(self, frame: tk.Widget, *, title: str, subtitle: str | None = None, cache_key: str | None = None) -> None:
+        # Hide current content quickly
         if self.current_content:
-            self.current_content.destroy()
+            try:
+                self.current_content.grid_remove()
+            except Exception:
+                pass
+
+        # If caching is enabled and key provided, store/retrieve from cache
+        from_cache = False
+        if cache_key:
+            if cache_key in self.cached_frames:
+                # Use cached frame
+                frame = self.cached_frames[cache_key]
+                from_cache = True
+            else:
+                # Cache the new frame
+                self.cached_frames[cache_key] = frame
+
         self.current_content = frame
         frame.grid(row=0, column=0, sticky=tk.NSEW)
         self.title_var.set(title)
         self.subtitle_var.set(subtitle or "")
+
+        # Data loading happens silently without any UI trace - frames handle their own loading when needed
 
     def set_header_button(self, text: str, command) -> None:
         """Update the header button text and action."""

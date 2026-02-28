@@ -1,0 +1,18 @@
+SALES BY CATEGORY REPORT
+========================
+Period: 08.02.2026 to 15.02.2026
+
+CATEGORY SUMMARY:
+
+  Total Revenue: KES9.50
+  Total Items Sold: 3
+  Categories: 2
+SALES BY CATEGORY:
+----------------------------------------------------------------------
+Category                  Revenue         Quantity     % of Total     
+----------------------------------------------------------------------
+Beverages                 KES7.00         2            73.7%          
+Bakery                    KES2.50         1            26.3%          
+
+
+Report generated at: 15.02.2026 09:28:39

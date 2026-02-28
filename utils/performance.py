@@ -160,3 +160,50 @@ def batch_process(items: List[Any], batch_size: int = 100, processor: Callable =
             results.append(batch_result)
 
     return results
+
+
+# -------------------------
+# Async helper for UI work
+# -------------------------
+from threading import Thread
+
+def run_in_background(func: Callable, args: tuple = (), kwargs: dict | None = None, on_done: Callable | None = None, tk_root = None) -> Thread:
+    """Run a function in a background thread and invoke on_done(result, exception)
+    on the main Tk event loop using tk_root.after(0, ...).
+
+    Args:
+        func: callable to run in thread
+        args: positional args
+        kwargs: keyword args
+        on_done: callback to call on main thread with (result, exception)
+        tk_root: Tk widget or root to schedule callback with .after
+
+    Returns:
+        Thread object (daemon) started
+    """
+    kwargs = kwargs or {}
+
+    def worker():
+        result = None
+        exc = None
+        try:
+            result = func(*args, **kwargs)
+        except Exception as e:
+            exc = e
+        finally:
+            if on_done and tk_root is not None:
+                def _cb():
+                    try:
+                        on_done(result, exc)
+                    except Exception:
+                        # Avoid crashing the TK loop on callback errors
+                        logging.getLogger(__name__).exception("Error in on_done callback")
+                try:
+                    tk_root.after(0, _cb)
+                except Exception:
+                    # If scheduling fails, call directly as a last resort
+                    _cb()
+
+    thread = Thread(target=worker, daemon=True)
+    thread.start()
+    return thread

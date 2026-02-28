@@ -112,11 +112,12 @@ def list_backups() -> list[dict]:
     
     for backup_file in sorted(backup_dir.glob("*.db"), key=lambda p: p.stat().st_mtime, reverse=True):
         stat = backup_file.stat()
+        from utils.date_utils import format_date
         backups.append({
             "name": backup_file.name,
             "path": backup_file,
             "size": stat.st_size,
-            "created": datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+            "created": f"{format_date(datetime.fromtimestamp(stat.st_mtime))} {datetime.fromtimestamp(stat.st_mtime).strftime('%H:%M:%S')}"
         })
     
     return backups

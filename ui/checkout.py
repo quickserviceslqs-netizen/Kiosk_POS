@@ -51,22 +51,25 @@ class CheckoutDialog:
 
         discount_pct = (discount / gross_subtotal) if gross_subtotal else 0
         recalc_vat = 0.0
-        for item in cart:
-            lt = item.get('_line_total')
-            if lt is None:
-                if item.get('is_special_volume'):
-                    lt = float(item.get('price', 0)) * float(item.get('quantity', 0))
-                else:
-                    try:
-                        it = items.get_item(item.get('item_id'))
-                        unit_size = float(it.get('unit_size_ml') or 1)
-                    except Exception:
-                        unit_size = 1
-                    per_unit = float(item.get('price', 0)) / unit_size if unit_size else float(item.get('price', 0))
-                    lt = per_unit * float(item.get('quantity', 0))
-            item_discount = lt * discount_pct
-            item_vat_rate = item.get('vat_rate', 16.0) / 100.0
-            recalc_vat += max(0.0, lt - item_discount) * item_vat_rate
+        from utils.security import get_cart_vat_enabled
+        vat_enabled = get_cart_vat_enabled()
+        if vat_enabled:
+            for item in cart:
+                lt = item.get('_line_total')
+                if lt is None:
+                    if item.get('is_special_volume'):
+                        lt = float(item.get('price', 0)) * float(item.get('quantity', 0))
+                    else:
+                        try:
+                            it = items.get_item(item.get('item_id'))
+                            unit_size = float(it.get('unit_size_ml') or 1)
+                        except Exception:
+                            unit_size = 1
+                        per_unit = float(item.get('price', 0)) / unit_size if unit_size else float(item.get('price', 0))
+                        lt = per_unit * float(item.get('quantity', 0))
+                item_discount = lt * discount_pct
+                item_vat_rate = item.get('vat_rate', 16.0) / 100.0
+                recalc_vat += max(0.0, lt - item_discount) * item_vat_rate
 
         net_subtotal = gross_subtotal - discount
         recalc_total = net_subtotal + recalc_vat
@@ -109,7 +112,7 @@ class CheckoutDialog:
                         lt = per_unit * float(e.get('quantity', 0))
             except Exception:
                 lt = float(e.get('price', 0)) * float(e.get('quantity', 0))
-            lines.append(f"  {e['name']} {_display_qty(e)} @ {_display_price(e)} = {lt:.2f}" + (f" (VAT: {e.get('vat_rate', 16.0):.0f}%)" if e.get('vat_rate', 16.0) > 0 else " (VAT-exempt)"))
+            lines.append(f"  {e['name']} {_display_qty(e)} @ {_display_price(e)} = {lt:.2f}" + (f" (VAT: {e.get('vat_rate', 16.0):.0f}%)" if vat_enabled and e.get('vat_rate', 16.0) > 0 else ""))
         cart_text = "\n".join(lines)
         
         # Use scrollable text widget for long item lists
@@ -139,12 +142,16 @@ class CheckoutDialog:
         ttk.Label(totals, text="Subtotal:", font=("Segoe UI", 10)).grid(row=0, column=0, sticky=tk.W)
         ttk.Label(totals, text=f"{net_subtotal:.2f}", font=("Segoe UI", 10, "bold")).grid(row=0, column=1, sticky=tk.E, padx=12)
 
-        ttk.Label(totals, text="VAT:", font=("Segoe UI", 10)).grid(row=1, column=0, sticky=tk.W, pady=(4, 0))
-        ttk.Label(totals, text=f"{recalc_vat:.2f}", font=("Segoe UI", 10, "bold")).grid(row=1, column=1, sticky=tk.E, padx=12)
+        current_row = 1
+        if vat_enabled:
+            ttk.Label(totals, text="VAT:", font=("Segoe UI", 10)).grid(row=current_row, column=0, sticky=tk.W, pady=(4, 0))
+            ttk.Label(totals, text=f"{recalc_vat:.2f}", font=("Segoe UI", 10, "bold")).grid(row=current_row, column=1, sticky=tk.E, padx=12)
+            current_row += 1
 
-        ttk.Separator(totals, orient=tk.HORIZONTAL).grid(row=2, column=0, columnspan=2, sticky=tk.EW, pady=8)
+        ttk.Separator(totals, orient=tk.HORIZONTAL).grid(row=current_row, column=0, columnspan=2, sticky=tk.EW, pady=8)
+        current_row += 1
 
-        ttk.Label(totals, text="Total:", font=("Segoe UI", 12, "bold")).grid(row=3, column=0, sticky=tk.W)
+        ttk.Label(totals, text="Total:", font=("Segoe UI", 12, "bold")).grid(row=current_row, column=0, sticky=tk.W)
         ttk.Label(totals, text=f"{recalc_total:.2f}", font=("Segoe UI", 12, "bold"), foreground="darkgreen").grid(row=3, column=1, sticky=tk.E, padx=12)
 
         # Payment

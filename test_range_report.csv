@@ -1,0 +1,19 @@
+RANGE REPORT
+Period,2026-02-08 to 2026-02-15
+Generated At,15.02.2026 09:28:39
+
+SALES SUMMARY
+Total Sales,9.5
+Total Units Sold,3
+Number of Transactions,1
+Sales Records,2
+
+TOP ITEMS SOLD
+#,Item Name,Quantity,Total
+1,Coffee,2,7.0
+2,Croissant,1,2.5
+
+DETAILED SALES RECORDS
+Receipt Number,Item Name,Quantity,Price,Total,Timestamp
+R001,Coffee,2,3.5,7.0,08.02.2026 09:30:00
+R001,Croissant,1,2.5,2.5,08.02.2026 09:30:00

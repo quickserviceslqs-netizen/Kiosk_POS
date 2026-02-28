@@ -38,20 +38,22 @@ class UomSettingsFrame(ttk.Frame):
 
         self.tree = ttk.Treeview(
             tree_frame,
-            columns=("name", "abbreviation", "conversion", "base_unit", "active"),
+            columns=("name", "abbreviation", "category", "conversion", "base_unit", "active"),
             show="headings",
             height=15
         )
         self.tree.heading("name", text="Name")
         self.tree.heading("abbreviation", text="Abbrev.")
+        self.tree.heading("category", text="Category")
         self.tree.heading("conversion", text="Conversion Factor")
         self.tree.heading("base_unit", text="Base Unit")
         self.tree.heading("active", text="Active")
-        self.tree.column("name", width=150, anchor=tk.W)
-        self.tree.column("abbreviation", width=80, anchor=tk.CENTER)
-        self.tree.column("conversion", width=120, anchor=tk.E)
-        self.tree.column("base_unit", width=120, anchor=tk.W)
-        self.tree.column("active", width=80, anchor=tk.CENTER)
+        self.tree.column("name", width=120, anchor=tk.W)
+        self.tree.column("abbreviation", width=70, anchor=tk.CENTER)
+        self.tree.column("category", width=90, anchor=tk.CENTER)
+        self.tree.column("conversion", width=100, anchor=tk.E)
+        self.tree.column("base_unit", width=100, anchor=tk.W)
+        self.tree.column("active", width=60, anchor=tk.CENTER)
         self.tree.grid(row=0, column=0, sticky=tk.NSEW)
 
         scroll = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.tree.yview)
@@ -70,6 +72,7 @@ class UomSettingsFrame(ttk.Frame):
             self.tree.delete(row)
         units = uom.list_units(active_only=False)
         for unit in units:
+            category = unit.get("category", "discrete") or "discrete"
             self.tree.insert(
                 "",
                 tk.END,
@@ -77,6 +80,7 @@ class UomSettingsFrame(ttk.Frame):
                 values=(
                     unit["name"],
                     unit.get("abbreviation", ""),
+                    category.title(),
                     unit.get("conversion_factor", 1),
                     unit.get("base_unit", "") or "",
                     "Yes" if unit["is_active"] else "No"
@@ -156,6 +160,7 @@ class UomSettingsFrame(ttk.Frame):
         fields = {
             "name": tk.StringVar(value=existing.get("name", "") if existing else ""),
             "abbreviation": tk.StringVar(value=existing.get("abbreviation", "") if existing else ""),
+            "category": tk.StringVar(value=existing.get("category", "discrete") if existing else "discrete"),
             "conversion_factor": tk.StringVar(value=str(existing.get("conversion_factor", 1)) if existing else "1"),
             "base_unit": tk.StringVar(value=existing.get("base_unit", "") if existing else ""),
         }
@@ -164,13 +169,18 @@ class UomSettingsFrame(ttk.Frame):
         labels = [
             ("Name", "name"),
             ("Abbreviation", "abbreviation"),
+            ("Category", "category"),
             ("Conversion Factor", "conversion_factor"),
             ("Base Unit", "base_unit"),
         ]
 
         for label, key in labels:
             ttk.Label(form_frame, text=label, font=("Segoe UI", 10)).grid(row=row, column=0, sticky=tk.W, pady=8, padx=8)
-            if key == "base_unit":
+            if key == "category":
+                # Combobox for category
+                combo = ttk.Combobox(form_frame, textvariable=fields[key], values=["discrete", "measurable"], width=30, state="readonly")
+                combo.grid(row=row, column=1, sticky=tk.EW, pady=8, padx=8)
+            elif key == "base_unit":
                 # Combobox for base unit
                 unit_names = uom.get_unit_names(active_only=False)
                 combo = ttk.Combobox(form_frame, textvariable=fields[key], values=[""] + unit_names, width=30)
@@ -193,6 +203,7 @@ class UomSettingsFrame(ttk.Frame):
             try:
                 name = fields["name"].get().strip()
                 abbrev = fields["abbreviation"].get().strip()
+                category = fields["category"].get().strip() or "discrete"
                 factor = float(fields["conversion_factor"].get() or 1)
                 base = fields["base_unit"].get().strip() or None
 
@@ -205,11 +216,12 @@ class UomSettingsFrame(ttk.Frame):
                         existing["uom_id"],
                         name=name,
                         abbreviation=abbrev,
+                        category=category,
                         conversion_factor=factor,
                         base_unit=base
                     )
                 else:
-                    uom.create_unit(name, abbrev, factor, base)
+                    uom.create_unit(name, abbrev, factor, base, category)
 
                 self.refresh()
                 dialog.destroy()

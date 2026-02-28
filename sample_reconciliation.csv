@@ -1,0 +1,5 @@
+payment_method,actual_amount
+Cash,500.00
+Credit Card,250.75
+M-Pesa,150.25
+Bank Transfer,75.50

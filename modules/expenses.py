@@ -7,10 +7,15 @@ from datetime import datetime, date
 import re
 
 from database.init_db import get_connection
+from utils.date_utils import parse_date_flexible, format_date, get_date_format
 
 
 def _validate_date(date_str: str) -> str:
-    """Validate and normalize date string to YYYY-MM-DD format."""
+    """Validate and normalize date string, accepting system configured format.
+    
+    Accepts dates in the configured system format, but also supports flexible parsing
+    of common formats. Returns normalized date in YYYY-MM-DD format for database storage.
+    """
     if not date_str or not isinstance(date_str, str):
         raise ValueError("Date is required and must be a string")
 
@@ -18,18 +23,20 @@ def _validate_date(date_str: str) -> str:
     if not date_str:
         raise ValueError("Date cannot be empty")
 
-    # Try to parse the date
+    # Try to parse the date using flexible parsing (respects system format first)
     try:
-        parsed_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+        parsed_date = parse_date_flexible(date_str).date()
     except ValueError:
-        raise ValueError("Date must be in YYYY-MM-DD format")
+        sys_fmt = get_date_format()
+        raise ValueError(f"Date must be in {sys_fmt} format or other supported formats (YYYY-MM-DD, DD/MM/YYYY, etc.)")
 
     # Check if date is not in the future (allow today)
     today = date.today()
     if parsed_date > today:
         raise ValueError("Expense date cannot be in the future")
 
-    return date_str
+    # Return normalized to YYYY-MM-DD for database storage
+    return parsed_date.strftime("%Y-%m-%d")
 
 
 def _validate_category(category: str) -> str:
@@ -138,8 +145,8 @@ def list_expenses_advanced(*, start_date: str = None, end_date: str = None, cate
             params.append(max_amount)
         if search_text:
             search_term = f"%{search_text}%"
-            query += " AND (description LIKE ? OR category LIKE ?)"
-            params.extend([search_term, search_term])
+            query += " AND (description LIKE ? OR category LIKE ? OR payment_method LIKE ? OR reference_number LIKE ?)"
+            params.extend([search_term, search_term, search_term, search_term])
         if user_id is not None:
             query += " AND user_id = ?"
             params.append(user_id)
@@ -179,8 +186,8 @@ def get_expenses_count(*, start_date: str = None, end_date: str = None, category
             params.append(max_amount)
         if search_text:
             search_term = f"%{search_text}%"
-            query += " AND (description LIKE ? OR category LIKE ?)"
-            params.extend([search_term, search_term])
+            query += " AND (description LIKE ? OR category LIKE ? OR payment_method LIKE ? OR reference_number LIKE ?)"
+            params.extend([search_term, search_term, search_term, search_term])
         if user_id is not None:
             query += " AND user_id = ?"
             params.append(user_id)
@@ -197,13 +204,17 @@ def get_expense(expense_id: int) -> Optional[dict]:
     return _row_to_dict(row) if row else None
 
 
-def create_expense(*, date: str, category: str, amount: float, description: str = "", user_id: int = None, username: str = None) -> dict:
-    """Create a new expense record with user tracking."""
+def create_expense(*, date: str, category: str, amount: float, description: str = "",
+                   user_id: int = None, username: str = None,
+                   payment_method: str = "Cash", reference_number: str = None) -> dict:
+    """Create a new expense record with user and payment tracking."""
     # Validate inputs
     validated_date = _validate_date(date)
     validated_category = _validate_category(category)
     validated_amount = _validate_amount(amount)
     validated_description = _validate_description(description)
+    validated_payment = (payment_method or "Cash").strip()
+    validated_ref = (reference_number or "").strip() or None
 
     created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     from utils.security import get_currency_code
@@ -212,8 +223,12 @@ def create_expense(*, date: str, category: str, amount: float, description: str 
     with get_connection() as conn:
         conn.execute("INSERT OR IGNORE INTO expense_categories (name) VALUES (?)", (validated_category,))
         conn.execute(
-            "INSERT INTO expenses (date, category, amount, description, user_id, username, created_at, currency_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (validated_date, validated_category, validated_amount, validated_description, user_id, username, created_at, currency_code)
+            """INSERT INTO expenses
+               (date, category, amount, description, user_id, username,
+                created_at, currency_code, payment_method, reference_number)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (validated_date, validated_category, validated_amount, validated_description,
+             user_id, username, created_at, currency_code, validated_payment, validated_ref)
         )
         conn.commit()
         conn.row_factory = sqlite3.Row
@@ -256,7 +271,8 @@ def update_expense(expense_id: int, **fields) -> Optional[dict]:
         return None
 
     # Validate allowed fields
-    allowed = {"date", "category", "amount", "description", "currency_code"}
+    allowed = {"date", "category", "amount", "description", "currency_code",
+               "payment_method", "reference_number"}
     updates = {}
     old_values = {}
 
@@ -275,7 +291,11 @@ def update_expense(expense_id: int, **fields) -> Optional[dict]:
         elif k == "description":
             updates[k] = _validate_description(v)
         elif k == "currency_code":
-            updates[k] = v  # Basic validation for currency code
+            updates[k] = v
+        elif k == "payment_method":
+            updates[k] = (v or "Cash").strip()
+        elif k == "reference_number":
+            updates[k] = (v or "").strip() or None
 
     if not updates:
         return current_expense
@@ -393,9 +413,6 @@ def get_expense_categories() -> list[str]:
             for (cat,) in rows:
                 conn.execute("INSERT OR IGNORE INTO expense_categories (name) VALUES (?)", (cat,))
             conn.commit()
-        # Ensure an Uncategorized bucket exists for safe reassignments
-        conn.execute("INSERT OR IGNORE INTO expense_categories (name) VALUES (?)", ("Uncategorized",))
-        conn.commit()
     return [row[0] for row in rows]
 
 
@@ -486,3 +503,87 @@ def delete_expense_category(name: str, *, reassign_to: str = "Uncategorized") ->
         )
     except Exception:
         pass
+
+
+# ---------------------------------------------------------------------------
+#  Reconciliation helpers – used by payment reconciliation to auto-populate
+#  the "cash out" figure for a specific period.
+# ---------------------------------------------------------------------------
+
+def get_expenses_for_period(start_date: str, end_date: str,
+                            payment_method: str = None) -> list[dict]:
+    """Return all expenses in a date range, optionally filtered by payment method."""
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        query = "SELECT * FROM expenses WHERE date BETWEEN ? AND ?"
+        params: list = [start_date, end_date]
+        if payment_method:
+            query += " AND COALESCE(payment_method, 'Cash') = ?"
+            params.append(payment_method)
+        query += " ORDER BY date, expense_id"
+        rows = conn.execute(query, params).fetchall()
+    return [_row_to_dict(r) for r in rows] if rows else []
+
+
+def get_expenses_total_for_period(start_date: str, end_date: str,
+                                  payment_method: str = None) -> float:
+    """Return total expense amount for a period, optionally for one payment method.
+
+    This is the figure used as 'cash_out' in payment reconciliation.
+    """
+    with get_connection() as conn:
+        query = "SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE date BETWEEN ? AND ?"
+        params: list = [start_date, end_date]
+        if payment_method:
+            query += " AND COALESCE(payment_method, 'Cash') = ?"
+            params.append(payment_method)
+        row = conn.execute(query, params).fetchone()
+    return float(row[0]) if row else 0.0
+
+
+def get_expenses_total_by_payment_method(start_date: str,
+                                         end_date: str) -> dict[str, float]:
+    """Return {payment_method: total_amount} for a date range.
+
+    Used by reconciliation to auto-populate cash_out per payment method.
+    """
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT COALESCE(payment_method, 'Cash') as pm,
+                   COALESCE(SUM(amount), 0) as total
+            FROM expenses
+            WHERE date BETWEEN ? AND ?
+            GROUP BY pm
+        """, (start_date, end_date)).fetchall()
+    return {r[0]: float(r[1]) for r in rows} if rows else {}
+
+
+def get_payment_methods() -> list[str]:
+    """Return the list of payment methods used across the system.
+
+    Merges methods from sales and a sensible default set so the UI
+    always shows the methods the shop actually uses.
+    """
+    defaults = {"Cash", "M-Pesa", "Bank Transfer", "Card"}
+    with get_connection() as conn:
+        # Distinct methods from sales
+        try:
+            rows = conn.execute(
+                "SELECT DISTINCT payment_method FROM sales WHERE payment_method IS NOT NULL"
+            ).fetchall()
+            for r in rows:
+                if r[0]:
+                    defaults.add(r[0])
+        except Exception:
+            pass
+        # Distinct methods from expenses
+        try:
+            rows = conn.execute(
+                "SELECT DISTINCT payment_method FROM expenses WHERE payment_method IS NOT NULL"
+            ).fetchall()
+            for r in rows:
+                if r[0]:
+                    defaults.add(r[0])
+        except Exception:
+            pass
+    return sorted(defaults)

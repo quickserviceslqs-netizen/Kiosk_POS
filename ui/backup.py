@@ -235,7 +235,8 @@ class BackupFrame(ttk.Frame):
         last_backup = config.get("last_auto_backup")
         if last_backup:
             from datetime import datetime
-            last_time = datetime.fromisoformat(last_backup).strftime("%Y-%m-%d %H:%M:%S")
+            from utils.date_utils import format_date
+            last_time = f"{format_date(datetime.fromisoformat(last_backup))} {datetime.fromisoformat(last_backup).strftime('%H:%M:%S')}"
             ttk.Label(frame4, text=f"Last auto-backup: {last_time}", 
                      foreground="gray").pack()
         else:

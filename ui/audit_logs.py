@@ -11,6 +11,7 @@ from typing import List, Dict, Any
 from database.init_db import get_connection
 from utils.audit import audit_logger
 from utils import set_window_icon
+from utils.date_utils import format_date, parse_date_flexible
 
 
 class AuditLogsFrame(ttk.Frame):
@@ -44,12 +45,12 @@ class AuditLogsFrame(ttk.Frame):
 
         # Date range filters
         ttk.Label(filters_frame, text="From Date:").grid(row=0, column=0, sticky=tk.W, padx=(0, 5))
-        self.from_date_var = tk.StringVar(value=(datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d'))
+        self.from_date_var = tk.StringVar(value=format_date(datetime.now() - timedelta(days=7)))
         self.from_date_entry = ttk.Entry(filters_frame, textvariable=self.from_date_var, width=12)
         self.from_date_entry.grid(row=0, column=1, sticky=tk.W, padx=(0, 20))
 
         ttk.Label(filters_frame, text="To Date:").grid(row=0, column=2, sticky=tk.W, padx=(0, 5))
-        self.to_date_var = tk.StringVar(value=datetime.now().strftime('%Y-%m-%d'))
+        self.to_date_var = tk.StringVar(value=format_date(datetime.now()))
         self.to_date_entry = ttk.Entry(filters_frame, textvariable=self.to_date_var, width=12)
         self.to_date_entry.grid(row=0, column=3, sticky=tk.W, padx=(0, 20))
 
@@ -284,8 +285,8 @@ class AuditLogsFrame(ttk.Frame):
     def _apply_filters(self):
         """Apply current filters to the audit data."""
         try:
-            from_date = datetime.strptime(self.from_date_var.get(), '%Y-%m-%d') if self.from_date_var.get() else None
-            to_date = datetime.strptime(self.to_date_var.get() + ' 23:59:59', '%Y-%m-%d %H:%M:%S') if self.to_date_var.get() else None
+            from_date = parse_date_flexible(self.from_date_var.get()) if self.from_date_var.get() else None
+            to_date = parse_date_flexible(self.to_date_var.get() + ' 23:59:59') if self.to_date_var.get() else None
 
             user_filter = self.user_var.get().strip()
             action_filter = self.action_var.get().strip()
@@ -345,7 +346,7 @@ class AuditLogsFrame(ttk.Frame):
                     dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
                 else:
                     dt = datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S')
-                display_timestamp = dt.strftime('%Y-%m-%d %H:%M:%S')
+                display_timestamp = f"{format_date(dt.date())} {dt.strftime('%H:%M:%S')}"
             except:
                 display_timestamp = timestamp
 

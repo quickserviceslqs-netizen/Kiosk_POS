@@ -6,6 +6,18 @@ def create_variant(item_id: int, variant_name: str, selling_price: float, cost_p
                    quantity: int = 0, barcode: str = None, sku: str = None, vat_rate: float = 16.0, 
                    low_stock_threshold: int = 10, image_path: str = None) -> int:
     """Create a new variant for an item."""
+    # Validate barcode uniqueness
+    if barcode and barcode.strip():
+        with get_connection() as conn:
+            # Check against items table
+            existing_item = conn.execute("SELECT item_id FROM items WHERE barcode = ?", (barcode.strip(),)).fetchone()
+            if existing_item:
+                raise ValueError("Barcode already exists for another item")
+            # Check against other variants
+            existing_variant = conn.execute("SELECT variant_id FROM item_variants WHERE barcode = ?", (barcode.strip(),)).fetchone()
+            if existing_variant:
+                raise ValueError("Barcode already exists for another variant")
+    
     with get_connection() as conn:
         cursor = conn.execute(
             """
@@ -64,6 +76,19 @@ def update_variant(variant_id: int, variant_name: str = None, selling_price: flo
                    vat_rate: float = None, low_stock_threshold: int = None, image_path: str = None, 
                    is_active: bool = None) -> None:
     """Update a variant."""
+    # Validate barcode uniqueness if barcode is being updated
+    if barcode is not None and barcode.strip():
+        with get_connection() as conn:
+            # Check against items table
+            existing_item = conn.execute("SELECT item_id FROM items WHERE barcode = ?", (barcode.strip(),)).fetchone()
+            if existing_item:
+                raise ValueError("Barcode already exists for another item")
+            # Check against other variants (excluding this one)
+            existing_variant = conn.execute("SELECT variant_id FROM item_variants WHERE barcode = ? AND variant_id != ?", 
+                                          (barcode.strip(), variant_id)).fetchone()
+            if existing_variant:
+                raise ValueError("Barcode already exists for another variant")
+    
     with get_connection() as conn:
         updates = []
         params = []

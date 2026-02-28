@@ -184,8 +184,7 @@ def create_item(
     # Business logic validation
     if selling_price < cost_price:
         raise ValueError("Selling price cannot be less than cost price")
-    if cost_price > 0 and selling_price > cost_price * 10:  # Reasonable markup check only when cost_price > 0
-        raise ValueError("Selling price cannot be more than 10x cost price")
+    # Removed arbitrary 10x markup limit - businesses may have various markup strategies
 
     # Check unique barcode
     if barcode:
@@ -310,7 +309,25 @@ def update_item(item_id: int, **fields) -> Optional[dict]:
         updates["name"] = validate_item_name(updates["name"])
     if "has_variants" in updates:
         # Normalize boolean-like inputs
-        updates["has_variants"] = 1 if bool(updates["has_variants"]) else 0
+        new_has_variants = 1 if bool(updates["has_variants"]) else 0
+        
+        # Check if there are existing variants
+        from modules import variants
+        has_existing_variants = variants.has_variants(item_id)
+        
+        if new_has_variants == 0 and has_existing_variants:
+            # Cannot remove has_variants flag if variants exist
+            raise ValueError("Cannot remove variant flag from an item that has existing variants. Delete all variants first.")
+        elif new_has_variants == 1 and not has_existing_variants:
+            # Setting has_variants=True for item with no variants - this is allowed but will make it catalog-only
+            pass
+        
+        updates["has_variants"] = new_has_variants
+        # Automatically set is_catalog_only based on has_variants
+        updates["is_catalog_only"] = new_has_variants
+        # When enabling variants, reset quantity to 0 (stock managed at variant level)
+        if new_has_variants == 1:
+            updates["quantity"] = 0
     if "category" in updates:
         updates["category"] = validate_item_category(updates["category"])
     if "cost_price" in updates:
@@ -347,8 +364,7 @@ def update_item(item_id: int, **fields) -> Optional[dict]:
         new_sell = updates.get("selling_price", current_sell)
         if new_sell < new_cost:
             raise ValueError("Selling price cannot be less than cost price")
-        if new_sell > new_cost * 10:  # Reasonable markup check
-            raise ValueError("Selling price cannot be more than 10x cost price")
+        # Removed arbitrary 10x markup limit - businesses may have various markup strategies
 
     with get_connection() as conn:
         conn.execute("BEGIN")

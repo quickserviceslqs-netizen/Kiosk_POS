@@ -340,6 +340,7 @@ def apply_package(path: str, *, dry_run: bool = False, backup_db: bool = True,
         if dry_run:
             log("DRY RUN: validation passed, skipping application")
             summary["success"] = True
+            summary["dry_run"] = True
             return summary
 
         check_cancellation()
@@ -569,10 +570,12 @@ def _generate_rollback_sql(sql_text: str) -> str:
     for table in create_table_matches:
         rollback_statements.append(f"DROP TABLE IF EXISTS {table};")
 
-    # Look for ALTER TABLE ADD COLUMN and generate DROP COLUMN
+    # Look for ALTER TABLE ADD COLUMN - note: SQLite only supports DROP COLUMN in version 3.35.0+
+    # For older SQLite, column drops are not supported. Log a comment instead.
     alter_matches = re.findall(r'ALTER\s+TABLE\s+(\w+)\s+ADD\s+COLUMN\s+(\w+)', sql_text, re.IGNORECASE)
     for table, column in alter_matches:
-        rollback_statements.append(f"ALTER TABLE {table} DROP COLUMN {column};")
+        # SQLite 3.35.0+ supports DROP COLUMN, but we'll add it conditionally
+        rollback_statements.append(f"-- Note: To rollback added column, manually recreate table without {table}.{column}")
 
     # Look for INSERT INTO settings and generate DELETE
     settings_inserts = re.findall(r"INSERT\s+(?:OR\s+REPLACE\s+)?INTO\s+settings\s*\([^)]*\)\s*VALUES\s*\(\s*'([^']+)'\s*,", sql_text, re.IGNORECASE)
@@ -720,8 +723,12 @@ def _perform_rollback(rollback_operations: List[RollbackOperation], summary: Dic
                             # Split by semicolons and execute each statement
                             statements = [stmt.strip() for stmt in sql_block.split(';') if stmt.strip()]
                             for sql in statements:
-                                if sql:
-                                    conn.execute(sql)
+                                # Skip comments
+                                if sql and not sql.startswith('--'):
+                                    try:
+                                        conn.execute(sql)
+                                    except Exception as e:
+                                        log(f"Rollback SQL warning: {sql[:50]}... - {e}")
                     conn.commit()
                 log("Executed database rollback SQL")
 

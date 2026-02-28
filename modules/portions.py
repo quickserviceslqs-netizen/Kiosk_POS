@@ -1,4 +1,8 @@
-"""Item portions module for preset fractional quantities."""
+"""Item portions module for preset fractional quantities.
+
+Portions allow defining preset amounts for measurable items (sold by weight, volume, or length).
+The portion_ml field stores the amount in the smallest unit (ml, g, or cm) regardless of item type.
+"""
 from __future__ import annotations
 
 import sqlite3
@@ -11,34 +15,124 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
     return {k: row[k] for k in row.keys()}
 
 
+def get_unit_info(item_id: int) -> dict:
+    """Get unit information for an item to determine portion units.
+    
+    Returns dict with:
+        - small_unit: The smallest unit (ml, g, cm)
+        - base_unit: The base unit (L, kg, m)
+        - multiplier: Conversion factor from base to small unit
+    """
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT unit_of_measure FROM items WHERE item_id = ?", (item_id,)).fetchone()
+        if not row:
+            return {"small_unit": "ml", "base_unit": "L", "multiplier": 1000}
+        
+        return get_unit_info_from_name(row["unit_of_measure"])
+
+
+def get_unit_info_from_name(unit_name: str) -> dict:
+    """Get unit information from a unit name string.
+    
+    Returns dict with:
+        - small_unit: The smallest unit (ml, g, cm)
+        - base_unit: The base unit (L, kg, m)
+        - multiplier: Conversion factor from base to small unit
+    """
+    unit = (unit_name or "").lower()
+    
+    # Volume units - metric
+    if unit in ("liters", "litre", "liter", "litres", "l"):
+        return {"small_unit": "ml", "base_unit": "L", "multiplier": 1000}
+    elif unit in ("ml", "milliliter", "milliliters", "millilitres"):
+        return {"small_unit": "ml", "base_unit": "ml", "multiplier": 1}
+    # Weight units - metric
+    elif unit in ("kilograms", "kilogram", "kg", "kgs"):
+        return {"small_unit": "g", "base_unit": "kg", "multiplier": 1000}
+    elif unit in ("g", "gram", "grams"):
+        return {"small_unit": "g", "base_unit": "g", "multiplier": 1}
+    # Length units - metric
+    elif unit in ("meters", "meter", "metre", "metres", "m"):
+        return {"small_unit": "cm", "base_unit": "m", "multiplier": 100}
+    elif unit in ("cm", "centimeter", "centimeters", "centimetres"):
+        return {"small_unit": "cm", "base_unit": "cm", "multiplier": 1}
+    # Pounds
+    elif unit in ("lb", "lbs", "pound", "pounds"):
+        return {"small_unit": "oz", "base_unit": "lb", "multiplier": 16}
+    # Ounces
+    elif unit in ("oz", "ounce", "ounces"):
+        return {"small_unit": "oz", "base_unit": "oz", "multiplier": 1}
+    # Gallons
+    elif unit in ("gallon", "gallons", "gal"):
+        return {"small_unit": "fl oz", "base_unit": "gal", "multiplier": 128}
+    # Quart
+    elif unit in ("quart", "quarts", "qt"):
+        return {"small_unit": "fl oz", "base_unit": "qt", "multiplier": 32}
+    # Pint
+    elif unit in ("pint", "pints", "pt"):
+        return {"small_unit": "fl oz", "base_unit": "pt", "multiplier": 16}
+    # Yard
+    elif unit in ("yard", "yards", "yd"):
+        return {"small_unit": "in", "base_unit": "yd", "multiplier": 36}
+    # Foot
+    elif unit in ("foot", "feet", "ft"):
+        return {"small_unit": "in", "base_unit": "ft", "multiplier": 12}
+    # Inch
+    elif unit in ("inch", "inches", "in"):
+        return {"small_unit": "in", "base_unit": "in", "multiplier": 1}
+    else:
+        # Default for unknown units
+        return {"small_unit": unit, "base_unit": unit, "multiplier": 1}
+
+
 def create_portion(
     item_id: int,
     portion_name: str,
-    portion_ml: float,
+    portion_amount: float,
     selling_price: float,
     cost_price: float = 0,
     sort_order: int = 0,
 ) -> dict:
-    """Create a new preset portion for an item."""
+    """Create a new preset portion for an item.
+    
+    Args:
+        item_id: The item this portion belongs to
+        portion_name: Display name (e.g., "1/4 L", "500g", "50cm")
+        portion_amount: Amount in smallest unit (ml, g, or cm)
+        selling_price: Selling price for this portion
+        cost_price: Cost price for this portion
+        sort_order: Display order
+    """
     with get_connection() as conn:
         conn.row_factory = sqlite3.Row
         conn.execute(
             """INSERT INTO item_portions 
                (item_id, portion_name, portion_ml, selling_price, cost_price, sort_order)
                VALUES (?, ?, ?, ?, ?, ?)""",
-            (item_id, portion_name, portion_ml, selling_price, cost_price, sort_order),
+            (item_id, portion_name, portion_amount, selling_price, cost_price, sort_order),
         )
         conn.commit()
         row = conn.execute(
             "SELECT * FROM item_portions WHERE rowid = last_insert_rowid()"
         ).fetchone()
-        return _row_to_dict(row)
+        result = _row_to_dict(row)
+        # Add alias for clarity
+        result["portion_amount"] = result["portion_ml"]
+        return result
 
 
 def update_portion(portion_id: int, **fields) -> Optional[dict]:
-    """Update an existing portion."""
+    """Update an existing portion.
+    
+    Accepts either portion_ml or portion_amount as the amount field.
+    """
     if not fields:
         return get_portion(portion_id)
+    
+    # Map portion_amount to portion_ml for DB compatibility
+    if "portion_amount" in fields:
+        fields["portion_ml"] = fields.pop("portion_amount")
     
     allowed = {"portion_name", "portion_ml", "selling_price", "cost_price", "is_active", "sort_order"}
     fields = {k: v for k, v in fields.items() if k in allowed}
@@ -54,7 +148,11 @@ def update_portion(portion_id: int, **fields) -> Optional[dict]:
         conn.execute(f"UPDATE item_portions SET {set_clause} WHERE portion_id = ?", values)
         conn.commit()
         row = conn.execute("SELECT * FROM item_portions WHERE portion_id = ?", (portion_id,)).fetchone()
-        return _row_to_dict(row) if row else None
+        if row:
+            result = _row_to_dict(row)
+            result["portion_amount"] = result["portion_ml"]
+            return result
+        return None
 
 
 def delete_portion(portion_id: int) -> bool:
@@ -70,11 +168,18 @@ def get_portion(portion_id: int) -> Optional[dict]:
     with get_connection() as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute("SELECT * FROM item_portions WHERE portion_id = ?", (portion_id,)).fetchone()
-        return _row_to_dict(row) if row else None
+        if row:
+            result = _row_to_dict(row)
+            result["portion_amount"] = result["portion_ml"]  # Alias for clarity
+            return result
+        return None
 
 
 def list_portions(item_id: int, active_only: bool = True) -> List[dict]:
-    """List all portions for an item."""
+    """List all portions for an item.
+    
+    Returns list of dicts with portion_amount as alias for portion_ml.
+    """
     with get_connection() as conn:
         conn.row_factory = sqlite3.Row
         query = "SELECT * FROM item_portions WHERE item_id = ?"
@@ -83,7 +188,12 @@ def list_portions(item_id: int, active_only: bool = True) -> List[dict]:
             query += " AND is_active = 1"
         query += " ORDER BY sort_order, portion_ml"
         rows = conn.execute(query, params).fetchall()
-        return [_row_to_dict(row) for row in rows]
+        results = []
+        for row in rows:
+            r = _row_to_dict(row)
+            r["portion_amount"] = r["portion_ml"]  # Alias for clarity
+            results.append(r)
+        return results
 
 
 def has_portions(item_id: int) -> bool:
@@ -96,14 +206,88 @@ def has_portions(item_id: int) -> bool:
         return row[0] > 0 if row else False
 
 
-def create_default_portions(item_id: int, price_per_liter: float, cost_per_liter: float = 0) -> List[dict]:
-    """Create default preset portions (1/4L, 1/2L, 3/4L, 1L) for an item."""
-    portions = [
-        {"name": "1/4 L (250ml)", "ml": 250, "factor": 0.25},
-        {"name": "1/2 L (500ml)", "ml": 500, "factor": 0.5},
-        {"name": "3/4 L (750ml)", "ml": 750, "factor": 0.75},
-        {"name": "1 L (1000ml)", "ml": 1000, "factor": 1.0},
-    ]
+def create_default_portions(item_id: int, price_per_base: float = 0, cost_per_base: float = 0, unit_of_measure: str = None) -> List[dict]:
+    """Create default preset portions for an item based on its unit of measure.
+    
+    Args:
+        item_id: The item ID
+        price_per_base: Price per base unit (L, kg, m). If 0, will try to get from item.
+        cost_per_base: Cost per base unit. If 0, will try to get from item.
+        unit_of_measure: Override the unit of measure (use this instead of fetching from DB).
+    
+    Creates appropriate portions based on item's unit of measure:
+        - Liters: 1/4L, 1/2L, 3/4L, 1L
+        - Kilograms: 250g, 500g, 750g, 1kg
+        - Meters: 25cm, 50cm, 75cm, 1m
+    """
+    # Get unit info - use provided unit or fetch from database
+    if unit_of_measure:
+        unit_info = get_unit_info_from_name(unit_of_measure)
+    else:
+        unit_info = get_unit_info(item_id)
+    
+    small_unit = unit_info["small_unit"]
+    base_unit = unit_info["base_unit"]
+    multiplier = unit_info["multiplier"]
+    
+    # Try to get price from item if not provided
+    if price_per_base == 0:
+        with get_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute("SELECT selling_price, cost_price, unit_of_measure FROM items WHERE item_id = ?", (item_id,)).fetchone()
+            if row:
+                price_per_base = float(row["selling_price"] or 0)
+                cost_per_base = float(row["cost_price"] or 0)
+    
+    # Define portions based on unit type
+    if small_unit == "ml":
+        # Liquid portions
+        portions = [
+            {"name": f"1/4 {base_unit} (250{small_unit})", "amount": 250, "factor": 0.25},
+            {"name": f"1/2 {base_unit} (500{small_unit})", "amount": 500, "factor": 0.5},
+            {"name": f"3/4 {base_unit} (750{small_unit})", "amount": 750, "factor": 0.75},
+            {"name": f"1 {base_unit} (1000{small_unit})", "amount": 1000, "factor": 1.0},
+        ]
+    elif small_unit == "g":
+        # Weight portions
+        portions = [
+            {"name": f"250{small_unit}", "amount": 250, "factor": 0.25},
+            {"name": f"500{small_unit}", "amount": 500, "factor": 0.5},
+            {"name": f"750{small_unit}", "amount": 750, "factor": 0.75},
+            {"name": f"1{base_unit} (1000{small_unit})", "amount": 1000, "factor": 1.0},
+        ]
+    elif small_unit == "cm":
+        # Length portions
+        portions = [
+            {"name": f"25{small_unit}", "amount": 25, "factor": 0.25},
+            {"name": f"50{small_unit}", "amount": 50, "factor": 0.5},
+            {"name": f"75{small_unit}", "amount": 75, "factor": 0.75},
+            {"name": f"1{base_unit} (100{small_unit})", "amount": 100, "factor": 1.0},
+        ]
+    elif small_unit == "oz":
+        # Pound portions (imperial weight)
+        portions = [
+            {"name": "4oz", "amount": 4, "factor": 0.25},
+            {"name": "8oz (1/2 lb)", "amount": 8, "factor": 0.5},
+            {"name": "12oz (3/4 lb)", "amount": 12, "factor": 0.75},
+            {"name": "1lb (16oz)", "amount": 16, "factor": 1.0},
+        ]
+    elif small_unit == "fl oz":
+        # Gallon portions (imperial volume)
+        portions = [
+            {"name": "1 quart (32 fl oz)", "amount": 32, "factor": 0.25},
+            {"name": "1/2 gal (64 fl oz)", "amount": 64, "factor": 0.5},
+            {"name": "3 quarts (96 fl oz)", "amount": 96, "factor": 0.75},
+            {"name": "1 gallon", "amount": 128, "factor": 1.0},
+        ]
+    else:
+        # Generic portions
+        portions = [
+            {"name": f"0.25 {base_unit}", "amount": multiplier * 0.25, "factor": 0.25},
+            {"name": f"0.5 {base_unit}", "amount": multiplier * 0.5, "factor": 0.5},
+            {"name": f"0.75 {base_unit}", "amount": multiplier * 0.75, "factor": 0.75},
+            {"name": f"1 {base_unit}", "amount": multiplier, "factor": 1.0},
+        ]
     
     created = []
     for i, p in enumerate(portions):
@@ -111,9 +295,9 @@ def create_default_portions(item_id: int, price_per_liter: float, cost_per_liter
             portion = create_portion(
                 item_id=item_id,
                 portion_name=p["name"],
-                portion_ml=p["ml"],
-                selling_price=round(price_per_liter * p["factor"], 2),
-                cost_price=round(cost_per_liter * p["factor"], 2) if cost_per_liter else 0,
+                portion_amount=p["amount"],
+                selling_price=round(price_per_base * p["factor"], 2),
+                cost_price=round(cost_per_base * p["factor"], 2) if cost_per_base else 0,
                 sort_order=i,
             )
             created.append(portion)

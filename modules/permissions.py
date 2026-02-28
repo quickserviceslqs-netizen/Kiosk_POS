@@ -24,6 +24,7 @@ PERMISSIONS = {
     "edit_inventory": "Edit existing inventory items",
     "delete_inventory": "Delete inventory items",
     "adjust_stock": "Adjust stock levels",
+    "receive_stock": "Receive stock with lot tracking",
     "view_low_stock": "View low stock alerts",
     "add_categories": "Add new item categories",
     "delete_categories": "Delete item categories",
@@ -45,21 +46,56 @@ PERMISSIONS = {
     "add_expense_categories": "Add new expense categories",
     "delete_expense_categories": "Delete expense categories",
 
+    # Customer management permissions
+    "view_customers": "View customer records",
+    "add_customers": "Add new customers",
+    "edit_customers": "Edit customer information",
+    "delete_customers": "Delete customer records",
+
+    # Cart management permissions
+    "view_cart": "View shopping cart",
+    "manage_suspended_carts": "Manage suspended carts",
+
+    # Reconciliation permissions
+    "view_reconciliation": "View financial reconciliation",
+    "create_reconciliation": "Create reconciliation sessions",
+    "edit_reconciliation": "Edit reconciliation data",
+    "approve_reconciliation": "Approve reconciliation sessions",
+    "view_reconciliation_reports": "View reconciliation reports",
+
+    # External accounts permissions
+    "view_external_accounts": "View external account balances",
+    "manage_external_accounts": "Configure external account integrations",
+
     # User management permissions
     "view_users": "View user accounts",
     "manage_users": "Create/edit/delete users",
-    "manage_roles": "Assign user roles",
+
+    # Permission management permissions
+    "manage_permissions": "Manage user permissions",
 
     # Settings permissions
     "view_settings": "View system settings",
     "manage_settings": "Modify system settings",
     "manage_upgrades": "Upload and apply system upgrades",
-    "manage_permissions": "Manage user permissions",
+    "view_system_info": "View system information",
+    "manage_vat_settings": "Manage VAT rate settings",
+    "manage_uom_settings": "Manage units of measure",
+    "manage_email_settings": "Manage email notification settings",
+    "manage_currency_settings": "Manage currency settings",
+    "manage_date_format": "Manage date format settings",
+    "manage_receipt_settings": "Manage receipt printing settings",
+    "manage_pos_settings": "Manage POS behavior settings",
+    "manage_report_settings": "Manage report display settings",
+    "manage_inventory_settings": "Manage inventory alert settings",
 
     # System permissions
     "backup_database": "Create database backups",
+    "restore_database": "Restore database from backups",
+    "view_backup_schedules": "View backup schedules",
     "view_audit_logs": "View audit logs",
-    "system_info": "View system information",
+    "export_audit_logs": "Export audit logs",
+    "change_own_password": "Change own password",
 }
 
 
@@ -89,8 +125,84 @@ DEFAULT_ROLE_PERMISSIONS = {
         "view_expenses",
         "add_expenses",
 
+        # Customers (basic)
+        "view_customers",
+        "add_customers",
+
+        # Cart
+        "view_cart",
+
         # Limited settings
         "view_settings",
+        "change_own_password",
+    },
+
+    "manager": {
+        # Dashboard
+        "view_dashboard",
+
+        # POS
+        "access_pos",
+        "process_sales",
+        "apply_discounts",
+        "void_sales",
+
+        # Inventory
+        "view_inventory",
+        "add_inventory",
+        "edit_inventory",
+        "adjust_stock",
+        "receive_stock",
+        "view_low_stock",
+        "add_categories",
+
+        # Reports
+        "view_reports",
+        "export_reports",
+        "view_profit_reports",
+
+        # Order history
+        "view_order_history",
+        "refund_orders",
+
+        # Expenses
+        "view_expenses",
+        "add_expenses",
+        "edit_expenses",
+        "add_expense_categories",
+
+        # Customers
+        "view_customers",
+        "add_customers",
+        "edit_customers",
+
+        # Cart
+        "view_cart",
+        "manage_suspended_carts",
+
+        # Reconciliation (view only)
+        "view_reconciliation",
+        "view_reconciliation_reports",
+
+        # External accounts (view only)
+        "view_external_accounts",
+
+        # Users (view only)
+        "view_users",
+
+        # Settings
+        "view_settings",
+        "manage_date_format",
+        "manage_receipt_settings",
+        "manage_pos_settings",
+        "manage_report_settings",
+        "manage_inventory_settings",
+        "change_own_password",
+
+        # System
+        "backup_database",
+        "view_audit_logs",
+        "view_system_info",
     }
 }
 
@@ -147,10 +259,24 @@ def get_role_permissions(role: str) -> Set[str]:
     return DEFAULT_ROLE_PERMISSIONS.get(role, set())
 
 
-def get_effective_permissions(user: dict) -> Set[str]:
-    """Get effective permissions for a user."""
+def get_effective_permissions(user: dict | str) -> Set[str]:
+    """Get effective permissions for a user.
+    
+    Args:
+        user: User dictionary or username string
+    
+    Returns:
+        Set of effective permission strings
+    """
     if not user:
         return set()
+
+    # Handle string username - convert to user dict
+    if isinstance(user, str):
+        from modules.users import get_user_by_username
+        user = get_user_by_username(user)
+        if not user:
+            return set()
 
     user_id = user.get('user_id')
     role = user.get('role', 'cashier')
@@ -164,15 +290,32 @@ def get_effective_permissions(user: dict) -> Set[str]:
             return all_perms - revoked_perms
         return all_perms
 
-    # For non-admin users, only return explicitly granted permissions
+    # For non-admin users, combine role defaults with explicitly granted/revoked permissions
+    role_perms = get_role_permissions(role)
+
     if user_id:
-        return get_user_permissions(user_id)
+        # Get explicitly granted permissions
+        granted_perms = get_user_permissions(user_id)
+        # Get explicitly revoked permissions
+        revoked_perms = get_revoked_permissions(user_id)
 
-    return set()
+        # Combine: role permissions + granted permissions - revoked permissions
+        return (role_perms | granted_perms) - revoked_perms
+
+    # No user_id, just return role permissions
+    return role_perms
 
 
-def has_permission(user: dict, permission: str) -> bool:
-    """Check if a user has a specific permission."""
+def has_permission(user: dict | str, permission: str) -> bool:
+    """Check if a user has a specific permission.
+    
+    Args:
+        user: User dictionary or username string
+        permission: Permission name to check
+    
+    Returns:
+        True if user has the permission, False otherwise
+    """
     effective_perms = get_effective_permissions(user)
     return permission in effective_perms
 

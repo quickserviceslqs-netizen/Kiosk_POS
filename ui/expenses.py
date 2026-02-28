@@ -11,6 +11,7 @@ from datetime import datetime
 import tkcalendar
 
 from modules import expenses
+from utils.date_utils import format_date, get_date_format, parse_date_flexible, get_tkcalendar_date_pattern
 
 
 class ExpensesFrame(ttk.Frame):
@@ -20,8 +21,6 @@ class ExpensesFrame(ttk.Frame):
         self.tree = None
         self.search_category = tk.StringVar(value="")
         self.search_text = tk.StringVar(value="")
-        self.start_date = tk.StringVar(value="")
-        self.end_date = tk.StringVar(value="")
         self.min_amount = tk.StringVar(value="")
         self.max_amount = tk.StringVar(value="")
         self.current_page = 0
@@ -33,7 +32,8 @@ class ExpensesFrame(ttk.Frame):
     def _build_ui(self):
         # Configure grid for proper layout
         self.columnconfigure(0, weight=1)
-        self.rowconfigure(4, weight=1)  # Tree gets expansion
+        # Ensure the tree row expands correctly
+        self.rowconfigure(3, weight=1)  # Tree gets expansion (fixed index)
         self.grid_propagate(True)
         
         # Top bar
@@ -49,9 +49,9 @@ class ExpensesFrame(ttk.Frame):
 
         # Row 1: Category and text search
         ttk.Label(filter_frame, text="Category:").grid(row=0, column=0, sticky=tk.W, padx=(0, 4))
-        category_combo = ttk.Combobox(filter_frame, textvariable=self.search_category, width=20)
-        category_combo.grid(row=0, column=1, sticky=tk.W, padx=(0, 10))
-        category_combo.bind("<<ComboboxSelected>>", lambda e: self.refresh())
+        self._category_combo = ttk.Combobox(filter_frame, textvariable=self.search_category, width=20, state="readonly")
+        self._category_combo.grid(row=0, column=1, sticky=tk.W, padx=(0, 10))
+        self._category_combo.bind("<<ComboboxSelected>>", lambda e: self._on_filter_change())
 
         ttk.Label(filter_frame, text="Search:").grid(row=0, column=2, sticky=tk.W, padx=(0, 4))
         search_entry = ttk.Entry(filter_frame, textvariable=self.search_text, width=25)
@@ -60,14 +60,38 @@ class ExpensesFrame(ttk.Frame):
 
         ttk.Button(filter_frame, text="Clear Filters", command=self._clear_filters).grid(row=0, column=4, sticky=tk.W, padx=(0, 10))
 
-        # Row 2: Date range
+        # Row 2: Date range with date-pickers
         ttk.Label(filter_frame, text="From:").grid(row=1, column=0, sticky=tk.W, pady=(5, 0), padx=(0, 4))
-        start_entry = ttk.Entry(filter_frame, textvariable=self.start_date, width=12)
-        start_entry.grid(row=1, column=1, sticky=tk.W, pady=(5, 0), padx=(0, 10))
+        self._start_date_entry = tkcalendar.DateEntry(
+            filter_frame, width=14,
+            date_pattern=get_tkcalendar_date_pattern(),
+            state="readonly"
+        )
+        self._start_date_entry.grid(row=1, column=1, sticky=tk.W, pady=(5, 0), padx=(0, 4))
+        self._start_date_entry.delete(0, tk.END)  # start blank
+        self._start_date_entry.configure(state="normal")  # allow clearing
+        self._start_date_entry.delete(0, tk.END)
+        self._start_date_entry.bind("<<DateEntrySelected>>", lambda e: self._on_filter_change())
+
+        ttk.Button(filter_frame, text="✕", width=2,
+                   command=lambda: self._clear_date_entry(self._start_date_entry)).grid(
+            row=1, column=1, sticky=tk.E, pady=(5, 0), padx=(0, 10))
 
         ttk.Label(filter_frame, text="To:").grid(row=1, column=2, sticky=tk.W, pady=(5, 0), padx=(0, 4))
-        end_entry = ttk.Entry(filter_frame, textvariable=self.end_date, width=12)
-        end_entry.grid(row=1, column=3, sticky=tk.W, pady=(5, 0), padx=(0, 10))
+        self._end_date_entry = tkcalendar.DateEntry(
+            filter_frame, width=14,
+            date_pattern=get_tkcalendar_date_pattern(),
+            state="readonly"
+        )
+        self._end_date_entry.grid(row=1, column=3, sticky=tk.W, pady=(5, 0), padx=(0, 4))
+        self._end_date_entry.delete(0, tk.END)
+        self._end_date_entry.configure(state="normal")
+        self._end_date_entry.delete(0, tk.END)
+        self._end_date_entry.bind("<<DateEntrySelected>>", lambda e: self._on_filter_change())
+
+        ttk.Button(filter_frame, text="✕", width=2,
+                   command=lambda: self._clear_date_entry(self._end_date_entry)).grid(
+            row=1, column=3, sticky=tk.E, pady=(5, 0), padx=(0, 10))
 
         # Row 3: Amount range
         ttk.Label(filter_frame, text="Min Amount:").grid(row=2, column=0, sticky=tk.W, pady=(5, 0), padx=(0, 4))
@@ -86,20 +110,39 @@ class ExpensesFrame(ttk.Frame):
         ttk.Button(button_frame, text="⚙️ Categories", command=self._manage_categories, width=15).pack(side=tk.LEFT, padx=4)
         ttk.Button(button_frame, text="📄 Export CSV", command=self._export_csv, width=15).pack(side=tk.LEFT, padx=4)
 
-        # Table
-        columns = ("date", "category", "amount", "description", "user")
-        self.tree = ttk.Treeview(self, columns=columns, show="headings", height=50)
+        # Table with scrollbars
+        tree_frame = ttk.Frame(self)
+        tree_frame.grid(row=3, column=0, sticky=tk.NSEW, pady=(0, 8))
+        tree_frame.columnconfigure(0, weight=1)
+        tree_frame.rowconfigure(0, weight=1)
+        tree_frame.columnconfigure(1, weight=0)  # scrollbar column
+        tree_frame.rowconfigure(1, weight=0)     # scrollbar row
+
+        columns = ("date", "category", "amount", "payment_method", "description", "reference", "user")
+        self.tree = ttk.Treeview(tree_frame, columns=columns, show="headings", height=50)
         self.tree.heading("date", text="Date")
         self.tree.heading("category", text="Category")
         self.tree.heading("amount", text="Amount")
+        self.tree.heading("payment_method", text="Paid Via")
         self.tree.heading("description", text="Description")
+        self.tree.heading("reference", text="Ref #")
         self.tree.heading("user", text="User")
-        self.tree.column("date", width=120, minwidth=90, stretch=True)
-        self.tree.column("category", width=180, minwidth=120, stretch=True)
-        self.tree.column("amount", width=120, minwidth=90, anchor=tk.E, stretch=True)
-        self.tree.column("description", width=300, minwidth=160, stretch=True)
-        self.tree.column("user", width=160, minwidth=120, stretch=True)
-        self.tree.grid(row=3, column=0, sticky=tk.NSEW, pady=(0, 8))
+        self.tree.column("date", width=100, minwidth=80, stretch=True)
+        self.tree.column("category", width=150, minwidth=100, stretch=True)
+        self.tree.column("amount", width=100, minwidth=80, anchor=tk.E, stretch=True)
+        self.tree.column("payment_method", width=100, minwidth=80, stretch=True)
+        self.tree.column("description", width=220, minwidth=120, stretch=True)
+        self.tree.column("reference", width=100, minwidth=70, stretch=True)
+        self.tree.column("user", width=130, minwidth=100, stretch=True)
+
+        v_scroll = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.tree.yview)
+        h_scroll = ttk.Scrollbar(tree_frame, orient=tk.HORIZONTAL, command=self.tree.xview)
+        self.tree.configure(yscrollcommand=v_scroll.set, xscrollcommand=h_scroll.set)
+
+        self.tree.grid(row=0, column=0, sticky=tk.NSEW)
+        v_scroll.grid(row=0, column=1, sticky=tk.NS)
+        # Make horizontal scrollbar span both columns so it aligns under the tree
+        h_scroll.grid(row=1, column=0, columnspan=2, sticky=tk.EW, pady=(2, 0))
 
         # Pagination controls
         pagination_frame = ttk.Frame(self)
@@ -129,6 +172,27 @@ class ExpensesFrame(ttk.Frame):
         self.total_label.pack(side=tk.LEFT, padx=8)
         self.count_label = ttk.Label(bottom, text="Count: 0", font=("Segoe UI", 10, "bold"))
         self.count_label.pack(side=tk.LEFT, padx=8)
+    def _clear_date_entry(self, entry: tkcalendar.DateEntry) -> None:
+        """Clear a DateEntry widget and refresh."""
+        entry.configure(state="normal")
+        entry.delete(0, tk.END)
+        self._on_filter_change()
+
+    def _on_filter_change(self) -> None:
+        """Reset to first page and refresh when a filter changes."""
+        self.current_page = 0
+        self.refresh()
+
+    def _get_filter_date(self, entry: tkcalendar.DateEntry) -> str | None:
+        """Read a DateEntry and return an ISO date string (YYYY-MM-DD) or None."""
+        raw = entry.get().strip()
+        if not raw:
+            return None
+        try:
+            return parse_date_flexible(raw).strftime("%Y-%m-%d")
+        except ValueError:
+            return None
+
     def refresh(self) -> None:
         """Refresh the expense list with current filters and pagination."""
         currency = get_currency_code()
@@ -140,8 +204,8 @@ class ExpensesFrame(ttk.Frame):
         # Get filter values
         category_filter = self.search_category.get().strip() or None
         search_text = self.search_text.get().strip() or None
-        start_date = self.start_date.get().strip() or None
-        end_date = self.end_date.get().strip() or None
+        start_date = self._get_filter_date(self._start_date_entry) if hasattr(self, '_start_date_entry') else None
+        end_date = self._get_filter_date(self._end_date_entry) if hasattr(self, '_end_date_entry') else None
 
         try:
             min_amount = float(self.min_amount.get().strip()) if self.min_amount.get().strip() else None
@@ -202,7 +266,9 @@ class ExpensesFrame(ttk.Frame):
                     exp["date"],
                     exp["category"],
                     f"{currency} {exp['amount']:.2f}",
+                    exp.get("payment_method", "Cash"),
                     exp.get("description", ""),
+                    exp.get("reference_number", "") or "",
                     user_display
                 ),
                 tags=tuple(tags)
@@ -221,8 +287,8 @@ class ExpensesFrame(ttk.Frame):
         """Clear all filters and reset to first page."""
         self.search_category.set("")
         self.search_text.set("")
-        self.start_date.set("")
-        self.end_date.set("")
+        self._clear_date_entry(self._start_date_entry)
+        self._clear_date_entry(self._end_date_entry)
         self.min_amount.set("")
         self.max_amount.set("")
         self.current_page = 0
@@ -232,23 +298,14 @@ class ExpensesFrame(ttk.Frame):
         """Schedule a refresh after a short delay to avoid too many refreshes during typing."""
         if hasattr(self, '_refresh_timer'):
             self.after_cancel(self._refresh_timer)
-        self._refresh_timer = self.after(300, self.refresh)  # 300ms delay
+        self._refresh_timer = self.after(300, self._on_filter_change)  # 300ms delay
 
     def _update_category_dropdown(self) -> None:
         """Update the category dropdown with current categories."""
         try:
             categories = expenses.get_expense_categories()
-            # Find the combobox widget
-            for child in self.winfo_children():
-                if hasattr(child, 'winfo_children'):
-                    for grandchild in child.winfo_children():
-                        if hasattr(grandchild, 'config') and hasattr(grandchild, 'cget'):
-                            try:
-                                if grandchild.cget('textvariable') == self.search_category:
-                                    grandchild['values'] = categories
-                                    break
-                            except:
-                                pass
+            all_values = [""] + categories  # empty = All
+            self._category_combo["values"] = all_values
         except Exception:
             pass  # Ignore errors during category update
 
@@ -291,8 +348,8 @@ class ExpensesFrame(ttk.Frame):
         # Get current filter values
         category_filter = self.search_category.get().strip() or None
         search_text = self.search_text.get().strip() or None
-        start_date = self.start_date.get().strip() or None
-        end_date = self.end_date.get().strip() or None
+        start_date = self._get_filter_date(self._start_date_entry) if hasattr(self, '_start_date_entry') else None
+        end_date = self._get_filter_date(self._end_date_entry) if hasattr(self, '_end_date_entry') else None
 
         try:
             min_amount = float(self.min_amount.get().strip()) if self.min_amount.get().strip() else None
@@ -330,7 +387,8 @@ class ExpensesFrame(ttk.Frame):
 
         try:
             with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
-                fieldnames = ['expense_id', 'date', 'category', 'amount', 'description', 'username', 'created_at', 'currency_code']
+                fieldnames = ['expense_id', 'date', 'category', 'amount', 'payment_method',
+                              'description', 'reference_number', 'username', 'created_at', 'currency_code']
                 writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
                 writer.writeheader()
                 for exp in expense_list:
@@ -379,7 +437,9 @@ class ExpensesFrame(ttk.Frame):
                     exp["date"],
                     exp["category"],
                     f"{currency} {exp['amount']:.2f}",
+                    exp.get("payment_method", "Cash"),
                     exp.get("description", ""),
+                    exp.get("reference_number", "") or "",
                     user_display
                 )
             )
@@ -532,30 +592,37 @@ class ExpensesFrame(ttk.Frame):
         set_window_icon(dialog)
         dialog.transient(self.winfo_toplevel())
         dialog.grab_set()
-        dialog.geometry("450x250")
+        dialog.geometry("500x340")
 
         # Get existing categories for dropdown
         categories = expenses.get_expense_categories()
         if not categories:
-            categories = ["Rent", "Utilities", "Supplies", "Salaries", "Marketing", "Maintenance", "Other"]
+            categories = ["Meals & Refreshments", "Cleaning Supplies", "Rent",
+                          "Utilities", "Shop Supplies", "Miscellaneous"]
+
+        # Get payment methods
+        payment_methods = expenses.get_payment_methods()
 
         fields = {
-            "date": tk.StringVar(value=existing.get("date", datetime.now().strftime("%Y-%m-%d")) if existing else datetime.now().strftime("%Y-%m-%d")),
+            "date": tk.StringVar(value=format_date(existing.get("date")) if existing and existing.get("date") else format_date(datetime.now())),
             "category": tk.StringVar(value=existing.get("category", "") if existing else ""),
             "amount": tk.StringVar(value=str(existing.get("amount", 0)) if existing else "0"),
+            "payment_method": tk.StringVar(value=existing.get("payment_method", "Cash") if existing else "Cash"),
             "description": tk.StringVar(value=existing.get("description", "") if existing else ""),
+            "reference_number": tk.StringVar(value=existing.get("reference_number", "") if existing else ""),
         }
 
-        # Fields
-        ttk.Label(dialog, text="Date (YYYY-MM-DD):").grid(row=0, column=0, sticky=tk.W, pady=8, padx=12)
+        row_idx = 0
+        # Date field
+        ttk.Label(dialog, text=f"Date ({get_date_format()}):").grid(row=row_idx, column=0, sticky=tk.W, pady=6, padx=12)
         date_frame = ttk.Frame(dialog)
-        date_frame.grid(row=0, column=1, sticky=tk.W, pady=8, padx=12)
+        date_frame.grid(row=row_idx, column=1, sticky=tk.W, pady=6, padx=12)
         ttk.Entry(date_frame, textvariable=fields["date"], width=18).pack(side=tk.LEFT)
 
         def pick_date():
             """Open calendar picker for expense date."""
             try:
-                current = datetime.strptime(fields["date"].get(), "%Y-%m-%d")
+                current = parse_date_flexible(fields["date"].get())
             except ValueError:
                 current = datetime.now()
 
@@ -572,7 +639,7 @@ class ExpensesFrame(ttk.Frame):
                 year=current.year,
                 month=current.month,
                 day=current.day,
-                date_pattern="yyyy-mm-dd"
+                date_pattern=get_tkcalendar_date_pattern()
             )
             cal.pack(fill="both", expand=True, padx=10, pady=10)
 
@@ -587,9 +654,11 @@ class ExpensesFrame(ttk.Frame):
 
         ttk.Button(date_frame, text="📅", width=3, command=pick_date).pack(side=tk.LEFT, padx=4)
 
-        ttk.Label(dialog, text="Category:").grid(row=1, column=0, sticky=tk.W, pady=8, padx=12)
+        row_idx += 1
+        # Category field
+        ttk.Label(dialog, text="Category:").grid(row=row_idx, column=0, sticky=tk.W, pady=6, padx=12)
         category_combo = ttk.Combobox(dialog, textvariable=fields["category"], values=categories, width=25)
-        category_combo.grid(row=1, column=1, sticky=tk.EW, pady=8, padx=12)
+        category_combo.grid(row=row_idx, column=1, sticky=tk.EW, pady=6, padx=12)
 
         def add_category_inline():
             """Prompt for a new category and update the list."""
@@ -615,13 +684,29 @@ class ExpensesFrame(ttk.Frame):
             except Exception as exc:
                 messagebox.showerror("Category Error", f"Could not add category: {exc}")
 
-        ttk.Button(dialog, text="➕", width=4, command=add_category_inline).grid(row=1, column=2, sticky=tk.W, pady=8, padx=(0, 12))
+        ttk.Button(dialog, text="➕", width=4, command=add_category_inline).grid(row=row_idx, column=2, sticky=tk.W, pady=6, padx=(0, 12))
 
-        ttk.Label(dialog, text="Amount:").grid(row=2, column=0, sticky=tk.W, pady=8, padx=12)
-        ttk.Entry(dialog, textvariable=fields["amount"], width=20).grid(row=2, column=1, sticky=tk.W, pady=8, padx=12)
+        row_idx += 1
+        # Amount field
+        ttk.Label(dialog, text="Amount:").grid(row=row_idx, column=0, sticky=tk.W, pady=6, padx=12)
+        ttk.Entry(dialog, textvariable=fields["amount"], width=20).grid(row=row_idx, column=1, sticky=tk.W, pady=6, padx=12)
 
-        ttk.Label(dialog, text="Description:").grid(row=3, column=0, sticky=tk.W, pady=8, padx=12)
-        ttk.Entry(dialog, textvariable=fields["description"], width=30).grid(row=3, column=1, sticky=tk.EW, pady=8, padx=12)
+        row_idx += 1
+        # Payment method field
+        ttk.Label(dialog, text="Paid Via:").grid(row=row_idx, column=0, sticky=tk.W, pady=6, padx=12)
+        pm_combo = ttk.Combobox(dialog, textvariable=fields["payment_method"],
+                                values=payment_methods, width=25)
+        pm_combo.grid(row=row_idx, column=1, sticky=tk.EW, pady=6, padx=12)
+
+        row_idx += 1
+        # Description field
+        ttk.Label(dialog, text="Description:").grid(row=row_idx, column=0, sticky=tk.W, pady=6, padx=12)
+        ttk.Entry(dialog, textvariable=fields["description"], width=30).grid(row=row_idx, column=1, sticky=tk.EW, pady=6, padx=12)
+
+        row_idx += 1
+        # Reference number field
+        ttk.Label(dialog, text="Ref #:").grid(row=row_idx, column=0, sticky=tk.W, pady=6, padx=12)
+        ttk.Entry(dialog, textvariable=fields["reference_number"], width=20).grid(row=row_idx, column=1, sticky=tk.W, pady=6, padx=12)
 
         def on_submit():
             try:
@@ -634,7 +719,9 @@ class ExpensesFrame(ttk.Frame):
                 "date": fields["date"].get().strip(),
                 "category": fields["category"].get().strip(),
                 "amount": amount,
+                "payment_method": fields["payment_method"].get().strip() or "Cash",
                 "description": fields["description"].get().strip(),
+                "reference_number": fields["reference_number"].get().strip() or None,
             }
 
             if not payload["date"] or not payload["category"]:
@@ -660,8 +747,9 @@ class ExpensesFrame(ttk.Frame):
                 messagebox.showerror("Error", f"Failed to save expense: {exc}")
 
         # Action buttons at the bottom
+        row_idx += 1
         action_frame = ttk.Frame(dialog)
-        action_frame.grid(row=4, column=0, columnspan=3, pady=16)
+        action_frame.grid(row=row_idx, column=0, columnspan=3, pady=16)
         ttk.Button(action_frame, text="Save", command=on_submit).pack(side=tk.LEFT, padx=4)
         ttk.Button(action_frame, text="Cancel", command=dialog.destroy).pack(side=tk.LEFT, padx=4)
 
@@ -685,8 +773,8 @@ class ExpensesFrame(ttk.Frame):
         date_frame = ttk.Frame(controls)
         date_frame.pack(side=tk.TOP, fill=tk.X, pady=(0, 8))
 
-        start_var = tk.StringVar(value=datetime.now().replace(day=1).strftime("%Y-%m-%d"))
-        end_var = tk.StringVar(value=datetime.now().strftime("%Y-%m-%d"))
+        start_var = tk.StringVar(value=format_date(datetime.now().replace(day=1)))
+        end_var = tk.StringVar(value=format_date(datetime.now()))
 
         ttk.Label(date_frame, text="Period:").pack(side=tk.LEFT, padx=(0, 8))
         ttk.Label(date_frame, text="From:").pack(side=tk.LEFT, padx=(0, 4))
@@ -770,7 +858,7 @@ class ExpensesFrame(ttk.Frame):
 
             report = f"EXPENSE SUMMARY REPORT\n"
             report += f"Period: {start} to {end}\n"
-            report += f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            report += f"Generated: {format_date(datetime.now())} {datetime.now().strftime('%H:%M:%S')}\n"
             report += "=" * 80 + "\n\n"
 
             report += "OVERVIEW:\n"
@@ -807,7 +895,7 @@ class ExpensesFrame(ttk.Frame):
 
             report = f"EXPENSE TRENDS REPORT\n"
             report += f"Period: {start} to {end}\n"
-            report += f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            report += f"Generated: {format_date(datetime.now())} {datetime.now().strftime('%H:%M:%S')}\n"
             report += "=" * 80 + "\n\n"
 
             if monthly_totals:
@@ -831,7 +919,7 @@ class ExpensesFrame(ttk.Frame):
 
             report = f"EXPENSE CATEGORIES REPORT\n"
             report += f"Period: {start} to {end}\n"
-            report += f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            report += f"Generated: {format_date(datetime.now())} {datetime.now().strftime('%H:%M:%S')}\n"
             report += "=" * 80 + "\n\n"
 
             if by_category:
@@ -852,7 +940,7 @@ class ExpensesFrame(ttk.Frame):
 
             report = f"DETAILED EXPENSE REPORT\n"
             report += f"Period: {start} to {end}\n"
-            report += f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            report += f"Generated: {format_date(datetime.now())} {datetime.now().strftime('%H:%M:%S')}\n"
             report += "=" * 120 + "\n\n"
 
             if all_expenses:

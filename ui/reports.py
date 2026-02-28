@@ -1,1320 +1,1984 @@
+"""Modern Sales Reporting UI with Enhanced Design."""
+
 from __future__ import annotations
-from utils.security import get_currency_code
+from utils.security import get_currency_code, get_username
+from utils.i18n import get_currency_symbol
 from utils import set_window_icon
-"""Sales reporting UI."""
+from utils.date_utils import format_date, format_date_storage, get_tkcalendar_date_pattern
+from modules import permissions
 
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from datetime import datetime, timedelta
 import tkcalendar
+import threading
+import logging
+import os
+import json
 
-from modules import reports
+from .reports_constants import (
+    WINDOW_PADDING, HEADER_PADDING, CARD_PADDING, BUTTON_PADDING, ACTION_BUTTON_PADDING,
+    COLORS, STYLES, REPORT_TYPES, DATE_PRESETS, EXPORT_FORMATS, FILE_EXTENSIONS,
+    GRID_COLUMNS, FONT_SIZES, ERROR_MESSAGES
+)
+from .reports_controller import ReportController as ReportService
+from .reports_export import ExportManager
+from .reports_pagination import ReportPaginator
+from .reports_formatters import (
+    SalesTextFormatter, ProfitTextFormatter, CategoryTextFormatter,
+    PaymentMethodsTextFormatter, VoidedSalesTextFormatter, SalesLogTextFormatter,
+    TransactionsTextFormatter, TrendsTextFormatter
+)
+from .reports_reconciliation_formatters import (
+    ReconciliationSummaryTextFormatter, ReconciliationDetailsTextFormatter
+)
+from .reports_inventory_formatters import (
+    InventoryStockLevelsTextFormatter, InventoryLowStockTextFormatter, InventoryValueTextFormatter
+)
+
+from .reports_base import ReportData, BaseReportFrame
+
+# Set up logging
+logger = logging.getLogger(__name__)
+ 
 
 
-class ReportsFrame(ttk.Frame):
-    def __init__(self, master: tk.Misc, on_home=None, **kwargs):
-        super().__init__(master, padding=(12, 12, 12, 20), **kwargs)
+
+class ModernReportsFrame(BaseReportFrame):
+    """Modern reports UI frame (card-based)."""
+
+    def __init__(self, parent: tk.Misc, *, on_home: callable | None = None, **kwargs):
+        # store before base call since header building may reference it
         self.on_home = on_home
-        self.report_type = tk.StringVar(value="daily")
-        self.start_date = tk.StringVar(value=datetime.now().strftime("%Y-%m-%d"))
-        self.end_date = tk.StringVar(value=datetime.now().strftime("%Y-%m-%d"))
-        self._build_ui()
+        # call base which sets up service, vars, frames etc.
+        super().__init__(parent, service=ReportService(), **kwargs)
 
-    def _build_ui(self) -> None:
-        self.columnconfigure(0, weight=1)
-        self.rowconfigure(2, weight=1)
-        self.grid_propagate(True)  # Allow frame to expand
+        # Default date range: last 30 days
+        self.start_date.set(format_date(datetime.now() - timedelta(days=30)))
+        self.end_date.set(format_date(datetime.now()))
 
-        # Top bar
-        top = ttk.Frame(self)
-        top.grid(row=0, column=0, sticky=tk.EW, pady=(0, 8))
-        ttk.Label(top, text="Sales Reports", font=("Segoe UI", 14, "bold")).pack(side=tk.LEFT)
-        if self.on_home:
-            ttk.Button(top, text="🏠 Home", command=self.on_home).pack(side=tk.RIGHT, padx=4)
+        self.selected_category = tk.StringVar(value='overview')
+        self.report_type = tk.StringVar(value='overview')
+        self.reconciliation_status = tk.StringVar(value='all')
+        self._date_preset_popup = None
+        self._modal_dialogs: set = set()
+        self._popup_page = None
 
-        # Controls
-        controls = ttk.Frame(self)
-        controls.grid(row=1, column=0, sticky=tk.EW, pady=(0, 8))
+        # Frame padding and initial UI build
+        self.configure(padding=WINDOW_PADDING)
+        self._build_header()
+        if hasattr(self, '_build_sidebar'):
+            self._build_sidebar(self)
+        self._build_report_area(self)
+
+    def _build_report_area(self, parent) -> None:
+        """Build the main report display area."""
+        self.report_container = ttk.Frame(parent, style=STYLES['frame'])
+        self.report_container.grid(row=0, column=1, sticky=tk.NSEW)
+        self.report_container.columnconfigure(0, weight=1)
+        self.report_container.rowconfigure(0, weight=1)
+
+        # Loading indicator
+        self.loading_frame = ttk.Frame(self.report_container, style=STYLES['frame'])
+        self.loading_label = ttk.Label(self.loading_frame, text="⏳ Loading report...",
+                                     style=STYLES['subheader_label'])
+        self.progress_bar = ttk.Progressbar(self.loading_frame, mode='indeterminate')
+
+        # Report content area
+        self.content_frame = ttk.Frame(self.report_container, style=STYLES['frame'])
+        self.content_frame.grid(row=0, column=0, sticky=tk.NSEW)
+
+        # Initialize with overview
+        self._show_overview()
+
+    def _select_category(self, category: str, command) -> None:
+        """Handle category selection."""
+        # Check if there are any open modal dialogs
+        if self._has_open_modal_dialogs():
+            # Don't allow category switching while modals are open
+            return
         
-        ttk.Label(controls, text="Report Type:").grid(row=0, column=0, padx=4, sticky=tk.W)
-        ttk.Radiobutton(controls, text="Daily", variable=self.report_type, value="daily").grid(row=0, column=1, padx=4)
-        ttk.Radiobutton(controls, text="Date Range", variable=self.report_type, value="range").grid(row=0, column=2, padx=4)
-        ttk.Radiobutton(controls, text="Best Sellers", variable=self.report_type, value="bestsellers").grid(row=0, column=3, padx=4)
-        ttk.Radiobutton(controls, text="Profit Analysis", variable=self.report_type, value="profit").grid(row=0, column=4, padx=4)
-        ttk.Radiobutton(controls, text="By Category", variable=self.report_type, value="category").grid(row=0, column=5, padx=4)
-        ttk.Radiobutton(controls, text="Transactions", variable=self.report_type, value="transactions").grid(row=0, column=6, padx=4)
-        ttk.Radiobutton(controls, text="Payment Methods", variable=self.report_type, value="payment_methods").grid(row=0, column=7, padx=4)
-        ttk.Radiobutton(controls, text="Trends", variable=self.report_type, value="trends").grid(row=0, column=8, padx=4)
-        ttk.Radiobutton(controls, text="Voided Sales & Refunds", variable=self.report_type, value="voided").grid(row=0, column=9, padx=4)
-        ttk.Radiobutton(controls, text="Sales Log", variable=self.report_type, value="sales_log").grid(row=0, column=10, padx=4)
+        # Close any open date popup when switching pages
+        self._clear_date_popup_tracking()
+        self.selected_category.set(category)
+        self._rebuild_sidebar()
+        command()
 
-        ttk.Label(controls, text="Start Date:").grid(row=1, column=0, padx=4, pady=(8, 0), sticky=tk.W)
-        start_frame = ttk.Frame(controls)
-        start_frame.grid(row=1, column=1, padx=4, pady=(8, 0), sticky=tk.W)
-        ttk.Entry(start_frame, textvariable=self.start_date, width=12).pack(side=tk.LEFT)
-        ttk.Button(start_frame, text="📅", width=2, command=self._pick_start_date).pack(side=tk.LEFT, padx=2)
+    def _rebuild_sidebar(self) -> None:
+        """Rebuild the sidebar to reflect current selection."""
+        parent = self.report_container.master
+        parent.grid_slaves(row=0, column=0)[0].destroy()
+        self._build_sidebar(parent)
+
+    def _show_overview(self) -> None:
+        """Show the overview dashboard with key metrics."""
+        self._clear_report_area()
+        self._create_overview_header()
+        self._create_overview_metrics_container()
+        self._generate_overview_data()
+
+    def _create_overview_header(self) -> None:
+        """Create the overview header section."""
+        header = ttk.Frame(self.content_frame, style=STYLES['frame'])
+        header.pack(fill=tk.X, pady=HEADER_PADDING)
+        ttk.Label(header, text="📈 Business Overview", style=STYLES['subheader_label']).pack(anchor=tk.W)
+
+    def _create_overview_metrics_container(self) -> None:
+        """Create the container for overview metrics cards."""
+        self.metrics_frame = ttk.Frame(self.content_frame, style=STYLES['frame'])
+        self.metrics_frame.pack(fill=tk.X, pady=HEADER_PADDING)
+
+    def _generate_overview_data(self) -> None:
+        """Generate and display overview data asynchronously."""
+        self.show_loading()
+
+        # Generate overview data and let the polling loop deliver the result on the main thread
+        from utils.date_utils import format_date_db
+        today = format_date_db(datetime.now())
+        request_id = self.service.generate_report_async('overview', today, today, None)
+        # track active request so the poller will deliver it
+        self.current_request_id = request_id
+
+        # Check immediately for cached results
+        self._poll_report_results()
+
+    def _display_overview_metrics(self, metadata: Dict[str, Any]) -> None:
+        """Display the overview metrics in cards."""
+        currency_symbol = get_currency_symbol()
+
+        today_revenue = metadata.get('today_revenue', 0)
+        today_transactions = metadata.get('today_transactions', 0)
+        week_revenue = metadata.get('week_revenue', 0)
+        growth_rate = metadata.get('growth_rate', 0)
+
+        self._create_metric_card(self.metrics_frame, "💵 Today's Revenue",
+                               f"{currency_symbol}{today_revenue:.2f}", 0, 0)
+        self._create_metric_card(self.metrics_frame, "🛒 Today's Transactions",
+                               f"{today_transactions}", 0, 1)
+        self._create_metric_card(self.metrics_frame, "📊 This Week's Revenue",
+                               f"{currency_symbol}{week_revenue:.2f}", 1, 0)
+        self._create_metric_card(self.metrics_frame, "📈 Growth Rate",
+                               f"{growth_rate:+.1f}%", 1, 1)
+
+        # Quick actions
+        actions_frame = ttk.LabelFrame(self.content_frame, text=" Quick Actions ",
+                                     style=STYLES['card'])
+        actions_frame.pack(fill=tk.X, pady=(20, 0))
+        actions_frame.configure(padding=CARD_PADDING)
+
+        actions = [
+            ("📊 Generate Sales Report", "daily"),
+            ("💰 View Profit Analysis", "profit"),
+            ("📦 Check Inventory Status", "category"),
+            ("🔄 Run Reconciliation", "reconciliation_summary")
+        ]
+
+        for i, (text, report_type) in enumerate(actions):
+            btn = ttk.Button(actions_frame, text=text, style=STYLES['secondary_button'])
+            btn.grid(row=i//2, column=i%2, sticky=tk.EW, padx=(0, 10) if i%2 == 0 else 0,
+                    pady=(0, 10) if i//2 == 0 else 0)
+            btn.bind('<Button-1>', lambda e, rt=report_type, w=btn: self._on_report_click(e, rt, w))
+            btn.bind('<Double-Button-1>', lambda e, rt=report_type: self._on_report_double_click(e, rt))
+
+        actions_frame.grid_columnconfigure(0, weight=1)
+        actions_frame.grid_columnconfigure(1, weight=1)
+
+    def _create_metric_card(self, parent, title: str, value: str, row: int, col: int) -> None:
+        """Create a metric card with modern styling."""
+        card = ttk.LabelFrame(parent, text=f" {title} ", style=STYLES['card'])
+        card.grid(row=row, column=col, sticky=tk.EW, padx=(0, 15) if col == 0 else 0,
+                 pady=(0, 15) if row == 0 else 0)
+        card.configure(padding=CARD_PADDING)
+
+        value_label = ttk.Label(card, text=value,
+                              font=('Segoe UI', FONT_SIZES['large_value'], 'bold'),
+                              foreground=COLORS['primary'])
+        value_label.pack(anchor=tk.W)
+
+        parent.grid_columnconfigure(col, weight=1)
+
+    def _show_sales_category(self) -> None:
+        """Show sales-related reports."""
+        self._clear_report_area()
+
+        header = ttk.Frame(self.content_frame, style=STYLES['frame'])
+        header.pack(fill=tk.X, pady=HEADER_PADDING)
+
+        ttk.Label(header, text="💰 Sales Reports", style=STYLES['subheader_label']).pack(anchor=tk.W)
+
+        # Report type buttons in a grid
+        reports_frame = ttk.Frame(self.content_frame, style=STYLES['frame'])
+        reports_frame.pack(fill=tk.X)
+
+        sales_reports = [
+            ("📅 Daily Sales", "daily"),
+            ("📆 Date Range Sales", "range"),
+            ("🏆 Best Sellers", "bestsellers"),
+            ("📊 Sales by Category", "category"),
+            ("💳 Payment Methods", "payment_methods"),
+            ("📈 Sales Trends", "trends"),
+            ("❌ Voided Sales", "voided"),
+            ("📝 Sales Log", "sales_log")
+        ]
+
+        for i, (text, report_type) in enumerate(sales_reports):
+            row, col = divmod(i, GRID_COLUMNS['sales_buttons'])
+            btn = ttk.Button(reports_frame, text=text, style=STYLES['secondary_button'])
+            btn.grid(row=row, column=col, sticky=tk.EW, padx=(0, 10) if col < 3 else 0,
+                    pady=(0, 10) if row == 0 else 0)
+            # Bind single and double click handlers
+            btn.bind('<Button-1>', lambda e, rt=report_type, w=btn: self._on_report_click(e, rt, w))
+            btn.bind('<Double-Button-1>', lambda e, rt=report_type: self._on_report_double_click(e, rt))
+
+        for col in range(GRID_COLUMNS['sales_buttons']):
+            reports_frame.grid_columnconfigure(col, weight=1)
+
+    def _show_financial_category(self) -> None:
+        """Show financial reports."""
+        self._clear_report_area()
+
+        header = ttk.Frame(self.content_frame, style=STYLES['frame'])
+        header.pack(fill=tk.X, pady=HEADER_PADDING)
+
+        ttk.Label(header, text="💼 Financial Reports", style=STYLES['subheader_label']).pack(anchor=tk.W)
+
+        financial_reports = [
+            ("💰 Profit Analysis", "profit"),
+            ("📊 Transactions", "transactions"),
+            ("📈 Revenue Trends", "trends")
+        ]
+
+        for text, report_type in financial_reports:
+            btn = ttk.Button(self.content_frame, text=text, style=STYLES['secondary_button'])
+            btn.pack(fill=tk.X, pady=(0, 10))
+            btn.bind('<Button-1>', lambda e, rt=report_type, w=btn: self._on_report_click(e, rt, w))
+            btn.bind('<Double-Button-1>', lambda e, rt=report_type: self._on_report_double_click(e, rt))
+
+    def _show_inventory_category(self) -> None:
+        """Show inventory reports."""
+        self._clear_report_area()
+
+        header = ttk.Frame(self.content_frame, style=STYLES['frame'])
+        header.pack(fill=tk.X, pady=HEADER_PADDING)
+
+        ttk.Label(header, text="📦 Inventory Reports", style=STYLES['subheader_label']).pack(anchor=tk.W)
+
+        # Report type buttons
+        inventory_reports = [
+            ("📊 Current Stock Levels", "inventory_stock_levels"),
+            ("⚠️ Low Stock Items", "inventory_low_stock"),
+            ("💰 Inventory Value Analysis", "inventory_value")
+        ]
+
+        for text, report_type in inventory_reports:
+            btn = ttk.Button(self.content_frame, text=text, style=STYLES['secondary_button'])
+            btn.pack(fill=tk.X, pady=(0, 10))
+            btn.bind('<Button-1>', lambda e, rt=report_type, w=btn: self._on_report_click(e, rt, w))
+            btn.bind('<Double-Button-1>', lambda e, rt=report_type: self._on_report_double_click(e, rt))
+
+    def _show_reconciliation_category(self) -> None:
+        """Show reconciliation reports."""
+        self._clear_report_area()
+
+        header = ttk.Frame(self.content_frame, style=STYLES['frame'])
+        header.pack(fill=tk.X, pady=HEADER_PADDING)
+
+        ttk.Label(header, text="🔄 Reconciliation Reports", style=STYLES['subheader_label']).pack(anchor=tk.W)
+
+        # Report buttons
+        reconciliation_reports = [
+            ("📋 Reconciliation Summary", "reconciliation_summary"),
+            ("📄 Reconciliation Details", "reconciliation_details")
+        ]
+
+        for text, report_type in reconciliation_reports:
+            btn = ttk.Button(self.content_frame, text=text, style=STYLES['secondary_button'])
+            btn.pack(fill=tk.X, pady=(0, 10))
+            btn.bind('<Button-1>', lambda e, rt=report_type, w=btn: self._on_report_click(e, rt, w))
+            btn.bind('<Double-Button-1>', lambda e, rt=report_type: self._on_report_double_click(e, rt))
+
+    def _next_page(self) -> None:
+        """Go to next page and refresh display."""
+        if self.paginator.next_page():
+            self._refresh_current_report()
+
+    def _prev_page(self) -> None:
+        """Go to previous page and refresh display."""
+        if self.paginator.prev_page():
+            self._refresh_current_report()
+
+    def _refresh_current_report(self) -> None:
+        """Refresh the current report display with current pagination."""
+        if self.current_report_data is not None:
+            self._display_report(self.current_report_data, reset_pagination=False)
+        else:
+            # Fallback to regenerating if no stored data
+            self._generate_report()
+
+    def _poll_report_results(self) -> None:
+        """Poll the service result queue and deliver results on the main thread."""
+        try:
+            while not self.service.result_queue.empty():
+                try:
+                    req_id, result = self.service.result_queue.get_nowait()
+                except Exception:
+                    break
+
+                # Deliver result only if it matches the active request, otherwise ignore
+                if getattr(self, 'current_request_id', None) and req_id == self.current_request_id:
+                    try:
+                        # Overview reports are special and render metrics
+                        if result.report_type == 'overview':
+                            self.hide_loading()
+                            if result.metadata.get('error'):
+                                self._show_error(result.metadata['error'])
+                            else:
+                                self._display_overview_metrics(result.metadata)
+                        else:
+                            self._display_report(result)
+                    except Exception as e:
+                        logger.exception(f"Failed to deliver report {req_id} from queue: {e}")
+                    finally:
+                        # Clear current request id since it has been handled
+                        if getattr(self, 'current_request_id', None) == req_id:
+                            self.current_request_id = None
+                else:
+                    # Fallback: if current_request_id is not set (or mismatched), try to match
+                    # queued results to the UI's active report parameters (report type + date range).
+                    try:
+                        from utils.date_utils import parse_date_flexible, format_date_storage
+                        ui_report_type = self.report_type.get()
+                        # Convert UI display dates to ISO date strings for comparison
+                        try:
+                            ui_iso_start = format_date_storage(parse_date_flexible(self.start_date.get()).date())
+                            ui_iso_end = format_date_storage(parse_date_flexible(self.end_date.get()).date())
+                        except Exception:
+                            ui_iso_start = ui_iso_end = None
+
+                        # If the queued result matches the UI's active report and date range, deliver it
+                        if result.report_type == ui_report_type and (ui_iso_start is None or (result.start_date == ui_iso_start and result.end_date == ui_iso_end)):
+                            try:
+                                if result.report_type == 'overview':
+                                    self.hide_loading()
+                                    if result.metadata.get('error'):
+                                        self._show_error(result.metadata['error'])
+                                    else:
+                                        self._display_overview_metrics(result.metadata)
+                                else:
+                                    self._display_report(result)
+                            except Exception as e:
+                                logger.exception(f"Failed to deliver matched queued report {req_id}: {e}")
+                            finally:
+                                if getattr(self, 'current_request_id', None) == req_id:
+                                    self.current_request_id = None
+                        else:
+                            logger.debug(f"Queued report {req_id} does not match current UI filters; ignoring for now")
+                    except Exception:
+                        logger.debug(f"Queued report {req_id} does not match current_request_id; ignoring for now")
+        except Exception as e:
+            logger.exception(f"Error while polling report results: {e}")
+        finally:
+            # Continue polling periodically
+            try:
+                self.after(200, self._poll_report_results)
+            except Exception:
+                # If scheduling fails, we can't poll; log and stop
+                logger.exception("Failed to schedule report poll; stopping polling loop")
+
+    # Click helpers: single click shows date preset popup, report generates after user selects preset
+    def _on_report_click(self, event, report_type: str, widget) -> None:
+        """On single click, open the date preset popup except for 'daily' reports.
+
+        'daily' reports always use today's date so they generate immediately.
+        """
+        if report_type == 'daily':
+            # Use today's date and generate immediately (no popup)
+            self._set_today()
+            self._generate_report_type(report_type)
+            return
+
+        # For other reports, show presets
+        self._show_date_preset_popup(report_type)
+
+    def _on_report_double_click(self, event, report_type: str) -> None:
+        """Double-click behavior: for 'daily' generate immediately, otherwise show presets."""
+        if report_type == 'daily':
+            self._set_today()
+            self._generate_report_type(report_type)
+            return
+
+        self._show_date_preset_popup(report_type)
+
+    def _clear_report_area(self) -> None:
+        """Clear the current report display area."""
+        # More thorough clearing to ensure all widgets are destroyed
+        for widget in self.content_frame.winfo_children():
+            try:
+                widget.destroy()
+            except Exception:
+                pass  # Ignore errors if widget is already destroyed
+
+    def _generate_report_type(self, report_type: str) -> None:
+        """Generate a specific report type."""
+        self.report_type.set(report_type)
+        self._generate_report()
+
+    def _quick_generate_report(self, report_type: str) -> None:
+        """Quick generate a report from overview."""
+        self.report_type.set(report_type)
+        self._generate_report()
+
+    def _generate_report(self) -> None:
+        """Generate the selected report with modern loading UI."""
+        self.show_loading()
+
+        # Generate report using controller
+        report_type = self.report_type.get()
         
-        ttk.Label(controls, text="End Date:").grid(row=1, column=2, padx=4, pady=(8, 0), sticky=tk.W)
-        end_frame = ttk.Frame(controls)
-        end_frame.grid(row=1, column=3, padx=4, pady=(8, 0), sticky=tk.W)
-        ttk.Entry(end_frame, textvariable=self.end_date, width=12).pack(side=tk.LEFT)
-        ttk.Button(end_frame, text="📅", width=2, command=self._pick_end_date).pack(side=tk.LEFT, padx=2)
+        # Set appropriate default date ranges for different report types
+        historical_reports = ('reconciliation_summary', 'reconciliation_details', 'range', 'bestsellers', 
+                            'profit', 'category', 'payment_methods', 'voided', 'sales_log', 
+                            'transactions', 'trends', 'inventory_stock_levels', 'inventory_low_stock', 
+                            'inventory_value')
+        if report_type in historical_reports:
+            # Historical reports default to last 30 days
+            if not self._local_date_vars.get(report_type):
+                today = datetime.now()
+                start_date = format_date(today - timedelta(days=29))
+                end_date = format_date(today)
+                self.start_date.set(start_date)
+                self.end_date.set(end_date)
         
-        ttk.Button(controls, text="Today", command=self._set_today).grid(row=1, column=4, padx=4, pady=(8, 0))
-        ttk.Button(controls, text="This Week", command=self._set_this_week).grid(row=1, column=5, padx=4, pady=(8, 0))
-        ttk.Button(controls, text="This Month", command=self._set_this_month).grid(row=1, column=6, padx=4, pady=(8, 0))
-        ttk.Button(controls, text="Generate Report", command=self._generate_report).grid(row=1, column=7, padx=4, pady=(8, 0))
-        ttk.Button(controls, text="📥 Download Report", command=self._download_report).grid(row=1, column=8, padx=4, pady=(8, 0))
+        # Prefer per-report local dates/status when available
+        local_dates = self._local_date_vars.get(report_type)
+        start = local_dates[0].get() if local_dates else self.start_date.get()
+        end = local_dates[1].get() if local_dates else self.end_date.get()
+        status_var = self._local_status_vars.get(report_type)
+        status_filter = status_var.get() if status_var else self.reconciliation_status.get()
 
-        # Report display area
-        report_frame = ttk.Frame(self)
-        report_frame.grid(row=2, column=0, sticky=tk.NSEW)
-        report_frame.columnconfigure(0, weight=1)
-        report_frame.rowconfigure(0, weight=1)
+        # Convert display dates to ISO format for processing
+        from utils.date_utils import parse_date_flexible, format_date_storage
+        try:
+            start_dt = parse_date_flexible(start)
+            end_dt = parse_date_flexible(end)
+            iso_start = format_date_storage(start_dt.date())
+            iso_end = format_date_storage(end_dt.date())
+        except ValueError as e:
+            self._show_error(f"Invalid date format: {e}")
+            self.hide_loading()
+            return
 
-        self.report_text = tk.Text(report_frame, wrap=tk.WORD, font=("Courier", 10))
-        self.report_text.grid(row=0, column=0, sticky=tk.NSEW)
+        def on_report_complete(report_data):
+            """Callback when report generation is complete."""
+            # Schedule UI updates on the main thread to avoid calling tkinter from worker threads
+            def _deliver():
+                # Guard against the frame/window being destroyed while the report generated
+                if not getattr(self, 'winfo_exists', lambda: False)():
+                    logger.debug("Report frame no longer exists; ignoring completed report callback.")
+                    return
+                try:
+                    self._display_report(report_data)
+                except Exception as e:
+                    logger.exception(f"Failed to display report on main thread: {e}")
+            try:
+                self.after(0, _deliver)
+            except Exception as e:
+                logger.exception(f"Failed to schedule report display: {e}")
 
-        scroll = ttk.Scrollbar(report_frame, orient=tk.VERTICAL, command=self.report_text.yview)
-        scroll.grid(row=0, column=1, sticky=tk.NS)
-        self.report_text.configure(yscroll=scroll.set)
+        try:
+            self.current_request_id = self.service.generate_report_async(
+                report_type, iso_start, iso_end, on_report_complete, status_filter
+            )
+        except Exception as e:
+            logger.error(f"Error starting report generation: {e}")
+            self._show_error(f"Failed to start report generation: {e}")
 
+    def _generate_report_with_params(self, report_type: str, start_date: str, end_date: str, status_filter: str = "all") -> None:
+        """Generate a report using explicit date/status parameters (per-report scope)."""
+        self.show_loading()
+
+        # Convert display dates to ISO format for processing
+        from utils.date_utils import parse_date_flexible, format_date_storage
+        try:
+            start_dt = parse_date_flexible(start_date)
+            end_dt = parse_date_flexible(end_date)
+            iso_start = format_date_storage(start_dt.date())
+            iso_end = format_date_storage(end_dt.date())
+        except ValueError as e:
+            self._show_error(f"Invalid date format: {e}")
+            self.hide_loading()
+            return
+
+        def on_report_complete(report_data):
+            # Schedule UI updates on the main thread to avoid calling tkinter from worker threads
+            def _deliver():
+                # Guard against the frame/window being destroyed while the report generated
+                if not getattr(self, 'winfo_exists', lambda: False)():
+                    logger.debug("Report frame no longer exists; ignoring completed report callback.")
+                    return
+                try:
+                    self._display_report(report_data)
+                except Exception as e:
+                    logger.exception(f"Failed to display report on main thread: {e}")
+            try:
+                self.after(0, _deliver)
+            except Exception as e:
+                logger.exception(f"Failed to schedule report display: {e}")
+
+        try:
+            self.current_request_id = self.service.generate_report_async(
+                report_type, iso_start, iso_end, on_report_complete, status_filter
+            )
+        except Exception as e:
+            logger.error(f"Error starting report generation: {e}")
+            self._show_error(f"Failed to start report generation: {e}")
+
+    def _display_report(self, report_data, reset_pagination: bool = True) -> None:
+        """Display the generated report with pagination support."""
+        self.hide_loading()
+
+        if report_data.metadata.get('error'):
+            self._show_error(report_data.metadata['error'])
+            return
+
+        # Store current report data for refresh operations
+        self.current_report_data = report_data
+
+        # Clear current content
+        self._clear_report_area()
+
+        # Modern report header
+        header = ttk.Frame(self.content_frame, style=STYLES['frame'])
+        header.pack(fill=tk.X, pady=HEADER_PADDING)
+
+        report_title = REPORT_TYPES.get(report_data.report_type, report_data.report_type.title())
+        title_label = ttk.Label(header, text=f"📊 {report_title}", style=STYLES['subheader_label'])
+        title_label.pack(anchor=tk.W)
+        try:
+            title_label.configure(cursor="hand2")
+        except Exception:
+            pass  # configure may not be supported in some themes
+
+        # Data Management section (right-aligned) - Export and management actions
+        if report_data.report_type != 'overview':
+            mgmt_frame = ttk.Frame(header, style=STYLES['frame'])
+            mgmt_frame.pack(side=tk.RIGHT)
+
+            # Label for clarity
+            ttk.Label(mgmt_frame, text="📊 Data Management", style=STYLES['body_label']).pack(side=tk.LEFT, padx=(0, 8))
+
+            # Export menu button (CSV/Excel/PDF/Text)
+            try:
+                export_btn = tk.Menubutton(mgmt_frame, text="Export ▾", relief="raised")
+                export_menu = tk.Menu(export_btn, tearoff=0)
+                export_menu.add_command(label="CSV", command=lambda rd=report_data: self._export_report(rd, 'csv'))
+                export_menu.add_command(label="Excel", command=lambda rd=report_data: self._export_report(rd, 'xlsx'))
+                export_menu.add_command(label="PDF", command=lambda rd=report_data: self._export_report(rd, 'pdf'))
+                export_menu.add_command(label="Text", command=lambda rd=report_data: self._export_report(rd, 'txt'))
+                export_btn.config(menu=export_menu)
+                export_btn.pack(side=tk.LEFT, padx=(0, 8))
+            except Exception:
+                # Fallback to simple buttons if Menubutton/menu unsupported
+                ttk.Button(mgmt_frame, text="CSV", style=STYLES['action_button'], command=lambda rd=report_data: self._export_report(rd, 'csv')).pack(side=tk.LEFT, padx=(0, 4))
+                ttk.Button(mgmt_frame, text="Excel", style=STYLES['action_button'], command=lambda rd=report_data: self._export_report(rd, 'xlsx')).pack(side=tk.LEFT, padx=(0, 4))
+                ttk.Button(mgmt_frame, text="PDF", style=STYLES['action_button'], command=lambda rd=report_data: self._export_report(rd, 'pdf')).pack(side=tk.LEFT, padx=(0, 4))
+
+            # Schedule export (opens scheduling dialog)
+            ttk.Button(mgmt_frame, text="Schedule", style=STYLES['secondary_button'], command=lambda rd=report_data: self._open_schedule_dialog(rd)).pack(side=tk.LEFT, padx=(6,0))
+
+            # Manage schedules
+            ttk.Button(mgmt_frame, text="Manage", style=STYLES['secondary_button'], command=self._manage_schedules_dialog).pack(side=tk.LEFT, padx=(6,0))
+
+
+        # Per-report filter area (status/date) for supported reports
+        if report_data.report_type in ('reconciliation_summary', 'reconciliation_details'):
+            filter_frame = ttk.Frame(self.content_frame, style=STYLES['frame'])
+            filter_frame.pack(fill=tk.X, pady=(6, 8))
+
+            # For reconciliation reports, show status combobox (local to this report)
+            if report_data.report_type in ('reconciliation_summary', 'reconciliation_details'):
+                status_var = tk.StringVar(value=report_data.metadata.get('status_filter', 'all') or 'all')
+                self._local_status_vars[report_data.report_type] = status_var
+                ttk.Label(filter_frame, text="Filter by Status:", style=STYLES['body_label']).pack(side=tk.LEFT, padx=(0, 10))
+                status_combo = ttk.Combobox(filter_frame, textvariable=status_var,
+                                            values=["all", "draft", "completed", "approved"],
+                                            state="readonly", width=15)
+                status_combo.pack(side=tk.LEFT)
+                # regenerate when status changes; will use current report dates
+                def _on_status_change(e, rt=report_data.report_type, sv=status_var, rd=report_data):
+                    self._generate_report_with_params(rt, rd.start_date, rd.end_date, sv.get())
+                status_combo.bind('<<ComboboxSelected>>', _on_status_change)
+
+            # Date range controls (per-report) - display only
+            ttk.Label(filter_frame, text="Date Range:", style=STYLES['body_label']).pack(side=tk.LEFT, padx=(10, 4))
+            try:
+                start_display = format_date(parse_date_flexible(report_data.start_date))
+                end_display = format_date(parse_date_flexible(report_data.end_date))
+                date_range_text = f"{start_display} to {end_display}"
+            except Exception:
+                date_range_text = f"{report_data.start_date} to {report_data.end_date}"
+            ttk.Label(filter_frame, text=date_range_text, style=STYLES['body_label'], 
+                     foreground=COLORS['text_light']).pack(side=tk.LEFT, padx=(0, 6))
+
+        # Create report details card immediately so content is visible without extra clicks
+        report_card = ttk.LabelFrame(self.content_frame, text=" Report Details ", style=STYLES['card'])
+        report_card.pack(fill=tk.BOTH, expand=True)
+        report_card.configure(padding=CARD_PADDING)
+
+        # Attach report_card to the label so header handlers can toggle it
+        title_label.report_card = report_card
+
+        # Set up pagination and paginated data
+        if reset_pagination:
+            self.paginator.set_data(report_data.data)
+        page_info = self.paginator.get_page_info()
+        paginated_data = self.paginator.get_page(report_data.data)
+
+        # if report type has custom UI, handle below; otherwise use generic table
+        special_reports = ('inventory_stock_levels', 'sales_log', 'reconciliation_details')
+        if report_data.report_type not in special_reports:
+            # generic render inside report_card
+            self.render_table(report_card, report_data.data)
+            return
+
+        # Pagination controls (only show if needed)
+        if page_info['total_pages'] > 1:
+            pagination_frame = ttk.Frame(report_card, style=STYLES['frame'])
+            pagination_frame.pack(fill=tk.X, pady=(0, 10))
+
+            # Determine appropriate label for total count based on report type
+            if report_data.report_type in ('daily', 'range', 'bestsellers', 'sales_log'):
+                # For sales reports, show both records and total units
+                total_units = report_data.metadata.get('total_items', page_info['total_items'])
+                current_records = len(paginated_data)
+                display_text = f"Page {page_info['current_page']} of {page_info['total_pages']} (showing {current_records} of {page_info['total_items']} records, {total_units} total units)"
+            else:
+                total_count = page_info['total_items']
+                total_label = "total items"
+                current_items = len(paginated_data)
+                display_text = f"Page {page_info['current_page']} of {page_info['total_pages']} (showing {current_items} of {total_count} {total_label})"
+            
+            ttk.Label(pagination_frame, text=display_text,
+                      style=STYLES['caption_label']).pack(side=tk.LEFT)
+
+            # Navigation buttons
+            nav_frame = ttk.Frame(pagination_frame, style=STYLES['frame'])
+            nav_frame.pack(side=tk.RIGHT)
+
+            prev_btn = ttk.Button(nav_frame, text="◀ Prev", style=STYLES['action_button'],
+                                command=self._prev_page, state=tk.NORMAL if page_info['has_prev'] else tk.DISABLED)
+            prev_btn.pack(side=tk.LEFT, padx=(0, 5))
+
+            next_btn = ttk.Button(nav_frame, text="Next ▶", style=STYLES['action_button'],
+                                command=self._next_page, state=tk.NORMAL if page_info['has_next'] else tk.DISABLED)
+            next_btn.pack(side=tk.LEFT)
+
+        # Paged tabular views for certain large reports
+        if report_data.report_type == 'inventory_stock_levels':
+            # Create a Treeview table
+            columns = ('item_id', 'name', 'category', 'quantity', 'unit', 'inventory_value', 'is_low_stock')
+            tree = ttk.Treeview(report_card, columns=columns, show='headings', height=12)
+            for col in columns:
+                tree.heading(col, text=col.replace('_', ' ').title())
+                tree.column(col, anchor=tk.W, width=120)
+            tree.pack(fill=tk.BOTH, expand=True)
+
+            # Paging controls (keyset pagination)
+            paging_frame = ttk.Frame(report_card, style=STYLES['frame'])
+            paging_frame.pack(fill=tk.X, pady=(6, 0))
+
+            prev_btn = ttk.Button(paging_frame, text='◀ Prev', state=tk.DISABLED)
+            prev_btn.pack(side=tk.LEFT)
+            next_btn = ttk.Button(paging_frame, text='Next ▶')
+            next_btn.pack(side=tk.LEFT, padx=(6, 0))
+            page_info_label = ttk.Label(paging_frame, text='')
+            page_info_label.pack(side=tk.LEFT, padx=(10, 0))
+
+            # Paging state: history for keyset prev, current cursor, page size
+            self._paging_state = {'cursor': None, 'page_size': 20, 'total': None, 'history': []}
+
+            def load_page(cursor=None, push_history: bool = False):
+                try:
+                    rows, next_cursor, meta = self.service.generate_report_page(
+                        report_data.report_type, report_data.start_date, report_data.end_date,
+                        page_size=self._paging_state['page_size'], cursor=cursor, use_keyset=True
+                    )
+
+                    # update total
+                    if 'total_items' in meta:
+                        self._paging_state['total'] = meta['total_items']
+
+                    # clear tree
+                    for r in tree.get_children():
+                        tree.delete(r)
+                    for r in rows:
+                        tree.insert('', tk.END, values=(r['item_id'], r['name'], r['category'], r['quantity'], r['unit'], f"{r['inventory_value']:.2f}", '⚠' if r['is_low_stock'] else ''))
+
+                    # update history and cursor
+                    if push_history:
+                        # push previous cursor onto history for prev navigation
+                        self._paging_state['history'].append(self._paging_state['cursor'])
+
+                    self._paging_state['cursor'] = cursor
+
+                    # configure buttons
+                    prev_btn.config(state=tk.NORMAL if len(self._paging_state['history']) > 0 else tk.DISABLED)
+                    next_btn.config(state=tk.NORMAL if next_cursor else tk.DISABLED)
+
+                    # page info (keyset pagination shows page number approximate)
+                    page_num = len(self._paging_state['history']) + 1
+                    page_text = f"Page {page_num} ({len(rows)} rows) of {self._paging_state.get('total', '?')}"
+                    page_info_label.config(text=page_text)
+
+                    # attach next cursor token to next button
+                    next_btn._next_cursor = next_cursor
+                except Exception as e:
+                    logger.error(f"Error loading inventory page: {e}")
+
+            def on_next():
+                # push current cursor to history and load next
+                load_page(next_btn._next_cursor, push_history=True)
+
+            def on_prev():
+                # pop last cursor and load it
+                prev_cursor = None
+                if self._paging_state['history']:
+                    prev_cursor = self._paging_state['history'].pop()
+                load_page(prev_cursor, push_history=False)
+
+            prev_btn.config(command=on_prev)
+            next_btn.config(command=on_next)
+
+            # Load first page (no history)
+            load_page(None)
+
+        elif report_data.report_type == 'sales_log':
+            columns = ('transaction_id', 'receipt_number', 'date', 'time', 'amount', 'payment_method', 'items_summary')
+            tree = ttk.Treeview(report_card, columns=columns, show='headings', height=12)
+            for col in columns:
+                tree.heading(col, text=col.replace('_', ' ').title())
+                tree.column(col, anchor=tk.W, width=140)
+            tree.pack(fill=tk.BOTH, expand=True)
+
+            paging_frame = ttk.Frame(report_card, style=STYLES['frame'])
+            paging_frame.pack(fill=tk.X, pady=(6, 0))
+
+            prev_btn = ttk.Button(paging_frame, text='◀ Prev', state=tk.DISABLED)
+            prev_btn.pack(side=tk.LEFT)
+            next_btn = ttk.Button(paging_frame, text='Next ▶')
+            next_btn.pack(side=tk.LEFT, padx=(6, 0))
+            page_info_label = ttk.Label(paging_frame, text='')
+            page_info_label.pack(side=tk.LEFT, padx=(10, 0))
+
+            self._sales_paging = {'cursor': None, 'page_size': 20, 'history': [], 'total': None}
+
+            def load_sales(cursor=None, push_history: bool = False):
+                try:
+                    rows, next_cursor, meta = self.service.generate_report_page(
+                        'sales_log', report_data.start_date, report_data.end_date,
+                        page_size=self._sales_paging['page_size'], cursor=cursor, use_keyset=True
+                    )
+                    # clear tree
+                    for r in tree.get_children():
+                        tree.delete(r)
+                    for r in rows:
+                        tree.insert('', tk.END, values=(r.get('transaction_id'), r.get('receipt_number'), format_date(r.get('date')), r.get('time'), f"{r.get('amount',0):.2f}" if r.get('amount') is not None else '', r.get('payment_method'), r.get('items_summary')))
+
+                    if push_history:
+                        self._sales_paging['history'].append(self._sales_paging['cursor'])
+
+                    self._sales_paging['cursor'] = cursor
+                    prev_btn.config(state=tk.NORMAL if len(self._sales_paging['history']) > 0 else tk.DISABLED)
+                    next_btn.config(state=tk.NORMAL if next_cursor else tk.DISABLED)
+                    next_btn._next_cursor = next_cursor
+
+                    page_num = len(self._sales_paging['history']) + 1
+                    page_info_label.config(text=f"Page {page_num} ({len(rows)} rows)")
+                except Exception as e:
+                    logger.error(f"Error loading sales page: {e}")
+
+            prev_btn.config(command=lambda: load_sales(self._sales_paging['history'].pop() if self._sales_paging['history'] else None))
+            next_btn.config(command=lambda: load_sales(next_btn._next_cursor, push_history=True))
+
+            load_sales(None)
+
+        elif report_data.report_type == 'reconciliation_details':
+            columns = ('session_id', 'reconciliation_date', 'status', 'total_system_sales', 'total_actual_cash', 'total_variance')
+            tree = ttk.Treeview(report_card, columns=columns, show='headings', height=12)
+            for col in columns:
+                tree.heading(col, text=col.replace('_', ' ').title())
+                tree.column(col, anchor=tk.W, width=140)
+            tree.pack(fill=tk.BOTH, expand=True)
+
+            paging_frame = ttk.Frame(report_card, style=STYLES['frame'])
+            paging_frame.pack(fill=tk.X, pady=(6, 0))
+
+            prev_btn = ttk.Button(paging_frame, text='◀ Prev', state=tk.DISABLED)
+            prev_btn.pack(side=tk.LEFT)
+            next_btn = ttk.Button(paging_frame, text='Next ▶')
+            next_btn.pack(side=tk.LEFT, padx=(6, 0))
+            page_info_label = ttk.Label(paging_frame, text='')
+            page_info_label.pack(side=tk.LEFT, padx=(10, 0))
+
+            self._recon_paging = {'cursor': None, 'page_size': 20}
+
+            # Message & action to display when no sessions match the selected filters (updated dynamically)
+            no_data_frame = ttk.Frame(report_card, style=STYLES['frame'])
+            no_data_label = ttk.Label(no_data_frame, text="", style=STYLES['body_label'])
+            no_data_label.pack(side=tk.LEFT, padx=(0, 8))
+            def _clear_filters_and_reload():
+                # reset the metadata status filter to 'all' and reload current page
+                report_data.metadata['status_filter'] = 'all'
+                try:
+                    load_recon(None)
+                except Exception:
+                    # If load_recon not yet defined, fallback to regenerating report
+                    self._generate_report_with_params(report_data.report_type, report_data.start_date, report_data.end_date, 'all')
+            clear_btn = ttk.Button(no_data_frame, text="Clear Filters", style=STYLES['secondary_button'], command=_clear_filters_and_reload)
+            clear_btn.pack(side=tk.LEFT)
+
+            def load_recon(cursor=None):
+                try:
+                    status_filter = report_data.metadata.get('status_filter', 'all')
+                    rows, next_cursor, meta = self.service.generate_report_page(
+                        'reconciliation_details', report_data.start_date, report_data.end_date,
+                        page_size=self._recon_paging['page_size'], cursor=cursor, status_filter=status_filter, use_keyset=False
+                    )
+
+                    # Clear previous rows
+                    for r in tree.get_children():
+                        tree.delete(r)
+
+                    # If rows empty, show friendly message and disable paging
+                    if not rows:
+                        # Ensure tree is hidden and message shown
+                        try:
+                            tree.pack_forget()
+                        except Exception:
+                            pass
+                        from utils.date_utils import parse_date_flexible, format_date
+                        try:
+                            start_display = format_date(parse_date_flexible(report_data.start_date))
+                            end_display = format_date(parse_date_flexible(report_data.end_date))
+                            msg = f"No reconciliation sessions found for {start_display} to {end_display} with status '{status_filter}'."
+                        except Exception:
+                            msg = f"No reconciliation sessions found for {report_data.start_date} to {report_data.end_date} with status '{status_filter}'."
+                        no_data_label.config(text=msg)
+                        logger.info(msg)
+                        if not no_data_frame.winfo_ismapped():
+                            no_data_frame.pack(fill=tk.BOTH, expand=True, pady=(20, 0))
+
+                        prev_btn.config(state=tk.DISABLED)
+                        next_btn.config(state=tk.DISABLED)
+                        page_info_label.config(text="No sessions to display")
+
+                        # Update paging state to reflect empty dataset
+                        self._recon_paging['cursor'] = cursor
+                        prev_btn._prev_cursor = None
+                        next_btn._next_cursor = None
+                        return
+
+                    # We have rows: ensure table visible and message hidden
+                    if no_data_frame.winfo_ismapped():
+                        try:
+                            no_data_frame.pack_forget()
+                        except Exception:
+                            pass
+                    if not tree.winfo_ismapped():
+                        tree.pack(fill=tk.BOTH, expand=True)
+
+                    # Insert rows
+                    for r in rows:
+                        tree.insert('', tk.END, values=(r.session_id, format_date(r.reconciliation_date), r.status, f"{r.total_system_sales:.2f}", f"{r.total_actual_cash:.2f}", f"{r.total_variance:.2f}"))
+
+                    # Update pagination controls
+                    prev_btn.config(state=tk.NORMAL if cursor and cursor.isdigit() and int(cursor) > 0 else tk.DISABLED)
+                    next_btn.config(state=tk.NORMAL if next_cursor else tk.DISABLED)
+                    self._recon_paging['cursor'] = cursor
+                    page_info_label.config(text=f"Showing {cursor or 0} - {int(cursor or 0) + len(rows)}")
+                    prev_btn._prev_cursor = str(max(0, int(cursor or 0) - self._recon_paging['page_size'])) if cursor and cursor.isdigit() else None
+                    next_btn._next_cursor = next_cursor
+                except Exception as e:
+                    logger.error(f"Error loading reconciliation page: {e}")
+                    # On error, ensure the UI shows the table placeholder and an error message
+                    try:
+                        if no_data_label.winfo_ismapped():
+                            no_data_label.pack_forget()
+                    except Exception:
+                        pass
+                    try:
+                        if not tree.winfo_ismapped():
+                            tree.pack(fill=tk.BOTH, expand=True)
+                    except Exception:
+                        pass
+                    prev_btn.config(state=tk.DISABLED)
+                    next_btn.config(state=tk.DISABLED)
+                    page_info_label.config(text="Error loading sessions")
+
+            prev_btn.config(command=lambda: load_recon(prev_btn._prev_cursor))
+            next_btn.config(command=lambda: load_recon(next_btn._next_cursor))
+
+            load_recon(None)
+
+        else:
+            # Modern, parsed report rendering (replaces raw text widget)
+            # - Removes ASCII boxing/separators
+            # - Renders KPIs as cards, tabular sections as Treeviews and clean paragraphs
+            text_frame = ttk.Frame(report_card, style=STYLES['frame'])
+            text_frame.pack(fill=tk.BOTH, expand=True)
+
+            # Scrollable canvas to host variable report content
+            canvas = tk.Canvas(text_frame, bg=COLORS['background'], highlightthickness=0)
+            vsb = ttk.Scrollbar(text_frame, orient="vertical", command=canvas.yview)
+            canvas.configure(yscrollcommand=vsb.set)
+            vsb.pack(side=tk.RIGHT, fill=tk.Y)
+            canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+            inner = tk.Frame(canvas, bg=COLORS['background'])
+            canvas_window = canvas.create_window((0, 0), window=inner, anchor='nw')
+
+            def _on_frame_configure(event):
+                canvas.configure(scrollregion=canvas.bbox('all'))
+            inner.bind('<Configure>', _on_frame_configure)
+
+            # Helper: create KPI cards
+            def _add_kpi_row(kvs):
+                row = tk.Frame(inner, bg=COLORS['background'])
+                row.pack(fill=tk.X, pady=(0, 12))
+                for i, (k, v) in enumerate(kvs):
+                    # Create a simple card-like frame
+                    card = tk.Frame(row, bg=COLORS['surface'], relief='raised', borderwidth=1)
+                    card.pack(side=tk.LEFT, expand=True, fill=tk.BOTH, padx=(0, 10))
+
+                    tk.Label(card, text=k, font=('Segoe UI', FONT_SIZES['caption'], 'bold'),
+                            bg=COLORS['surface'], fg=COLORS['text_light']).pack(anchor=tk.W, padx=8, pady=(8, 0))
+
+                    val_text = ''
+                    if isinstance(v, (int, float)) and 'sales' in k.lower():
+                        val_text = f"{report_data.currency_symbol}{v:,.2f}"
+                    else:
+                        val_text = str(v)
+
+                    tk.Label(card, text=val_text, font=('Segoe UI', FONT_SIZES['large_value'], 'bold'),
+                            bg=COLORS['surface'], fg=COLORS['primary']).pack(anchor=tk.W, padx=8, pady=(4, 8))
+
+            # Helper: create a simple Treeview table
+            def _add_table(title, columns, rows, col_widths=None, numeric_cols=None):
+                if title:
+                    tk.Label(inner, text=title, font=('Segoe UI', FONT_SIZES['subheader'], 'bold'),
+                            bg=COLORS['background'], fg=COLORS['text']).pack(anchor=tk.W, pady=(6, 6))
+
+                # Create treeview with proper styling
+                tree = ttk.Treeview(inner, columns=columns, show='headings', height=min(len(rows) or 5, 12))
+
+                # Configure columns
+                for idx, col in enumerate(columns):
+                    tree.heading(col, text=col)
+                    width = 100  # default width
+                    if col_widths and idx < len(col_widths):
+                        width = col_widths[idx]
+                    anchor = tk.E if numeric_cols and col in numeric_cols else tk.W
+                    tree.column(col, anchor=anchor, width=width)
+
+                tree.pack(fill=tk.BOTH, expand=True)
+
+                # Populate data
+                for r in rows:
+                    tree.insert('', tk.END, values=r)
+
+                # Add alternating row colors
+                try:
+                    tree.tag_configure('odd', background=COLORS['surface'])
+                    tree.tag_configure('even', background=COLORS['background'])
+                    for i, iid in enumerate(tree.get_children()):
+                        tree.item(iid, tags=('odd' if i % 2 == 0 else 'even',))
+                except Exception:
+                    pass
+
+            # Build UI from structured ReportData where possible (preferred)
+            try:
+                # Create a temporary report data object with paginated data
+                paginated_report_data = ReportData(
+                    report_data.report_type,
+                    report_data.start_date,
+                    report_data.end_date,
+                    paginated_data,
+                    {**report_data.metadata, 'page_info': page_info}
+                )
+
+                # SALES / FINANCIAL / CATEGORY / RECONCILIATION views get richer widget layouts
+                if report_data.report_type in ('daily', 'range', 'sales', 'profit', 'category', 'payment_methods', 'voided', 'sales_log', 'reconciliation_summary', 'reconciliation_details'):
+                    md = report_data.metadata or {}
+
+                    # Different KPI sets based on report type
+                    if report_data.report_type in ('reconciliation_summary', 'reconciliation_details'):
+                        # Reconciliation KPIs
+                        kpis = [
+                            ('Total Sessions', md.get('session_count', 0)),
+                            ('Completed Sessions', md.get('completed_sessions', 0)),
+                            ('Sessions with Variance', md.get('sessions_with_variance', 0)),
+                            ('Review Completion Rate', f"{md.get('reviewed_sessions', 0) / max(md.get('session_count', 1), 1) * 100:.1f}%")
+                        ]
+                        _add_kpi_row(kpis)
+
+                        # Financial summary for reconciliation
+                        if report_data.report_type == 'reconciliation_summary':
+                            fin_kpis = [
+                                ('Total System Amount', md.get('total_system', 0)),
+                                ('Total Actual Amount', md.get('total_actual', 0)),
+                                ('Total Variance', md.get('total_variance', 0)),
+                                ('Unexplained Variance', md.get('unexplained_variance_total', 0))
+                            ]
+                            _add_kpi_row(fin_kpis)
+
+                        # Sessions table
+                        if paginated_data:
+                            rows = []
+                            for session in paginated_data:
+                                if isinstance(session, dict):
+                                    date_raw = session.get('created_at') or session.get('reconciliation_date')
+                                    if isinstance(date_raw, str) and 'T' in date_raw:
+                                        date = format_date(date_raw.split('T')[0])
+                                    else:
+                                        date = format_date(date_raw) if date_raw else 'N/A'
+
+                                    status_name = (session.get('status') or '').title()
+                                    system_amt = session.get('total_system_sales') or session.get('total_system') or 0
+                                    actual_amt = session.get('total_actual_cash') or session.get('total_actual') or 0
+                                    variance = session.get('total_variance') or 0
+                                else:
+                                    date = format_date(session.created_at.date()) if getattr(session, 'created_at', None) else 'N/A'
+                                    status_name = session.status.title() if getattr(session, 'status', None) else ''
+                                    system_amt = getattr(session, 'total_system_amount', 0) or 0
+                                    actual_amt = getattr(session, 'total_actual_amount', 0) or 0
+                                    variance = getattr(session, 'total_variance', 0) or 0
+
+                                rows.append((date, status_name, f"{report_data.currency_symbol}{system_amt:.2f}",
+                                           f"{report_data.currency_symbol}{actual_amt:.2f}", f"{report_data.currency_symbol}{variance:.2f}"))
+
+                            _add_table('Reconciliation Sessions', ['Date', 'Status', 'System Amount', 'Actual Amount', 'Variance'], rows,
+                                     col_widths=[100, 100, 120, 120, 120], numeric_cols=['System Amount', 'Actual Amount', 'Variance'])
+
+                    else:
+                        # Sales/Financial KPIs
+                        kpis = [
+                            ('Total Sales', md.get('total_sales', 0)),
+                            ('Total Units', md.get('total_items', 0)),
+                            ('Transactions', md.get('unique_transactions', 0)),
+                            ('Records', page_info.get('total_items', 0))
+                        ]
+                        _add_kpi_row(kpis)
+
+                        # Top items table (if present)
+                        top_items = md.get('top_items') or []
+                        if top_items:
+                            rows = []
+                            for i, it in enumerate(top_items, 1):
+                                rows.append((i, it.get('name', ''), it.get('quantity', 0), f"{report_data.currency_symbol}{it.get('total', 0):.2f}"))
+                            _add_table('Top Items Sold', ['#', 'Item Name', 'Qty', 'Total'], rows,
+                                     col_widths=[40, 250, 60, 100], numeric_cols=['Qty', 'Total'])
+
+                        # Detailed records as table
+                        if paginated_data:
+                            rows = []
+                            for it in paginated_data:
+                                timestamp = f"{format_date(it.get('date',''))} {it.get('time','')}"[:19]
+                                rows.append((timestamp, it.get('receipt_number','N/A'), it.get('item_name',''),
+                                           it.get('quantity',0), f"{report_data.currency_symbol}{it.get('price',0):.2f}",
+                                           f"{report_data.currency_symbol}{it.get('total',0):.2f}"))
+                            _add_table('Detailed Records', ['Time', 'Receipt', 'Item', 'Qty', 'Price', 'Total'], rows,
+                                     col_widths=[140, 100, 200, 60, 100, 100], numeric_cols=['Qty','Price','Total'])
+
+                else:
+                    # Fallback: parse formatter text and render clean labels/tables (strip ASCII separators)
+                    formatter = self._get_formatter_for_report(paginated_report_data)
+                    content = formatter.format_report()
+                    lines = [ln for ln in content.split('\n') if not all(c in '-=|_+ \\t' for c in ln)]
+
+                    current_table = None
+                    table_headers = None
+                    table_rows = []
+
+                    for ln in lines:
+                        ln = ln.rstrip()
+                        if not ln:
+                            # flush any pending table
+                            if table_headers and table_rows:
+                                _add_table(None, table_headers, table_rows)
+                                table_headers = None
+                                table_rows = []
+                            continue
+
+                        # Section headers
+                        if ln.isupper() and len(ln.split()) <= 6:
+                            tk.Label(inner, text=ln.title(), font=('Segoe UI', FONT_SIZES['subheader'], 'bold'),
+                                    bg=COLORS['background'], fg=COLORS['text']).pack(anchor=tk.W, pady=(8, 4))
+                            continue
+
+                        # Key-value lines
+                        if ':' in ln and len(ln.split(':', 1)[0]) < 30:
+                            k, v = ln.split(':', 1)
+                            fr = tk.Frame(inner, bg=COLORS['background'])
+                            fr.pack(fill=tk.X, pady=(0, 2))
+                            tk.Label(fr, text=k.strip()+':', font=('Segoe UI', FONT_SIZES['caption'], 'bold'),
+                                    bg=COLORS['background'], fg=COLORS['text_light']).pack(side=tk.LEFT)
+                            tk.Label(fr, text=v.strip(), font=('Segoe UI', FONT_SIZES['body']),
+                                    bg=COLORS['background'], fg=COLORS['text']).pack(side=tk.LEFT, padx=(8,0))
+                            continue
+
+                        # Table detection — header with multiple columns separated by 2+ spaces
+                        parts = [p for p in ln.split('  ') if p.strip()]
+                        if len(parts) > 1 and all(len(p.strip()) > 0 for p in parts):
+                            if not table_headers:
+                                table_headers = [p.strip() for p in parts]
+                                table_rows = []
+                            else:
+                                # row
+                                row_cells = [p.strip() for p in parts]
+                                # pad to header length
+                                while len(row_cells) < len(table_headers):
+                                    row_cells.append('')
+                                table_rows.append(tuple(row_cells))
+                            continue
+
+                        # Plain paragraph
+                        tk.Label(inner, text=ln, font=('Segoe UI', FONT_SIZES['body']),
+                                bg=COLORS['background'], fg=COLORS['text'], wraplength=800, justify=tk.LEFT).pack(anchor=tk.W, pady=(0,2))
+
+                    # flush any remaining table
+                    if table_headers and table_rows:
+                        _add_table(None, table_headers, table_rows)
+
+            except Exception as e:
+                logger.exception(f"Error rendering modern report view: {e}")
+                # Fallback to simple cleaned text
+                fallback = tk.Frame(inner, bg=COLORS['background'])
+                fallback.pack(fill=tk.BOTH, expand=True)
+                try:
+                    formatter = self._get_formatter_for_report(ReportData(report_data.report_type, report_data.start_date, report_data.end_date, paginated_data, {**report_data.metadata, 'page_info': page_info}))
+                    content = formatter.format_report()
+                    cleaned = '\n'.join([ln for ln in content.split('\n') if not all(c in '-=|_+ \\t' for c in ln)])
+                    tk.Label(fallback, text=cleaned, font=('Segoe UI', FONT_SIZES['body']),
+                            bg=COLORS['background'], fg=COLORS['text'], wraplength=800, justify=tk.LEFT).pack(anchor=tk.W)
+                except Exception:
+                    tk.Label(fallback, text="Unable to render report.", font=('Segoe UI', FONT_SIZES['body']),
+                            bg=COLORS['background'], fg=COLORS['text']).pack(anchor=tk.W)
+
+        # Add export buttons for each report
+        export_frame = ttk.Frame(report_card, style=STYLES['frame'])
+        export_frame.pack(fill=tk.X, pady=(10, 0))
+
+        ttk.Label(export_frame, text="📊 Data Management:", style=STYLES['body_label']).pack(side=tk.LEFT, padx=(0, 10))
+
+        # Export buttons
+        ttk.Button(export_frame, text="📄 CSV", style=STYLES['action_button'],
+                  command=lambda rd=report_data: self._export_report(rd, 'csv')).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(export_frame, text="📊 Excel", style=STYLES['action_button'],
+                  command=lambda rd=report_data: self._export_report(rd, 'xlsx')).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(export_frame, text="📋 PDF", style=STYLES['action_button'],
+                  command=lambda rd=report_data: self._export_report(rd, 'pdf')).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(export_frame, text="📝 Text", style=STYLES['action_button'],
+                  command=lambda rd=report_data: self._export_report(rd, 'txt')).pack(side=tk.LEFT)
+
+        # Header click bindings: single click for date presets/special-case, double-click toggles details
+        title_label.bind("<Button-1>", lambda e, rt=report_data.report_type: self._on_header_click(rt))
+        title_label.bind("<Double-Button-1>", lambda e, rd=report_data: self._on_header_double_click(e.widget, rd))
+
+    def _on_header_click(self, report_type: str) -> None:
+        """Handle header single-click: same semantics as single report click."""
+        # Delegate to same behavior as clicking a report button
+        if report_type == 'daily':
+            self._set_today()
+            self._generate_report_type(report_type)
+            return
+        self._show_date_preset_popup(report_type)
+
+    def _on_header_double_click(self, widget, report_data: ReportData) -> None:
+        """Handle header double-click: special-case daily reports, otherwise toggle details."""
+        # If this header corresponds to a 'daily' report type, honor immediate generation
+        self._on_header_click(report_data.report_type)
+
+        # Toggle visibility of the attached report card
+        report_card = getattr(widget, 'report_card', None)
+        try:
+            if report_card and report_card.winfo_ismapped():
+                report_card.pack_forget()
+            elif report_card:
+                report_card.pack(fill=tk.BOTH, expand=True)
+        except Exception as e:
+            logger.debug(f"Error toggling report details: {e}")
+            # If toggling fails, ensure details are visible
+            try:
+                if report_card:
+                    report_card.pack(fill=tk.BOTH, expand=True)
+            except Exception:
+                pass
+
+
+    def _show_error(self, message: str) -> None:
+        """Show error message in the report area."""
+        self._clear_report_area()
+
+        error_frame = ttk.Frame(self.content_frame, style=STYLES['frame'])
+        error_frame.pack(expand=True, fill=tk.BOTH)
+
+        ttk.Label(error_frame, text="❌ Error", style=STYLES['subheader_label'],
+                foreground=COLORS['danger']).pack(pady=(20, 10))
+
+        ttk.Label(error_frame, text=message, style=STYLES['body_label']).pack(pady=(0, 20))
+
+        ttk.Button(error_frame, text="Try Again", style=STYLES['secondary_button'],
+                 command=self._generate_report).pack()
+
+    def _refresh_current_view(self) -> None:
+        """Refresh the current view."""
+        category = self.selected_category.get()
+        if category == "overview":
+            self._show_overview()
+        elif category == "sales":
+            self._show_sales_category()
+        elif category == "financial":
+            self._show_financial_category()
+        elif category == "inventory":
+            self._show_inventory_category()
+        elif category == "reconciliation":
+            self._show_reconciliation_category()
+
+    def _get_date_range_text(self) -> str:
+        """Get formatted date range text."""
+        start = self.start_date.get()
+        end = self.end_date.get()
+        if start == end:
+            return f"Date: {start}"
+        else:
+            return f"Range: {start} to {end}"
+
+    # Date helper methods
     def _set_today(self) -> None:
-        today = datetime.now().strftime("%Y-%m-%d")
+        today = format_date(datetime.now())
         self.start_date.set(today)
         self.end_date.set(today)
+        if hasattr(self, 'date_display'):
+            self.date_display.config(text=self._get_date_range_text())
 
     def _set_this_week(self) -> None:
         today = datetime.now()
-        start = (today - timedelta(days=today.weekday())).strftime("%Y-%m-%d")
-        end = today.strftime("%Y-%m-%d")
-        self.start_date.set(start)
-        self.end_date.set(end)
+        start_of_week = today - timedelta(days=today.weekday())
+        end_of_week = start_of_week + timedelta(days=6)
+        self.start_date.set(format_date(start_of_week))
+        self.end_date.set(format_date(end_of_week))
+        if hasattr(self, 'date_display'):
+            self.date_display.config(text=self._get_date_range_text())
 
     def _set_this_month(self) -> None:
         today = datetime.now()
-        start = today.replace(day=1).strftime("%Y-%m-%d")
-        end = today.strftime("%Y-%m-%d")
-        self.start_date.set(start)
-        self.end_date.set(end)
+        start_of_month = today.replace(day=1)
+        next_month = start_of_month.replace(month=start_of_month.month % 12 + 1, day=1)
+        end_of_month = next_month - timedelta(days=1)
+        self.start_date.set(format_date(start_of_month))
+        self.end_date.set(format_date(end_of_month))
+        if hasattr(self, 'date_display'):
+            self.date_display.config(text=self._get_date_range_text())
 
-    def _generate_report(self) -> None:
-        self.report_text.delete("1.0", tk.END)
-        
-        report_type = self.report_type.get()
-        start = self.start_date.get()
-        end = self.end_date.get()
+    def _set_last_7_days(self) -> None:
+        today = datetime.now()
+        start_date = today - timedelta(days=6)
+        self.start_date.set(format_date(start_date))
+        self.end_date.set(format_date(today))
+        if hasattr(self, 'date_display'):
+            self.date_display.config(text=self._get_date_range_text())
 
-        try:
-            if report_type == "daily":
-                self._show_daily_report(start)
-            elif report_type == "range":
-                self._show_range_report(start, end)
-            elif report_type == "bestsellers":
-                self._show_bestsellers_report(start, end)
-            elif report_type == "profit":
-                self._show_profit_report(start, end)
-            elif report_type == "category":
-                self._show_category_report(start, end)
-            elif report_type == "transactions":
-                self._show_transactions_report(start, end)
-            elif report_type == "payment_methods":
-                self._show_payment_methods_report(start, end)
-            elif report_type == "trends":
-                self._show_trends_report(start, end)
-            elif report_type == "voided":
-                self._show_voided_report(start, end)
-            elif report_type == "sales_log":
-                self._show_sales_log_report(start, end)
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to generate report: {e}")
+    def _set_last_30_days(self) -> None:
+        today = datetime.now()
+        start_date = today - timedelta(days=29)
+        self.start_date.set(format_date(start_date))
+        self.end_date.set(format_date(today))
+        if hasattr(self, 'date_display'):
+            self.date_display.config(text=self._get_date_range_text())
 
-    def _show_daily_report(self, date: str) -> None:
-        sales = reports.get_daily_sales(date)
-        summary = reports.get_sales_summary(date, date)
-        refunds = reports.get_refunds(date, date)
-        currency_code = get_currency_code()
+    def _set_last_90_days(self) -> None:
+        today = datetime.now()
+        start_date = today - timedelta(days=89)
+        self.start_date.set(format_date(start_date))
+        self.end_date.set(format_date(today))
+        if hasattr(self, 'date_display'):
+            self.date_display.config(text=self._get_date_range_text())
 
-        output = f"DAILY SALES REPORT - {date}\n"
-        output += "=" * 70 + "\n\n"
-        output += f"Total Transactions: {summary.get('total_transactions', 0) or 0}\n"
-        output += f"Total Sales: {currency_code} {summary.get('total_sales', 0) or 0:.2f}\n"
-        output += f"Refunds Issued: {len(refunds)} | Amount: {currency_code} {sum(r['refund_amount'] for r in refunds):.2f}\n"
-        output += f"Average Transaction: {summary.get('avg_transaction', 0) or 0:.2f}\n"
-        output += "\n" + "-" * 70 + "\n"
-        output += f"{'Time':<12} {'Receipt #':<20} {'Items':<8} {'Total':<12}".replace('Total', f'Total ({currency_code})') + "\n"
-        output += "-" * 70 + "\n"
-        
-        for sale in sales:
-            receipt = sale.get('receipt_number', f"#{sale['sale_id']}")
-            output += f"{sale['time']:<12} {receipt:<20} {sale['item_count']:<8} {currency_code} {sale['total']:<12.2f}\n"
+    def _show_date_preset_popup(self, report_type: str) -> None:
+        """Show quick date preset popup for reports (not used for 'daily')."""
+        if report_type == 'daily':
+            # Daily already uses today, so just set and generate
+            self._set_today()
+            self._generate_report_type(report_type)
+            return
 
-        # Refunds section
-        output += "\n" + "REFUNDS" + "\n"
-        output += "-" * 70 + "\n"
-        if not refunds:
-            output += "No refunds for this date.\n"
-        else:
-            output += f"{'Time':<12} {'Refund #':<20} {'Orig Receipt':<20} {'Refunded':<12}".replace('Refunded', f'Refunded ({currency_code})') + "\n"
-            output += "-" * 70 + "\n"
-            for r in refunds:
-                receipt = r.get('receipt_number', f"#{r['original_sale_id']}")
-                time_part = r['created_at'].split()[1] if ' ' in r['created_at'] else r['created_at']
-                output += f"{time_part:<12} {r.get('refund_code',''):<20} {receipt:<20} {currency_code} {r['refund_amount']:<12.2f}\n"
-        
-        self.report_text.insert("1.0", output)
-
-    def _show_range_report(self, start: str, end: str) -> None:
-        currency_code = get_currency_code()
-        daily_sales = reports.get_date_range_sales(start, end)
-        summary = reports.get_sales_summary(start, end)
-        refunds = reports.get_refunds(start, end)
-        
-        output = f"DATE RANGE SALES REPORT\n"
-        output += f"Period: {start} to {end}\n"
-        output += "=" * 60 + "\n\n"
-        output += f"Total Transactions: {summary.get('total_transactions', 0) or 0}\n"
-        output += f"Total Sales: {currency_code} {summary.get('total_sales', 0) or 0:.2f}\n"
-        output += f"Refunds Issued: {len(refunds)} | Amount: {currency_code} {sum(r['refund_amount'] for r in refunds):.2f}\n"
-        output += f"Average Transaction: {summary.get('avg_transaction', 0) or 0:.2f}\n"
-        output += "\n" + "-" * 60 + "\n"
-        output += f"{'Date':<12} {'Trans.':<10} {'Total Sales':<15} {'Avg Sale':<12}".replace('Total Sales', f'Total Sales ({currency_code})').replace('Avg Sale', f'Avg Sale ({currency_code})') + "\n"
-        output += "-" * 60 + "\n"
-        
-        for day in daily_sales:
-            output += f"{day['date']:<12} {day['transactions']:<10} {currency_code} {day['total_sales']:<15.2f} {currency_code} {day['avg_sale']:<12.2f}\n"
-
-        # Refunds section
-        output += "\n" + "REFUNDS" + "\n"
-        output += "-" * 60 + "\n"
-        if not refunds:
-            output += "No refunds in this period.\n"
-        else:
-            output += f"{'Date':<12} {'Refund #':<18} {'Orig Receipt':<18} {'Refunded':<12}".replace('Refunded', f'Refunded ({currency_code})') + "\n"
-            output += "-" * 60 + "\n"
-            for r in refunds:
-                date_part = r['created_at'].split()[0] if ' ' in r['created_at'] else r['created_at']
-                receipt = r.get('receipt_number', f"#{r['original_sale_id']}")
-                output += f"{date_part:<12} {r.get('refund_code',''):<18} {receipt:<18} {currency_code} {r['refund_amount']:<12.2f}\n"
-        
-        self.report_text.insert("1.0", output)
-
-    def _show_bestsellers_report(self, start: str, end: str) -> None:
-        currency_code = get_currency_code()
-        items = reports.get_best_selling_items(start, end, limit=20)
-        
-        output = f"BEST-SELLING ITEMS REPORT\n"
-        output += f"Period: {start} to {end}\n"
-        output += "=" * 80 + "\n\n"
-        output += f"{'Rank':<6} {'Item Name':<25} {'Category':<15} {'Qty Sold':<12} {'Revenue':<12} {'Profit':<12}\n"
-        output += "-" * 80 + "\n"
-        
-        for idx, item in enumerate(items, 1):
-            cat = item.get('category') or 'N/A'
-            # Use qty_display for proper unit formatting (e.g., "2.5 L" or "10")
-            qty_display = item.get('qty_display', str(item.get('total_sold', 0)))
-            output += f"{idx:<6} {item['name']:<25} {cat:<15} {qty_display:<12} {currency_code} {item['revenue']:<12.2f} {currency_code} {item.get('profit', 0) or 0:<12.2f}\n"
-        
-        self.report_text.insert("1.0", output)
-
-    def _show_profit_report(self, start: str, end: str) -> None:
-        currency_code = get_currency_code()
-        analysis = reports.get_profit_analysis(start, end)
-        
-        output = f"PROFIT & LOSS ANALYSIS\n"
-        output += f"Period: {start} to {end}\n"
-        output += "=" * 60 + "\n\n"
-        output += f"Total Revenue:        {currency_code} {analysis.get('total_revenue', 0) or 0:>15.2f}\n"
-        output += f"Cost of Goods Sold:   {currency_code} {analysis.get('total_cost', 0) or 0:>15.2f}\n"
-        output += "\n"
-        output += f"Gross Profit:         {currency_code} {analysis.get('gross_profit', 0) or 0:>15.2f}\n\n"
-        output += f"Total Expenses:       {currency_code} {analysis.get('total_expenses', 0) or 0:>15.2f}\n"
-        output += "\n"
-        output += f"Net Profit:           {currency_code} {analysis.get('net_profit', 0) or 0:>15.2f}\n\n"
-        output += f"Profit Margin:        {analysis.get('profit_margin', 0) or 0:>14.2f}%\n"
-        
-        self.report_text.insert("1.0", output)
-
-    def _show_category_report(self, start: str, end: str) -> None:
-        currency_code = get_currency_code()
-        categories = reports.get_category_sales(start, end)
-        
-        output = f"SALES BY CATEGORY REPORT\n"
-        output += f"Period: {start} to {end}\n"
-        output += "=" * 70 + "\n\n"
-        output += f"{'Category':<20} {'Items Sold':<12} {'Revenue':<15} {'Transactions':<12}\n"
-        output += "-" * 70 + "\n"
-        
-        for cat in categories:
-            qty = int(cat['total_quantity'])
-            output += f"{cat['category']:<20} {qty:<12} {currency_code} {cat['total_revenue']:<15.2f} {cat['transactions']:<12}\n"
-        
-        self.report_text.insert("1.0", output)
-
-    def _show_transactions_report(self, start: str, end: str) -> None:
-        """Show detailed sales transactions with line items, including voided sales and refunds."""
-        currency_code = get_currency_code()
-        transactions = reports.get_detailed_sales_transactions(start, end)
-
-        output = f"DETAILED SALES TRANSACTIONS (Including Voids & Refunds)\n"
-        output += f"Period: {start} to {end}\n"
-        output += "=" * 100 + "\n\n"
-
-        current_sale_id = None
-        current_transaction_type = None
-
-        for transaction in transactions:
-            transaction_type = transaction.get('transaction_type', 'sale')
-
-            # Start new transaction block
-            if transaction['sale_id'] != current_sale_id or transaction_type != current_transaction_type:
-                if current_sale_id is not None:
-                    output += "\n"
-
-                # Determine transaction type label
-                type_label = ""
-                if transaction_type == 'void':
-                    type_label = "[VOIDED] "
-                elif transaction_type == 'refund':
-                    type_label = "[REFUND] "
-
-                output += f"{type_label}Receipt: {transaction['receipt_number']} | Date: {transaction['date']} {transaction['time']} | Total: {currency_code} {transaction['total']:.2f}\n"
-
-                # Payment info (only for sales and voids)
-                if transaction_type in ['sale', 'void']:
-                    payment = transaction.get('payment')
-                    payment_method = transaction.get('payment_method', 'Cash')
-                    if payment is not None:
-                        output += f"Payment: {currency_code} {payment:.2f} ({payment_method})\n"
-                    else:
-                        output += f"Payment: Not recorded ({payment_method})\n"
-
-                # Void/refund reason
-                if transaction_type == 'void' and transaction.get('void_reason'):
-                    output += f"Void Reason: {transaction['void_reason']}\n"
-                elif transaction_type == 'refund' and transaction.get('refund_reason'):
-                    output += f"Refund Reason: {transaction['refund_reason']}\n"
-
-                output += "-" * 80 + "\n"
-                current_sale_id = transaction['sale_id']
-                current_transaction_type = transaction_type
-
-            # Item line (skip for refunds as they don't have detailed line items)
-            if transaction_type != 'refund':
-                output += f"  {transaction['item_name']:<30} {transaction['category']:<15} Qty:{transaction['quantity']:<8} Price:{currency_code} {transaction['price']:<8.2f} Total:{currency_code} {transaction['line_total']:<8.2f}\n"
+        # Check if a popup is already open
+        if self._date_preset_popup is not None and self._date_preset_popup.winfo_exists():
+            # If popup exists but is for a different page, close it first
+            if self._popup_page != self.selected_category.get():
+                try:
+                    self._date_preset_popup.destroy()
+                except:
+                    pass
+                self._date_preset_popup = None
+                self._popup_page = None
             else:
-                # For refunds, show the refund amount as a single line
-                output += f"  Refund Amount: {currency_code} {transaction['refund_amount']:.2f}\n"
-
-        if not transactions:
-            output += "No transactions found in this period.\n"
-
-        self.report_text.insert("1.0", output)
-
-    def _show_payment_methods_report(self, start: str, end: str) -> None:
-        """Show sales breakdown by payment method."""
-        currency_code = get_currency_code()
-        payment_data = reports.get_sales_by_payment_method(start, end)
-        
-        output = f"SALES BY PAYMENT METHOD\n"
-        output += f"Period: {start} to {end}\n"
-        output += "=" * 80 + "\n\n"
-        output += f"{'Payment Method':<15} {'Transactions':<12} {'Total Sales':<15} {'Avg Sale':<12} {'Min Sale':<12} {'Max Sale':<12}\n"
-        output += "-" * 80 + "\n"
-        
-        total_transactions = 0
-        total_sales = 0
-        
-        for payment in payment_data:
-            method = payment['payment_method']
-            transactions = payment['transaction_count']
-            sales = payment['total_sales']
-            avg = payment['avg_transaction']
-            min_sale = payment['min_transaction']
-            max_sale = payment['max_transaction']
-            
-            output += f"{method:<15} {transactions:<12} {currency_code} {sales:<14.2f} {currency_code} {avg:<11.2f} {currency_code} {min_sale:<11.2f} {currency_code} {max_sale:<11.2f}\n"
-            
-            total_transactions += transactions
-            total_sales += sales
-        
-        output += "-" * 80 + "\n"
-        output += f"{'TOTAL':<15} {total_transactions:<12} {currency_code} {total_sales:<14.2f}\n"
-        
-        self.report_text.insert("1.0", output)
-
-    def _show_trends_report(self, start: str, end: str) -> None:
-        """Show sales performance trends over time."""
-        currency_code = get_currency_code()
-        trends = reports.get_sales_performance_trends(start, end, 'day')
-        
-        output = f"SALES PERFORMANCE TRENDS\n"
-        output += f"Period: {start} to {end} (Daily)\n"
-        output += "=" * 90 + "\n\n"
-        output += f"{'Date':<12} {'Trans.':<8} {'Sales':<12} {'Avg Sale':<12} {'Subtotal':<12} {'VAT':<10} {'Discounts':<10}\n"
-        output += "-" * 90 + "\n"
-        
-        for trend in trends:
-            date = trend['period_label']
-            transactions = trend['transactions']
-            sales = trend['total_sales']
-            avg_sale = trend['avg_sale']
-            subtotal = trend['subtotal']
-            vat = trend['total_vat']
-            discounts = trend['total_discounts']
-            
-            output += f"{date:<12} {transactions:<8} {currency_code} {sales:<11.2f} {currency_code} {avg_sale:<11.2f} {currency_code} {subtotal:<11.2f} {currency_code} {vat:<9.2f} {currency_code} {discounts:<9.2f}\n"
-        
-        if not trends:
-            output += "No sales data found in this period.\n"
-        
-        self.report_text.insert("1.0", output)
-
-    def _show_voided_report(self, start: str, end: str) -> None:
-        """Show comprehensive voided sales and refunds report."""
-        currency_code = get_currency_code()
-        comprehensive = reports.get_comprehensive_sales_summary(start, end)
-        voided_sales = reports.get_voided_sales(start, end)
-        voided_by_reason = reports.get_voided_sales_by_reason(start, end)
-        refunds_by_reason = reports.get_refunds_by_reason(start, end)
-        daily_voided = reports.get_daily_voided_and_refunds(start, end)
-        
-        output = f"VOIDED SALES & REFUNDS REPORT\n"
-        output += f"Period: {start} to {end}\n"
-        output += "=" * 80 + "\n\n"
-        
-        # Summary metrics
-        output += "SUMMARY METRICS\n"
-        output += "-" * 40 + "\n"
-        output += f"Valid Transactions: {comprehensive.get('valid_transactions', 0)}\n"
-        output += f"Valid Sales Amount: {currency_code} {comprehensive.get('valid_sales_amount', 0):.2f}\n"
-        output += f"Avg Valid Transaction: {currency_code} {comprehensive.get('avg_valid_transaction', 0):.2f}\n"
-        output += f"Voided Transactions: {comprehensive.get('voided_transactions', 0)}\n"
-        output += f"Voided Amount: {currency_code} {comprehensive.get('voided_amount', 0):.2f}\n"
-        output += f"Refund Count: {comprehensive.get('refund_count', 0)}\n"
-        output += f"Total Refunded: {currency_code} {comprehensive.get('total_refunded', 0):.2f}\n"
-        output += f"Net Sales: {currency_code} {comprehensive.get('net_sales', 0):.2f}\n"
-        output += f"Total Gross Sales: {currency_code} {comprehensive.get('total_gross_sales', 0):.2f}\n\n"
-        
-        # Voided sales by reason
-        if voided_by_reason:
-            output += "VOIDED SALES BY REASON\n"
-            output += "-" * 40 + "\n"
-            output += f"{'Reason':<20} {'Count':<8} {'Total Amount':<15}\n"
-            output += "-" * 40 + "\n"
-            for reason in voided_by_reason:
-                output += f"{reason['reason']:<20} {reason['count']:<8} {currency_code} {reason['total_amount']:<14.2f}\n"
-            output += "\n"
-        
-        # Refunds by reason
-        if refunds_by_reason:
-            output += "REFUNDS BY REASON\n"
-            output += "-" * 40 + "\n"
-            output += f"{'Reason':<20} {'Count':<8} {'Total Amount':<15}\n"
-            output += "-" * 40 + "\n"
-            for reason in refunds_by_reason:
-                output += f"{reason['reason']:<20} {reason['count']:<8} {currency_code} {reason['total_amount']:<14.2f}\n"
-            output += "\n"
-        
-        # Daily breakdown
-        if daily_voided:
-            output += "DAILY BREAKDOWN\n"
-            output += "-" * 40 + "\n"
-            output += f"{'Date':<12} {'Voided':<8} {'Void Amt':<12} {'Refunds':<8} {'Ref Amt':<12}\n"
-            output += "-" * 40 + "\n"
-            for day in daily_voided:
-                if day['voided_count'] > 0 or day['refund_count'] > 0:
-                    output += f"{day['date']:<12} {day['voided_count']:<8} {currency_code} {day['voided_amount']:<11.2f} {day['refund_count']:<8} {currency_code} {day['refunded_amount']:<11.2f}\n"
-            output += "\n"
-        
-        # Detailed voided sales
-        if voided_sales:
-            output += "DETAILED VOIDED SALES\n"
-            output += "-" * 80 + "\n"
-            output += f"{'Date':<12} {'Time':<10} {'Receipt #':<15} {'Items':<6} {'Amount':<12} {'Voided By':<15} {'Reason':<15}\n"
-            output += "-" * 80 + "\n"
-            for sale in voided_sales[:50]:  # Limit to 50 for readability
-                receipt = sale.get('receipt_number', f"#{sale['sale_id']}")[:14]
-                voided_by = sale.get('voided_by_username', 'Unknown')[:14]
-                reason = sale.get('void_reason', 'N/A')[:14]
-                output += f"{sale['date']:<12} {sale['time']:<10} {receipt:<15} {sale['item_count']:<6} {currency_code} {sale['total']:<11.2f} {voided_by:<15} {reason:<15}\n"
-            
-            if len(voided_sales) > 50:
-                output += f"\n... and {len(voided_sales) - 50} more voided sales\n"
-        
-        if not voided_sales and not voided_by_reason and not refunds_by_reason:
-            output += "No voided sales or refunds found in this period.\n"
-        
-        self.report_text.insert("1.0", output)
-
-    def _show_sales_log_report(self, start: str, end: str) -> None:
-        """Show comprehensive sales log with all transactions, refunds, and voids."""
-        currency_code = get_currency_code()
-
-        # Get total count for pagination info
-        total_count = reports.get_sales_log_count(start, end)
-
-        # Get paginated results (limit to reasonable amount for display)
-        transactions = reports.get_comprehensive_sales_log(start, end, limit=200, offset=0)
-
-        output = f"COMPREHENSIVE SALES LOG\n"
-        output += f"Period: {start} to {end}\n"
-        output += f"Total Transactions: {total_count}\n"
-        output += "=" * 140 + "\n\n"
-
-        output += f"{'Date':<12} {'Time':<10} {'Type':<8} {'Receipt/ID':<15} {'Amount':<12} {'Payment':<12} {'Change':<10} {'Method':<12} {'User':<15} {'Description':<30}\n"
-        output += "-" * 140 + "\n"
-
-        for transaction in transactions:
-            date = transaction.get('date', '')[:10]  # Extract date part
-            time_display = transaction.get('time_display', transaction.get('time', ''))[:8]  # Extract time part
-            trans_type = (transaction.get('transaction_type') or 'unknown')[:7].upper()  # SALE, VOID, REFUND
-            receipt_id = str(transaction.get('receipt_number', transaction.get('transaction_id', '')))[:14]
-            amount = f"{currency_code} {transaction.get('amount', 0):.2f}"
-            payment = f"{currency_code} {transaction.get('payment', 0):.2f}" if transaction.get('payment') else '-'
-            change = f"{currency_code} {transaction.get('change', 0):.2f}" if transaction.get('change') else '-'
-            method = (transaction.get('payment_method') or '-')[:11]
-            user = (transaction.get('user_name') or 'Unknown')[:14]
-            description = transaction.get('description', '')[:29]
-
-            output += f"{date:<12} {time_display:<10} {trans_type:<8} {receipt_id:<15} {amount:<12} {payment:<12} {change:<10} {method:<12} {user:<15} {description:<30}\n"
-
-            # Add additional details for sales transactions
-            if transaction.get('transaction_type') == 'sale' and transaction.get('items_summary'):
-                items = transaction['items_summary']
-                if len(items) > 60:  # Truncate long item lists
-                    items = items[:57] + "..."
-                output += f"{'':<12} {'':<10} {'':<8} {'Items:':<15} {items}\n"
-
-        if len(transactions) < total_count:
-            output += f"\n... and {total_count - len(transactions)} more transactions (showing first 200)\n"
-
-        if not transactions:
-            output += "No transactions found in this period.\n"
-
-        self.report_text.insert("1.0", output)
-
-    def refresh(self) -> None:
-        currency_code = get_currency_code()
-        report_type = self.report_type.get()
-        start = self.start_date.get()
-        end = self.end_date.get()
-
-        try:
-            if report_type == "daily":
-                self._show_daily_report(start)
-            elif report_type == "range":
-                self._show_range_report(start, end)
-            elif report_type == "bestsellers":
-                self._show_bestsellers_report(start, end)
-            elif report_type == "profit":
-                self._show_profit_report(start, end)
-            elif report_type == "category":
-                self._show_category_report(start, end)
-            elif report_type == "transactions":
-                self._show_transactions_report(start, end)
-            elif report_type == "payment_methods":
-                self._show_payment_methods_report(start, end)
-            elif report_type == "trends":
-                self._show_trends_report(start, end)
-            elif report_type == "voided":
-                self._show_voided_report(start, end)
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to generate report: {e}")
-
-    def _download_report(self) -> None:
-        """Download the current report as a text or CSV file with progress feedback for large datasets."""
-        content = self.report_text.get("1.0", tk.END).strip()
-        if not content:
-            messagebox.showwarning("No Report", "Please generate a report first")
-            return
-
-        # Determine report type from current selection
-        report_type = self.report_type.get()
-        start = self.start_date.get()
-        end = self.end_date.get()
-
-        filetypes = [("CSV files", "*.csv"), ("Text files", "*.txt"), ("Excel files", "*.xlsx"), ("All files", "*.*")]
-
-        filename = filedialog.asksaveasfilename(
-            title="Download Report",
-            defaultextension=".csv",
-            filetypes=filetypes,
-        )
-        if not filename:
-            return
-
-        try:
-            # Check if this is a potentially large dataset
-            is_large_dataset = self._is_large_dataset(report_type, start, end)
-
-            if is_large_dataset:
-                # Show progress dialog for large exports
-                progress_result = self._show_export_progress_dialog(report_type, start, end, filename)
-                if progress_result:
-                    messagebox.showinfo("Download", f"Report downloaded to {filename}")
+                # Same page popup already exists, don't open another
                 return
 
-            # For smaller datasets, use the original method
-            if filename.endswith(".csv"):
-                # Generate CSV from data
-                csv_content = self._generate_csv_data(report_type, start, end)
-                with open(filename, 'w', newline='', encoding='utf-8') as f:
-                    f.write(csv_content)
-            elif filename.endswith(".xlsx"):
-                self._generate_excel_data(report_type, start, end, filename)
-            else:
-                with open(filename, 'w', encoding='utf-8') as f:
-                    f.write(content)
-            messagebox.showinfo("Download", f"Report downloaded to {filename}")
-        except Exception as exc:
-            messagebox.showerror("Download Error", str(exc))
-
-    def _generate_csv_data(self, report_type: str, start: str, end: str) -> str:
-        """Generate CSV data from report data structures."""
-        import csv
-        import io
+        # Create a simple popup using tk widgets
+        popup = tk.Toplevel(self)
+        self._date_preset_popup = popup  # Track the popup
+        self._popup_page = self.selected_category.get()  # Track the page
         
-        output = io.StringIO()
-        writer = csv.writer(output)
+        # Register as modal dialog
+        self._register_modal_dialog(popup)
         
-        try:
-            if report_type == "daily":
-                sales = reports.get_daily_sales(start)
-                summary = reports.get_sales_summary(start, start)
-                refunds = reports.get_refunds(start, start)
-                
-                # Write summary
-                writer.writerow(["Daily Sales Report", start])
-                writer.writerow([])
-                writer.writerow(["Total Transactions", summary.get('total_transactions', 0) or 0])
-                writer.writerow(["Total Sales", summary.get('total_sales', 0) or 0])
-                writer.writerow(["Refunds Issued", len(refunds)])
-                writer.writerow(["Refund Amount", sum(r['refund_amount'] for r in refunds)])
-                writer.writerow(["Average Transaction", summary.get('avg_transaction', 0) or 0])
-                writer.writerow([])
-                
-                # Write sales table
-                writer.writerow(["Time", "Receipt Number", "Items", "Total"])
-                for sale in sales:
-                    receipt = sale.get('receipt_number', f"#{sale['sale_id']}")
-                    writer.writerow([sale['time'], receipt, sale['item_count'], sale['total']])
-                
-                # Write refunds
-                if refunds:
-                    writer.writerow([])
-                    writer.writerow(["Refunds"])
-                    writer.writerow(["Time", "Refund Code", "Original Receipt", "Refund Amount"])
-                    for r in refunds:
-                        receipt = r.get('receipt_number', f"#{r['original_sale_id']}")
-                        time_part = r['created_at'].split()[1] if ' ' in r['created_at'] else r['created_at']
-                        writer.writerow([time_part, r.get('refund_code',''), receipt, r['refund_amount']])
-                        
-            elif report_type == "range":
-                daily_sales = reports.get_date_range_sales(start, end)
-                summary = reports.get_sales_summary(start, end)
-                refunds = reports.get_refunds(start, end)
-                
-                writer.writerow(["Date Range Sales Report"])
-                writer.writerow([f"Period: {start} to {end}"])
-                writer.writerow([])
-                writer.writerow(["Total Transactions", summary.get('total_transactions', 0) or 0])
-                writer.writerow(["Total Sales", summary.get('total_sales', 0) or 0])
-                writer.writerow(["Refunds Issued", len(refunds)])
-                writer.writerow(["Refund Amount", sum(r['refund_amount'] for r in refunds)])
-                writer.writerow(["Average Transaction", summary.get('avg_transaction', 0) or 0])
-                writer.writerow([])
-                
-                writer.writerow(["Date", "Transactions", "Total Sales", "Average Sale"])
-                for day in daily_sales:
-                    writer.writerow([day['date'], day['transactions'], day['total_sales'], day['avg_sale']])
-                
-                if refunds:
-                    writer.writerow([])
-                    writer.writerow(["Refunds"])
-                    writer.writerow(["Date", "Refund Code", "Original Receipt", "Refund Amount"])
-                    for r in refunds:
-                        date_part = r['created_at'].split()[0] if ' ' in r['created_at'] else r['created_at']
-                        receipt = r.get('receipt_number', f"#{r['original_sale_id']}")
-                        writer.writerow([date_part, r.get('refund_code',''), receipt, r['refund_amount']])
-                        
-            elif report_type == "bestsellers":
-                items = reports.get_best_selling_items(start, end, limit=50)
-                
-                writer.writerow(["Best-Selling Items Report"])
-                writer.writerow([f"Period: {start} to {end}"])
-                writer.writerow([])
-                writer.writerow(["Rank", "Item Name", "Category", "Quantity Sold", "Revenue", "Profit"])
-                
-                for idx, item in enumerate(items, 1):
-                    cat = item.get('category') or 'N/A'
-                    qty_display = item.get('qty_display', str(item.get('total_sold', 0)))
-                    writer.writerow([idx, item['name'], cat, qty_display, item['revenue'], item.get('profit', 0) or 0])
-                    
-            elif report_type == "profit":
-                analysis = reports.get_profit_analysis(start, end)
-                
-                writer.writerow(["Profit & Loss Analysis"])
-                writer.writerow([f"Period: {start} to {end}"])
-                writer.writerow([])
-                writer.writerow(["Total Revenue", analysis.get('total_revenue', 0) or 0])
-                writer.writerow(["Cost of Goods Sold", analysis.get('total_cost', 0) or 0])
-                writer.writerow(["Gross Profit", analysis.get('gross_profit', 0) or 0])
-                writer.writerow(["Total Expenses", analysis.get('total_expenses', 0) or 0])
-                writer.writerow(["Net Profit", analysis.get('net_profit', 0) or 0])
-                writer.writerow(["Profit Margin (%)", analysis.get('profit_margin', 0) or 0])
-                
-            elif report_type == "category":
-                categories = reports.get_category_sales(start, end)
-                
-                writer.writerow(["Sales by Category Report"])
-                writer.writerow([f"Period: {start} to {end}"])
-                writer.writerow([])
-                writer.writerow(["Category", "Items Sold", "Revenue", "Transactions"])
-                
-                for cat in categories:
-                    writer.writerow([cat['category'], cat['total_quantity'], cat['total_revenue'], cat['transactions']])
-                    
-            elif report_type == "transactions":
-                transactions = reports.get_detailed_sales_transactions(start, end)
-
-                writer.writerow(["Detailed Sales Transactions (Including Voids & Refunds)"])
-                writer.writerow([f"Period: {start} to {end}"])
-                writer.writerow([])
-
-                # Create a single table with Sale Type column
-                writer.writerow(["Sale Type", "Receipt", "Date", "Time", "Item Name", "Category", "Quantity", "Price", "Line Total", "Sale Total", "Payment", "Payment Method", "Void Reason", "Refund Reason"])
-
-                for transaction in transactions:
-                    # Determine sale type label
-                    transaction_type = transaction.get('transaction_type', 'sale')
-                    if transaction_type == 'sale':
-                        sale_type = 'Regular Sale'
-                    elif transaction_type == 'void':
-                        sale_type = 'Voided Sale'
-                    elif transaction_type == 'refund':
-                        sale_type = 'Refund'
-                    else:
-                        sale_type = 'Unknown'
-
-                    writer.writerow([
-                        sale_type,
-                        transaction['receipt_number'],
-                        transaction['date'],
-                        transaction['time'],
-                        transaction['item_name'],
-                        transaction['category'],
-                        transaction['quantity'],
-                        transaction['price'],
-                        transaction['line_total'],
-                        transaction['total'],
-                        transaction.get('payment', ''),
-                        transaction.get('payment_method', ''),
-                        transaction.get('void_reason', ''),
-                        transaction.get('refund_reason', '')
-                    ])
-                payment_data = reports.get_sales_by_payment_method(start, end)
-                
-                writer.writerow(["Sales by Payment Method"])
-                writer.writerow([f"Period: {start} to {end}"])
-                writer.writerow([])
-                writer.writerow(["Payment Method", "Transactions", "Total Sales", "Avg Transaction", "Min Transaction", "Max Transaction"])
-                
-                for payment in payment_data:
-                    writer.writerow([
-                        payment['payment_method'],
-                        payment['transaction_count'],
-                        payment['total_sales'],
-                        payment['avg_transaction'],
-                        payment['min_transaction'],
-                        payment['max_transaction']
-                    ])
-                    
-            elif report_type == "trends":
-                trends = reports.get_sales_performance_trends(start, end, 'day')
-                
-                writer.writerow(["Sales Performance Trends"])
-                writer.writerow([f"Period: {start} to {end}"])
-                writer.writerow([])
-                writer.writerow(["Date", "Transactions", "Total Sales", "Avg Sale", "Subtotal", "VAT", "Discounts"])
-                
-                for trend in trends:
-                    writer.writerow([
-                        trend['period_label'],
-                        trend['transactions'],
-                        trend['total_sales'],
-                        trend['avg_sale'],
-                        trend['subtotal'],
-                        trend['total_vat'],
-                        trend['total_discounts']
-                    ])
-                    
-        except Exception as e:
-            writer.writerow(["Error generating CSV", str(e)])
+        set_window_icon(popup)
+        popup.title("Quick Date Filter")
+        popup.geometry("200x240")
+        popup.resizable(False, False)
+        popup.configure(bg=COLORS['background'])
         
-        return output.getvalue()
+        # Keep popup hidden until fully constructed to avoid mapping/jump
+        # Position popup near the mouse; flip above pointer if there's not enough space below (avoid taskbar)
+        popup.update_idletasks()
+        x = max(0, self.winfo_pointerx() - popup.winfo_reqwidth() // 2)
+        pointer_y = self.winfo_pointery()
+        screen_h = self.winfo_screenheight()
+        popup_h = popup.winfo_reqheight()
+        taskbar_margin = 48  # safe margin to keep popup above taskbar
+        # Prefer showing below pointer if space permits, otherwise show above
+        if pointer_y + popup_h + taskbar_margin <= screen_h:
+            y = max(0, pointer_y + 10)
+        else:
+            y = max(0, pointer_y - popup_h - 10)
+        popup.geometry(f"+{x}+{y}")
 
-    def _pick_start_date(self) -> None:
-        """Open calendar picker for start date."""
-        try:
-            current = datetime.strptime(self.start_date.get(), "%Y-%m-%d")
-        except ValueError:
-            current = datetime.now()
+        # Handle popup destruction to clear tracking
+        def on_popup_destroy():
+            if self._date_preset_popup == popup:
+                self._date_preset_popup = None
+                self._popup_page = None
+            self._unregister_modal_dialog(popup)
         
-        # Create a proper parent window instead of None
-        root = self.winfo_toplevel()
-        top = tk.Toplevel(root)
-        top.title("Select Start Date")
-        set_window_icon(top)
-        top.geometry("350x350")
-        top.resizable(True, True)
-        # Make it modal - block interaction with main window until closed
-        top.transient(root)
-        top.grab_set()
+        popup.protocol("WM_DELETE_WINDOW", lambda: (popup.destroy(), on_popup_destroy()))
+        popup.bind("<Destroy>", lambda e: on_popup_destroy() if e.widget == popup else None)
+
+        # Title
+        title_label = tk.Label(popup, text="Select Date Range", bg=COLORS['background'], 
+                              fg=COLORS['text'], font=('Segoe UI', 10, 'bold'))
+        title_label.pack(pady=(10, 5))
+
+        # Preset buttons - use consistent presets for all reports
+        presets = [
+            ("This Week", lambda rt=report_type: (self._set_this_week(), self._generate_report_type(rt))),
+            ("This Month", lambda rt=report_type: (self._set_this_month(), self._generate_report_type(rt))),
+            ("Last 7 Days", lambda rt=report_type: (self._set_last_7_days(), self._generate_report_type(rt))),
+            ("Last 30 Days", lambda rt=report_type: (self._set_last_30_days(), self._generate_report_type(rt))),
+            ("Last 90 Days", lambda rt=report_type: (self._set_last_90_days(), self._generate_report_type(rt))),
+            ("Custom", lambda rt=report_type: (self._clear_date_popup_tracking(), self._show_date_picker(rt)))
+        ]
+
+        for text, command in presets:
+            def preset_action(cmd=command, rt=report_type):
+                # Clear popup tracking before destroying
+                if self._date_preset_popup == popup:
+                    self._date_preset_popup = None
+                    self._popup_page = None
+                popup.destroy()
+                cmd(rt)
+
+            btn = tk.Button(popup, text=text, bg=COLORS['primary'], fg='white',
+                           font=('Segoe UI', 9), command=preset_action)
+            btn.pack(fill=tk.X, padx=10, pady=(0, 5))
+
+        # Show the popup only after it's fully built to avoid visual jumping
+        popup.update_idletasks()
+        popup.deiconify()
+        popup.lift()
+        popup.focus_force()
+        popup.attributes('-topmost', True)
+
+    def _clear_date_popup_tracking(self) -> None:
+        """Clear date popup tracking when switching to different popup types."""
+        if self._date_preset_popup is not None:
+            try:
+                if self._date_preset_popup.winfo_exists():
+                    self._date_preset_popup.destroy()
+                else:
+                    # If already destroyed, just clean up tracking
+                    self._unregister_modal_dialog(self._date_preset_popup)
+            except:
+                pass
+        self._date_preset_popup = None
+        self._popup_page = None
+
+    def _register_modal_dialog(self, dialog) -> None:
+        """Register a modal dialog to prevent tab switching."""
+        self._modal_dialogs.add(dialog)
+
+    def _unregister_modal_dialog(self, dialog) -> None:
+        """Unregister a modal dialog when it's closed."""
+        self._modal_dialogs.discard(dialog)
+
+    def _has_open_modal_dialogs(self) -> bool:
+        """Check if there are any open modal dialogs."""
+        # Clean up any destroyed dialogs
+        self._modal_dialogs = {d for d in self._modal_dialogs if d.winfo_exists()}
+        return len(self._modal_dialogs) > 0
+
+    def _show_date_picker(self, report_type: str | None = None) -> None:
+        """Show custom date picker dialog.
+
+        If report_type is provided, the report will be generated after applying dates.
+        """
+        # Store the report type for the Apply button
+        self._report_type_for_picker = report_type
+        # Create a popup window for date selection
+        popup = tk.Toplevel(self)
         
-        cal = tkcalendar.Calendar(
-            top, 
-            year=current.year, 
-            month=current.month, 
-            day=current.day,
-            date_pattern="yyyy-mm-dd"
-        )
-        cal.pack(fill="both", expand=True, padx=10, pady=10)
+        # Register as modal dialog
+        self._register_modal_dialog(popup)
         
-        def on_select():
-            selected = cal.get_date()
-            self.start_date.set(selected)
-            top.destroy()
-        
-        button_frame = ttk.Frame(top)
-        button_frame.pack(pady=10)
-        ttk.Button(button_frame, text="OK", command=on_select).pack(side=tk.LEFT, padx=5)
-        ttk.Button(button_frame, text="Cancel", command=top.destroy).pack(side=tk.LEFT, padx=5)
+        set_window_icon(popup)
+        popup.title("Select Custom Date Range")
+        popup.geometry("400x250")
+        popup.resizable(False, False)
+        popup.transient(self)
+        popup.grab_set()
 
-    def _pick_end_date(self) -> None:
-        """Open calendar picker for end date."""
-        try:
-            current = datetime.strptime(self.end_date.get(), "%Y-%m-%d")
-        except ValueError:
-            current = datetime.now()
-        
-        # Create a proper parent window instead of None
-        root = self.winfo_toplevel()
-        top = tk.Toplevel(root)
-        set_window_icon(top)
-        top.title("Select End Date")
-        top.geometry("350x350")
-        top.resizable(True, True)
-        # Make it modal - block interaction with main window until closed
-        top.transient(root)
-        top.grab_set()
-        
-        cal = tkcalendar.Calendar(
-            top, 
-            year=current.year, 
-            month=current.month, 
-            day=current.day,
-            date_pattern="yyyy-mm-dd"
-        )
-        cal.pack(fill="both", expand=True, padx=10, pady=10)
-        
-        def on_select():
-            selected = cal.get_date()
-            self.end_date.set(selected)
-            top.destroy()
-        
-        button_frame = ttk.Frame(top)
-        button_frame.pack(pady=10)
-        ttk.Button(button_frame, text="OK", command=on_select).pack(side=tk.LEFT, padx=5)
-        ttk.Button(button_frame, text="Cancel", command=top.destroy).pack(side=tk.LEFT, padx=5)
-
-    def _is_large_dataset(self, report_type: str, start: str, end: str) -> bool:
-        """Determine if a dataset is large enough to warrant progress feedback."""
-        try:
-            # Check based on report type and date range
-            if report_type in ["transactions", "voided"]:
-                # For detailed transaction reports, check the estimated row count
-                from datetime import datetime
-                start_date = datetime.strptime(start, "%Y-%m-%d")
-                end_date = datetime.strptime(end, "%Y-%m-%d")
-                days_diff = (end_date - start_date).days + 1
-
-                # Estimate based on historical data - assume 50 transactions per day as threshold
-                if days_diff > 30:  # More than a month
-                    return True
-                elif days_diff > 7 and report_type == "transactions":  # More than a week for detailed transactions
-                    return True
-
-            elif report_type == "daily" and start != end:
-                # Daily reports spanning multiple days
-                from datetime import datetime
-                start_date = datetime.strptime(start, "%Y-%m-%d")
-                end_date = datetime.strptime(end, "%Y-%m-%d")
-                days_diff = (end_date - start_date).days + 1
-                if days_diff > 30:
-                    return True
-
-            return False
-        except:
-            return False
-
-    def _show_export_progress_dialog(self, report_type: str, start: str, end: str, filename: str) -> bool:
-        """Show a progress dialog for large dataset exports."""
-        import threading
-        import queue
-
-        # Create progress dialog
-        progress_window = tk.Toplevel(self)
-        progress_window.title("Exporting Report")
-        progress_window.geometry("400x150")
-        progress_window.resizable(True, True)
-        progress_window.transient(self.winfo_toplevel())
-        progress_window.grab_set()
-        set_window_icon(progress_window)
-
-        # Center the dialog
-        progress_window.geometry("+{}+{}".format(
-            self.winfo_rootx() + self.winfo_width() // 2 - 200,
-            self.winfo_rooty() + self.winfo_height() // 2 - 75
+        # Center the popup
+        popup.geometry("+{}+{}".format(
+            self.winfo_rootx() + self.winfo_width()//2 - 200,
+            self.winfo_rooty() + self.winfo_height()//2 - 125
         ))
 
-        ttk.Label(progress_window, text="Exporting report data...", font=("Segoe UI", 10)).pack(pady=(20, 10))
-        progress_bar = ttk.Progressbar(progress_window, mode="indeterminate", length=300)
-        progress_bar.pack(pady=(0, 10))
-        progress_bar.start(10)
+        # Configure popup styling (safely)
+        try:
+            style = ttk.Style()
+            # Only configure if styles don't exist - use system default backgrounds
+            if not style.lookup('Popup.TFrame', 'background'):
+                style.configure('Popup.TFrame')
+            if not style.lookup('Popup.TLabelframe', 'background'):
+                style.configure('Popup.TLabelframe', borderwidth=2, relief="raised",
+                               padding=CARD_PADDING)
+        except Exception as e:
+            print(f"Warning: Could not configure popup styles: {e}")
+            # Continue without custom styling
 
-        status_label = ttk.Label(progress_window, text="Preparing export...")
-        status_label.pack(pady=(0, 20))
+        # Handle popup destruction to unregister modal
+        def on_popup_destroy():
+            self._unregister_modal_dialog(popup)
+        
+        popup.protocol("WM_DELETE_WINDOW", lambda: (popup.destroy(), on_popup_destroy()))
+        popup.bind("<Destroy>", lambda e: on_popup_destroy() if e.widget == popup else None)
 
-        # Queue for communication between threads
-        result_queue = queue.Queue()
+        # Main frame
+        main_frame = ttk.Frame(popup, padding=WINDOW_PADDING)
+        main_frame.pack(fill=tk.BOTH, expand=True)
 
-        def export_worker():
+        # Title
+        ttk.Label(main_frame, text="Select Date Range", style=STYLES['header_label']).pack(pady=(0, 20))
+
+        # Date selection frame
+        date_frame = ttk.Frame(main_frame)
+        date_frame.pack(fill=tk.X, pady=(0, 20))
+
+        # Start date
+        start_frame = ttk.Frame(date_frame)
+        start_frame.pack(fill=tk.X, pady=(0, 10))
+
+        ttk.Label(start_frame, text="Start Date:", style=STYLES['body_label']).pack(side=tk.LEFT, padx=(0, 10))
+
+        start_var = tk.StringVar(value=self.start_date.get())
+        start_entry = ttk.Entry(start_frame, textvariable=start_var, width=12)
+        start_entry.pack(side=tk.LEFT, padx=(0, 5))
+
+        def pick_start_date():
+            def on_date_select(date):
+                start_var.set(format_date(date))
+                start_picker.destroy()
+
+            start_picker = tk.Toplevel(popup)
+            set_window_icon(start_picker)
+            start_picker.title("Select Start Date")
+            start_picker.geometry("300x250")
+            start_picker.transient(popup)
+            start_picker.withdraw()
+            start_picker.resizable(False, False)
+
+            # Position above the parent popup to avoid taskbar
+            start_picker.geometry("+{}+{}".format(
+                popup.winfo_rootx() + popup.winfo_width()//2 - 150,
+                popup.winfo_rooty() - 270  # Position above the popup
+            ))
+
             try:
-                if filename.endswith(".xlsx"):
-                    self._generate_excel_data_streaming(report_type, start, end, filename, status_label)
+                # Respect the current end date as a max constraint, if parseable
+                from utils.date_utils import parse_date_flexible
+                from datetime import date as _date
+                maxdate = _date.today()
+                try:
+                    # Re-parse the current end date value from the text field
+                    end_dt = parse_date_flexible(end_var.get())
+                    # Cap the max date to end date, but never allow future dates
+                    maxdate = min(end_dt.date(), _date.today())
+                except Exception:
+                    # If end parsing fails, allow up to today
+                    maxdate = _date.today()
+
+                # Try to set the initial date to the current start date value
+                initial_date = None
+                try:
+                    current_start = parse_date_flexible(start_var.get())
+                    initial_date = current_start.date()
+                    # Ensure initial date is within constraints
+                    if maxdate and initial_date > maxdate:
+                        initial_date = maxdate
+                    if initial_date > _date.today():
+                        initial_date = _date.today()
+                except Exception:
+                    initial_date = _date.today()
+
+                cal = tkcalendar.Calendar(start_picker, selectmode='day',
+                                        date_pattern=get_tkcalendar_date_pattern(), maxdate=maxdate,
+                                        year=initial_date.year, month=initial_date.month, day=initial_date.day)
+                cal.pack(pady=20)
+
+                ttk.Button(start_picker, text="Select", command=lambda: on_date_select(cal.selection_get())).pack(pady=(0, 10))
+                ttk.Button(start_picker, text="Cancel", command=start_picker.destroy).pack()
+
+                # Show picker only after fully built to avoid 'ballooning' animation
+                start_picker.update_idletasks()
+                start_picker.deiconify()
+                start_picker.grab_set()
+
+            except Exception as e:
+                messagebox.showerror("Error", f"Could not open calendar: {e}")
+                start_picker.destroy()
+
+        ttk.Button(start_frame, text="📅", width=3, command=pick_start_date).pack(side=tk.LEFT)
+
+        # End date
+        end_frame = ttk.Frame(date_frame)
+        end_frame.pack(fill=tk.X)
+
+        ttk.Label(end_frame, text="End Date:", style=STYLES['body_label']).pack(side=tk.LEFT, padx=(0, 10))
+
+        end_var = tk.StringVar(value=self.end_date.get())
+        end_entry = ttk.Entry(end_frame, textvariable=end_var, width=12)
+        end_entry.pack(side=tk.LEFT, padx=(0, 5))
+
+        def pick_end_date():
+            def on_date_select(date):
+                end_var.set(format_date(date))
+                end_picker.destroy()
+
+            end_picker = tk.Toplevel(popup)
+            set_window_icon(end_picker)
+            end_picker.title("Select End Date")
+            end_picker.geometry("300x250")
+            end_picker.transient(popup)
+            end_picker.withdraw()
+            end_picker.resizable(False, False)
+
+            # Position above the parent popup to avoid taskbar
+            end_picker.geometry("+{}+{}".format(
+                popup.winfo_rootx() + popup.winfo_width()//2 - 150,
+                popup.winfo_rooty() - 270  # Position above the popup
+            ))
+
+            try:
+                # Respect the current start date as a min constraint, if parseable
+                from utils.date_utils import parse_date_flexible
+                from datetime import date as _date
+                mindate = None
+                try:
+                    # Re-parse the current start date value from the text field
+                    start_dt = parse_date_flexible(start_var.get())
+                    mindate = start_dt.date()
+                except Exception:
+                    mindate = None
+
+                # Always prevent future dates by capping max to today
+                maxdate = _date.today()
+
+                # Ensure mindate doesn't exceed maxdate (prevent no selectable dates)
+                if mindate and mindate > maxdate:
+                    mindate = maxdate
+
+                # Try to set the initial date to the current end date value
+                initial_date = None
+                try:
+                    current_end = parse_date_flexible(end_var.get())
+                    initial_date = current_end.date()
+                    # Ensure initial date is within constraints
+                    if maxdate and initial_date > maxdate:
+                        initial_date = maxdate
+                    if mindate and initial_date < mindate:
+                        initial_date = mindate
+                except Exception:
+                    initial_date = _date.today()
+
+                cal = tkcalendar.Calendar(end_picker, selectmode='day',
+                                        date_pattern=get_tkcalendar_date_pattern(), mindate=mindate, maxdate=maxdate,
+                                        year=initial_date.year, month=initial_date.month, day=initial_date.day)
+                cal.pack(pady=20)
+
+                ttk.Button(end_picker, text="Select", command=lambda: on_date_select(cal.selection_get())).pack(pady=(0, 10))
+                ttk.Button(end_picker, text="Cancel", command=end_picker.destroy).pack()
+
+                # Show picker only after fully built to avoid 'ballooning' animation
+                end_picker.update_idletasks()
+                end_picker.deiconify()
+                end_picker.grab_set()
+
+            except Exception as e:
+                messagebox.showerror("Error", f"Could not open calendar: {e}")
+                end_picker.destroy()
+
+        ttk.Button(end_frame, text="📅", width=3, command=pick_end_date).pack(side=tk.LEFT)
+
+        # Buttons
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill=tk.X, pady=(20, 0))
+
+        def apply_dates():
+            # Update the main date variables and generate report
+            self.start_date.set(start_var.get())
+            self.end_date.set(end_var.get())
+            popup.destroy()
+            # Generate report with selected dates
+            if hasattr(self, '_report_type_for_picker') and self._report_type_for_picker:
+                self._generate_report_type(self._report_type_for_picker)
+            else:
+                self._generate_report()
+
+        ttk.Button(button_frame, text="Apply", style=STYLES['primary_button'], command=apply_dates).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(button_frame, text="Cancel", style=STYLES['secondary_button'], command=popup.destroy).pack(side=tk.LEFT)
+
+    def _download_report(self) -> None:
+        """Download the current report as CSV or text file."""
+        try:
+            # Ask user for file location and format
+            file_path = filedialog.asksaveasfilename(
+                defaultextension=FILE_EXTENSIONS['csv'],
+                filetypes=[
+                    (EXPORT_FORMATS['csv'], f"*{FILE_EXTENSIONS['csv']}"),
+                    (EXPORT_FORMATS['xlsx'], f"*{FILE_EXTENSIONS['xlsx']}"),
+                    (EXPORT_FORMATS['pdf'], f"*{FILE_EXTENSIONS['pdf']}"),
+                    (EXPORT_FORMATS['txt'], f"*{FILE_EXTENSIONS['txt']}"),
+                    ("All files", "*.*")
+                ],
+                title="Save Report As"
+            )
+
+            if not file_path:
+                return
+
+            # Generate the report data
+            report_type = self.report_type.get()
+            local_dates = self._local_date_vars.get(report_type)
+            start = local_dates[0].get() if local_dates else self.start_date.get()
+            end = local_dates[1].get() if local_dates else self.end_date.get()
+            status_var = self._local_status_vars.get(report_type)
+            status_filter = status_var.get() if status_var else self.reconciliation_status.get()
+
+            # For large tabular reports we can stream directly to CSV to avoid memory pressure
+            if file_path.lower().endswith(FILE_EXTENSIONS['csv']) and report_type in ('sales_log', 'reconciliation_details', 'inventory_stock_levels'):
+                use_keyset = True if report_type in ('sales_log', 'inventory_stock_levels') else False
+                success = self.export_manager.export_report_streaming(report_type, start, end, file_path, page_size=500, use_keyset=use_keyset, status_filter=status_filter)
+                if success:
+                    messagebox.showinfo("Export Complete", f"Report exported successfully to:\n{file_path}")
                 else:
-                    self._generate_csv_data_streaming(report_type, start, end, filename, status_label)
-                result_queue.put(True)
-            except Exception as e:
-                result_queue.put(e)
+                    messagebox.showerror("Export Failed", "Failed to export the report.")
+                return
 
-        # Start export in background thread
-        export_thread = threading.Thread(target=export_worker, daemon=True)
-        export_thread.start()
+            report_data = self.service.generate_report_sync(
+                report_type, start, end, status_filter
+            )
 
-        def check_result():
-            try:
-                result = result_queue.get_nowait()
-                progress_window.destroy()
-                if isinstance(result, Exception):
-                    raise result
-                return True
-            except queue.Empty:
-                # Still running, check again
-                self.after(100, check_result)
+            if report_data.metadata.get('error'):
+                messagebox.showerror("Report Error", report_data.metadata['error'])
+                return
 
-        # Start checking for completion
-        self.after(100, check_result)
-
-        # Handle window close
-        def on_close():
-            if messagebox.askyesno("Cancel Export", "Are you sure you want to cancel the export?"):
-                progress_window.destroy()
-
-        progress_window.protocol("WM_DELETE_WINDOW", on_close)
-
-        return True
-
-    def _generate_csv_data_streaming(self, report_type: str, start: str, end: str, filename: str, status_label=None) -> None:
-        """Generate CSV data with streaming for large datasets."""
-        import csv
-
-        def update_status(message: str):
-            if status_label:
-                status_label.config(text=message)
-                status_label.update()
-
-        update_status("Initializing export...")
-
-        with open(filename, "w", newline="", encoding="utf-8") as csvfile:
-            writer = csv.writer(csvfile)
-
-            try:
-                if report_type == "daily":
-                    update_status("Fetching daily sales data...")
-                    sales = reports.get_daily_sales(start)
-                    summary = reports.get_sales_summary(start, start)
-                    refunds = reports.get_refunds(start, start)
-                    voided_sales = reports.get_voided_sales(start, start)
-
-                    # Write summary
-                    writer.writerow(["Daily Sales Report", start])
-                    writer.writerow([])
-                    writer.writerow(["Total Transactions", summary.get("total_transactions", 0) or 0])
-                    writer.writerow(["Total Sales", summary.get("total_sales", 0) or 0])
-                    writer.writerow(["Voided Sales", len(voided_sales)])
-                    writer.writerow(["Voided Amount", sum(v["total"] for v in voided_sales)])
-                    writer.writerow(["Refunds Issued", len(refunds)])
-                    writer.writerow(["Refund Amount", sum(r["refund_amount"] for r in refunds)])
-                    writer.writerow(["Net Sales", (summary.get("total_sales", 0) or 0) - sum(r["refund_amount"] for r in refunds)])
-                    writer.writerow(["Average Transaction", summary.get("avg_transaction", 0) or 0])
-                    writer.writerow([])
-
-                    # Write sales table
-                    writer.writerow(["Time", "Receipt Number", "Items", "Total"])
-                    for sale in sales:
-                        receipt = sale.get("receipt_number", f"#{sale['sale_id']}")
-                        writer.writerow([sale["time"], receipt, sale["item_count"], sale["total"]])
-
-                    # Write refunds
-                    if refunds:
-                        writer.writerow([])
-                        writer.writerow(["Refunds"])
-                        writer.writerow(["Time", "Refund Code", "Original Receipt", "Refund Amount"])
-                        for r in refunds:
-                            receipt = r.get("receipt_number", f"#{r['original_sale_id']}")
-                            time_part = r["created_at"].split()[1] if " " in r["created_at"] else r["created_at"]
-                            writer.writerow([time_part, r.get("refund_code",""), receipt, r["refund_amount"]])
-
-                elif report_type == "range":
-                    update_status("Fetching date range sales data...")
-                    daily_sales = reports.get_date_range_sales(start, end)
-                    summary = reports.get_sales_summary(start, end)
-                    refunds = reports.get_refunds(start, end)
-                    voided_sales = reports.get_voided_sales(start, end)
-
-                    writer.writerow(["Date Range Sales Report"])
-                    writer.writerow([f"Period: {start} to {end}"])
-                    writer.writerow([])
-                    writer.writerow(["Total Transactions", summary.get("total_transactions", 0) or 0])
-                    writer.writerow(["Total Sales", summary.get("total_sales", 0) or 0])
-                    writer.writerow(["Voided Sales", len(voided_sales)])
-                    writer.writerow(["Voided Amount", sum(v["total"] for v in voided_sales)])
-                    writer.writerow(["Refunds Issued", len(refunds)])
-                    writer.writerow(["Refund Amount", sum(r["refund_amount"] for r in refunds)])
-                    writer.writerow(["Net Sales", (summary.get("total_sales", 0) or 0) - sum(r["refund_amount"] for r in refunds)])
-                    writer.writerow(["Average Transaction", summary.get("avg_transaction", 0) or 0])
-                    writer.writerow([])
-
-                    writer.writerow(["Date", "Transactions", "Total Sales", "Average Sale"])
-                    for day in daily_sales:
-                        writer.writerow([day["date"], day["transactions"], day["total_sales"], day["avg_sale"]])
-
-                    if refunds:
-                        writer.writerow([])
-                        writer.writerow(["Refunds"])
-                        writer.writerow(["Date", "Refund Code", "Original Receipt", "Refund Amount"])
-                        for r in refunds:
-                            date_part = r["created_at"].split()[0] if " " in r["created_at"] else r["created_at"]
-                            receipt = r.get("receipt_number", f"#{r['original_sale_id']}")
-                            writer.writerow([date_part, r.get("refund_code",""), receipt, r["refund_amount"]])
-
-                elif report_type == "transactions":
-                    update_status("Fetching detailed transactions...")
-                    # Use batching for large transaction datasets
-                    batch_size = 1000
-                    offset = 0
-
-                    writer.writerow(["Detailed Sales Transactions (Including Voids & Refunds)"])
-                    writer.writerow([f"Period: {start} to {end}"])
-                    writer.writerow([])
-
-                    # Collect all transactions first
-                    update_status("Collecting all transactions...")
-                    all_transactions = []
-                    temp_offset = 0
-                    while True:
-                        batch = reports.get_detailed_sales_transactions(start, end, limit=batch_size, offset=temp_offset)
-                        if not batch:
-                            break
-                        all_transactions.extend(batch)
-                        temp_offset += batch_size
-                        if len(batch) < batch_size:
-                            break
-
-                    # Create a single table with Sale Type column
-                    writer.writerow(["Sale Type", "Receipt", "Date", "Time", "Item Name", "Category", "Quantity", "Price", "Line Total", "Sale Total", "Payment", "Payment Method", "Void Reason", "Refund Reason"])
-
-                    for transaction in all_transactions:
-                        # Determine sale type label
-                        transaction_type = transaction.get('transaction_type', 'sale')
-                        if transaction_type == 'sale':
-                            sale_type = 'Regular Sale'
-                        elif transaction_type == 'void':
-                            sale_type = 'Voided Sale'
-                        elif transaction_type == 'refund':
-                            sale_type = 'Refund'
-                        else:
-                            sale_type = 'Unknown'
-
-                        writer.writerow([
-                            sale_type,
-                            transaction["receipt_number"],
-                            transaction["date"],
-                            transaction["time"],
-                            transaction["item_name"],
-                            transaction["category"],
-                            transaction["quantity"],
-                            transaction["price"],
-                            transaction["line_total"],
-                            transaction["total"],
-                            transaction.get("payment", ""),
-                            transaction.get("payment_method", ""),
-                            transaction.get("void_reason", ""),
-                            transaction.get("refund_reason", "")
-                        ])
-
-                elif report_type == "voided":
-                    update_status("Fetching voided sales data...")
-                    comprehensive = reports.get_comprehensive_sales_summary(start, end)
-                    voided_sales = reports.get_voided_sales(start, end)
-                    voided_by_reason = reports.get_voided_sales_by_reason(start, end)
-                    refunds_by_reason = reports.get_refunds_by_reason(start, end)
-                    daily_voided = reports.get_daily_voided_and_refunds(start, end)
-
-                    writer.writerow(["Voided Sales & Refunds Report"])
-                    writer.writerow([f"Period: {start} to {end}"])
-                    writer.writerow([])
-
-                    # Summary
-                    writer.writerow(["Summary Metrics"])
-                    writer.writerow(["Valid Transactions", comprehensive.get("valid_transactions", 0)])
-                    writer.writerow(["Valid Sales Amount", comprehensive.get("valid_sales_amount", 0)])
-                    writer.writerow(["Avg Valid Transaction", comprehensive.get("avg_valid_transaction", 0)])
-                    writer.writerow(["Voided Transactions", comprehensive.get("voided_transactions", 0)])
-                    writer.writerow(["Voided Amount", comprehensive.get("voided_amount", 0)])
-                    writer.writerow(["Refund Count", comprehensive.get("refund_count", 0)])
-                    writer.writerow(["Total Refunded", comprehensive.get("total_refunded", 0)])
-                    writer.writerow(["Net Sales", comprehensive.get("net_sales", 0)])
-                    writer.writerow(["Total Gross Sales", comprehensive.get("total_gross_sales", 0)])
-                    writer.writerow([])
-
-                    # Voided sales by reason
-                    if voided_by_reason:
-                        writer.writerow(["Voided Sales by Reason"])
-                        writer.writerow(["Reason", "Count", "Total Amount"])
-                        for reason in voided_by_reason:
-                            writer.writerow([reason["reason"], reason["count"], reason["total_amount"]])
-                        writer.writerow([])
-
-                    # Refunds by reason
-                    if refunds_by_reason:
-                        writer.writerow(["Refunds by Reason"])
-                        writer.writerow(["Reason", "Count", "Total Amount"])
-                        for reason in refunds_by_reason:
-                            writer.writerow([reason["reason"], reason["count"], reason["total_amount"]])
-                        writer.writerow([])
-
-                    # Daily breakdown
-                    if daily_voided:
-                        writer.writerow(["Daily Breakdown"])
-                        writer.writerow(["Date", "Voided Count", "Voided Amount", "Refund Count", "Refunded Amount"])
-                        for day in daily_voided:
-                            if day["voided_count"] > 0 or day["refund_count"] > 0:
-                                writer.writerow([
-                                    day["date"],
-                                    day["voided_count"],
-                                    day["voided_amount"],
-                                    day["refund_count"],
-                                    day["refunded_amount"]
-                                ])
-                        writer.writerow([])
-
-                    # Detailed voided sales (batched)
-                    if voided_sales:
-                        writer.writerow(["Detailed Voided Sales"])
-                        writer.writerow(["Date", "Time", "Receipt Number", "Items", "Amount", "Voided By", "Reason"])
-
-                        batch_size = 500
-                        for i in range(0, len(voided_sales), batch_size):
-                            update_status(f"Processing voided sales batch {(i // batch_size) + 1}...")
-                            batch = voided_sales[i:i + batch_size]
-                            for sale in batch:
-                                receipt = sale.get("receipt_number", f"#{sale['sale_id']}")
-                                voided_by = sale.get("voided_by_username", "Unknown")
-                                reason = sale.get("void_reason", "N/A")
-                                writer.writerow([
-                                    sale["date"],
-                                    sale["time"],
-                                    receipt,
-                                    sale["item_count"],
-                                    sale["total"],
-                                    voided_by,
-                                    reason
-                                ])
-
-                update_status("Finalizing export...")
-
-            except Exception as e:
-                update_status(f"Error: {str(e)}")
-                raise
-
-    def _generate_excel_data(self, report_type: str, start: str, end: str, filename: str) -> None:
-        """Generate Excel file for reports."""
-        try:
-            import pandas as pd
-        except ImportError:
-            raise ImportError("pandas is required for Excel export. Install with: pip install pandas openpyxl")
-
-        try:
-            if report_type == "daily":
-                sales = reports.get_daily_sales(start)
-                summary = reports.get_sales_summary(start, start)
-                refunds = reports.get_refunds(start, start)
-                voided_sales = reports.get_voided_sales(start, start)
-
-                # Create summary DataFrame
-                summary_data = {
-                    "Metric": ["Total Transactions", "Total Sales", "Voided Sales", "Voided Amount", "Refunds Issued", "Refund Amount", "Net Sales", "Average Transaction"],
-                    "Value": [
-                        summary.get("total_transactions", 0) or 0,
-                        summary.get("total_sales", 0) or 0,
-                        len(voided_sales),
-                        sum(v["total"] for v in voided_sales),
-                        len(refunds),
-                        sum(r["refund_amount"] for r in refunds),
-                        (summary.get("total_sales", 0) or 0) - sum(r["refund_amount"] for r in refunds),
-                        summary.get("avg_transaction", 0) or 0
-                    ]
-                }
-                summary_df = pd.DataFrame(summary_data)
-
-                # Create sales DataFrame
-                sales_data = []
-                for sale in sales:
-                    receipt = sale.get("receipt_number", f"#{sale['sale_id']}")
-                    sales_data.append({
-                        "Time": sale["time"],
-                        "Receipt Number": receipt,
-                        "Items": sale["item_count"],
-                        "Total": sale["total"]
-                    })
-                sales_df = pd.DataFrame(sales_data)
-
-                with pd.ExcelWriter(filename, engine="openpyxl") as writer:
-                    summary_df.to_excel(writer, sheet_name="Summary", index=False)
-                    sales_df.to_excel(writer, sheet_name="Sales", index=False)
-
-                    if refunds:
-                        refunds_data = []
-                        for r in refunds:
-                            receipt = r.get("receipt_number", f"#{r['original_sale_id']}")
-                            time_part = r["created_at"].split()[1] if " " in r["created_at"] else r["created_at"]
-                            refunds_data.append({
-                                "Time": time_part,
-                                "Refund Code": r.get("refund_code", ""),
-                                "Original Receipt": receipt,
-                                "Refund Amount": r["refund_amount"]
-                            })
-                        refunds_df = pd.DataFrame(refunds_data)
-                        refunds_df.to_excel(writer, sheet_name="Refunds", index=False)
-
-            elif report_type == "transactions":
-                # For large transaction datasets, use chunked processing
-                batch_size = 50000  # Excel can handle large datasets but we'll be conservative
-                offset = 0
-                all_transactions = []
-
-                while True:
-                    transactions = reports.get_detailed_sales_transactions(start, end, limit=batch_size, offset=offset)
-                    if not transactions:
-                        break
-                    all_transactions.extend(transactions)
-                    offset += batch_size
-                    if len(transactions) < batch_size:
-                        break
-
-                # Create a single DataFrame with Sale Type column
-                if all_transactions:
-                    transactions_df = pd.DataFrame(all_transactions)
-
-                    # Add Sale Type column
-                    def get_sale_type(row):
-                        transaction_type = row.get('transaction_type', 'sale')
-                        if transaction_type == 'sale':
-                            return 'Regular Sale'
-                        elif transaction_type == 'void':
-                            return 'Voided Sale'
-                        elif transaction_type == 'refund':
-                            return 'Refund'
-                        else:
-                            return 'Unknown'
-
-                    transactions_df['Sale Type'] = transactions_df.apply(get_sale_type, axis=1)
-
-                    # Reorder columns to put Sale Type first
-                    cols = ['Sale Type', 'receipt_number', 'date', 'time', 'item_name', 'category', 'quantity', 'price', 'line_total', 'total', 'payment', 'payment_method', 'void_reason', 'refund_reason']
-                    transactions_df = transactions_df[cols]
-
-                    # Rename columns for better readability
-                    transactions_df.columns = ['Sale Type', 'Receipt', 'Date', 'Time', 'Item Name', 'Category', 'Quantity', 'Price', 'Line Total', 'Sale Total', 'Payment', 'Payment Method', 'Void Reason', 'Refund Reason']
-
-                    transactions_df.to_excel(filename, sheet_name="All Transactions", index=False)
-
+            # Export the report
+            success = self.export_manager.export_report(report_data, file_path)
+            if success:
+                messagebox.showinfo("Export Complete", f"Report exported successfully to:\n{file_path}")
             else:
-                # For other report types, fall back to CSV-like approach
-                csv_content = self._generate_csv_data(report_type, start, end)
-                # Convert CSV to Excel
-                from io import StringIO
-                csv_io = StringIO(csv_content)
-                df = pd.read_csv(csv_io)
-                df.to_excel(filename, index=False)
-
-        except ImportError:
-            raise ImportError("Excel export requires pandas and openpyxl. Install with: pip install pandas openpyxl")
-
-    def _generate_excel_data_streaming(self, report_type: str, start: str, end: str, filename: str, status_label=None) -> None:
-        """Generate Excel data with streaming for very large datasets."""
-        try:
-            import pandas as pd
-        except ImportError:
-            # Fall back to CSV if pandas not available
-            return self._generate_csv_data_streaming(report_type, start, end, filename, status_label)
-
-        def update_status(message: str):
-            if status_label:
-                status_label.config(text=message)
-                status_label.update()
-
-        update_status("Preparing Excel export...")
-
-        try:
-            if report_type == "transactions":
-                # For very large transaction datasets, process in chunks
-                batch_size = 100000  # Large chunks for Excel
-                offset = 0
-
-                with pd.ExcelWriter(filename, engine="openpyxl") as writer:
-                    first_batch = True
-
-                    while True:
-                        update_status(f"Processing transaction batch {offset // batch_size + 1}...")
-                        transactions = reports.get_detailed_sales_transactions(start, end, limit=batch_size, offset=offset)
-
-                        if not transactions:
-                            break
-
-                        df = pd.DataFrame(transactions)
-
-                        if first_batch:
-                            df.to_excel(writer, sheet_name="Transactions", index=False)
-                            first_batch = False
-                        else:
-                            # Append to existing sheet (this will create multiple sheets if very large)
-                            sheet_name = f"Transactions_{offset // batch_size + 1}"
-                            df.to_excel(writer, sheet_name=sheet_name, index=False)
-
-                        offset += batch_size
-                        if len(transactions) < batch_size:
-                            break
-
-            else:
-                # For other reports, use regular Excel generation
-                self._generate_excel_data(report_type, start, end, filename)
-
-            update_status("Excel export completed")
+                messagebox.showerror("Export Failed", "Failed to export the report.")
 
         except Exception as e:
-            update_status(f"Excel export failed: {str(e)}")
-            raise
+            logger.error(f"Error exporting report: {e}")
+            messagebox.showerror("Export Error", f"Failed to export report: {e}")
+
+    def _export_report(self, report_data: ReportData, format_type: str) -> None:
+        """Export a specific report in the given format."""
+        # Check permission for export
+        current_user = get_username()
+        if not permissions.has_permission(current_user, 'export_reports'):
+            messagebox.showerror("Permission Denied", "You do not have permission to export reports")
+            return
+        
+        try:
+            # Determine file extension
+            ext = FILE_EXTENSIONS.get(format_type, '.txt')
+            
+            # Ask user for file location
+            file_path = filedialog.asksaveasfilename(
+                defaultextension=ext,
+                filetypes=[(EXPORT_FORMATS.get(format_type, format_type.upper()), f"*{ext}")],
+                title=f"Save {format_type.upper()} Report As"
+            )
+
+            if not file_path:
+                return
+
+            # Ensure correct extension
+            if not file_path.lower().endswith(ext):
+                file_path += ext
+
+            # For large tabular reports we can stream directly to CSV to avoid memory pressure
+            if format_type == 'csv' and report_data.report_type in ('sales_log', 'reconciliation_details', 'inventory_stock_levels'):
+                use_keyset = True if report_data.report_type in ('sales_log', 'inventory_stock_levels') else False
+                status_filter = report_data.metadata.get('status_filter', 'all')
+                success = self.export_manager.export_report_streaming(
+                    report_data.report_type, 
+                    report_data.start_date, 
+                    report_data.end_date, 
+                    file_path, 
+                    page_size=500, 
+                    use_keyset=use_keyset, 
+                    status_filter=status_filter
+                )
+                if success:
+                    messagebox.showinfo("Export Complete", f"Report exported successfully to:\n{file_path}")
+                else:
+                    messagebox.showerror("Export Failed", "Failed to export the report.")
+                return
+
+            # Export the report
+            success = self.export_manager.export_report(report_data, file_path)
+            if success:
+                messagebox.showinfo("Export Complete", f"Report exported successfully to:\n{file_path}")
+            else:
+                messagebox.showerror("Export Failed", "Failed to export the report.")
+
+        except Exception as e:
+            logger.error(f"Error exporting report: {e}")
+            messagebox.showerror("Export Error", f"Failed to export report: {e}")
+
+        except Exception as e:
+            logger.error(f"Error in export: {e}")
+            messagebox.showerror("Export Error", f"Failed to export report: {e}")
+
+    # --- Scheduling helpers ---
+    def _schedules_file_path(self) -> str:
+        return os.path.join(os.path.abspath(os.getcwd()), 'export_schedules.json')
+
+    def _load_schedules(self) -> list:
+        path = self._schedules_file_path()
+        if not os.path.exists(path):
+            return []
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"Failed to load schedules: {e}")
+            return []
+
+    def _save_schedules(self, schedules: list) -> None:
+        path = self._schedules_file_path()
+        try:
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(schedules, f, indent=2)
+        except Exception as e:
+            logger.error(f"Failed to save schedules: {e}")
+
+    def _open_schedule_dialog(self, report_data: ReportData) -> None:
+        """Open dialog to schedule an export for the given report."""
+        popup = tk.Toplevel(self)
+        
+        # Register as modal dialog
+        self._register_modal_dialog(popup)
+        
+        set_window_icon(popup)
+        popup.title("Schedule Export")
+        popup.geometry('420x260')
+        popup.resizable(False, False)
+        popup.transient(self)
+        popup.grab_set()
+
+        # Center the popup
+        popup.geometry("+{}+{}".format(
+            self.winfo_rootx() + self.winfo_width()//2 - 210,
+            self.winfo_rooty() + self.winfo_height()//2 - 130
+        ))
+
+        # Handle popup destruction to unregister modal
+        def on_popup_destroy():
+            self._unregister_modal_dialog(popup)
+        
+        popup.protocol("WM_DELETE_WINDOW", lambda: (popup.destroy(), on_popup_destroy()))
+        popup.bind("<Destroy>", lambda e: on_popup_destroy() if e.widget == popup else None)
+
+        ttk.Label(popup, text=f"Schedule export for: {REPORT_TYPES.get(report_data.report_type, report_data.report_type)}", style=STYLES['subheader_label']).pack(pady=(10, 8))
+
+        body = ttk.Frame(popup, padding=12)
+        body.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(body, text="Format:", style=STYLES['body_label']).grid(row=0, column=0, sticky=tk.W)
+        format_var = tk.StringVar(value='csv')
+        ttk.Combobox(body, textvariable=format_var, values=['csv', 'xlsx', 'pdf', 'txt'], state='readonly', width=12).grid(row=0, column=1, padx=(8,0), sticky=tk.W)
+
+        ttk.Label(body, text="Frequency:", style=STYLES['body_label']).grid(row=1, column=0, sticky=tk.W, pady=(6,0))
+        freq_var = tk.StringVar(value='Daily')
+        ttk.Combobox(body, textvariable=freq_var, values=['Once', 'Daily', 'Weekly', 'Monthly'], state='readonly', width=12).grid(row=1, column=1, padx=(8,0), sticky=tk.W)
+
+        ttk.Label(body, text="Time (HH:MM):", style=STYLES['body_label']).grid(row=2, column=0, sticky=tk.W, pady=(6,0))
+        time_var = tk.StringVar(value='02:00')
+        ttk.Entry(body, textvariable=time_var, width=12).grid(row=2, column=1, padx=(8,0), sticky=tk.W)
+
+        ttk.Label(body, text="Start Date:", style=STYLES['body_label']).grid(row=3, column=0, sticky=tk.W, pady=(6,0))
+        start_var = tk.StringVar(value=report_data.start_date)
+        ttk.Entry(body, textvariable=start_var, width=12).grid(row=3, column=1, padx=(8,0), sticky=tk.W)
+
+        ttk.Label(body, text="End Date:", style=STYLES['body_label']).grid(row=4, column=0, sticky=tk.W, pady=(6,0))
+        end_var = tk.StringVar(value=report_data.end_date)
+        ttk.Entry(body, textvariable=end_var, width=12).grid(row=4, column=1, padx=(8,0), sticky=tk.W)
+
+        def save_schedule():
+            sched = {
+                'report_type': report_data.report_type,
+                'format': format_var.get(),
+                'frequency': freq_var.get(),
+                'time': time_var.get(),
+                'start_date': start_var.get(),
+                'end_date': end_var.get(),
+                'created_at': datetime.now().isoformat()
+            }
+            schedules = self._load_schedules()
+            schedules.append(sched)
+            self._save_schedules(schedules)
+            messagebox.showinfo('Scheduled', 'Export scheduled successfully.')
+            popup.destroy()
+
+        button_frame = ttk.Frame(body)
+        button_frame.grid(row=5, column=0, columnspan=2, pady=(12,0))
+        ttk.Button(button_frame, text='Save', style=STYLES['primary_button'], command=save_schedule).pack(side=tk.LEFT, padx=(0,8))
+        ttk.Button(button_frame, text='Cancel', style=STYLES['secondary_button'], command=popup.destroy).pack(side=tk.LEFT)
+
+    def _manage_schedules_dialog(self) -> None:
+        """Show existing schedules and allow removal."""
+        schedules = self._load_schedules()
+        popup = tk.Toplevel(self)
+        
+        # Register as modal dialog
+        self._register_modal_dialog(popup)
+        
+        set_window_icon(popup)
+        popup.title('Manage Export Schedules')
+        popup.geometry('520x320')
+        popup.resizable(False, False)
+        popup.transient(self)
+        popup.grab_set()
+
+        # Center the popup
+        popup.geometry("+{}+{}".format(
+            self.winfo_rootx() + self.winfo_width()//2 - 260,
+            self.winfo_rooty() + self.winfo_height()//2 - 160
+        ))
+
+        # Handle popup destruction to unregister modal
+        def on_popup_destroy():
+            self._unregister_modal_dialog(popup)
+        
+        popup.protocol("WM_DELETE_WINDOW", lambda: (popup.destroy(), on_popup_destroy()))
+        popup.bind("<Destroy>", lambda e: on_popup_destroy() if e.widget == popup else None)
+
+        listbox = tk.Listbox(popup, width=80, height=12)
+        listbox.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
+
+        for s in schedules:
+            desc = f"{s.get('report_type')} | {s.get('format')} | {s.get('frequency')} @ {s.get('time')} ({s.get('start_date')} to {s.get('end_date')})"
+            listbox.insert(tk.END, desc)
+
+        def remove_selected():
+            sel = listbox.curselection()
+            if not sel:
+                return
+            idx = sel[0]
+            if messagebox.askyesno('Confirm', 'Remove selected schedule?'):
+                schedules.pop(idx)
+                self._save_schedules(schedules)
+                listbox.delete(idx)
+
+        btn_frame = ttk.Frame(popup)
+        btn_frame.pack(pady=(0, 10))
+        ttk.Button(btn_frame, text='Remove', style=STYLES['secondary_button'], command=remove_selected).pack(side=tk.LEFT, padx=(0,8))
+        ttk.Button(btn_frame, text='Close', style=STYLES['primary_button'], command=popup.destroy).pack(side=tk.LEFT)
+
+    def _on_report_click(self, event, report_type: str, button_widget) -> None:
+        """Handle single click on report button - show date preset popup."""
+        self._show_date_preset_popup(report_type)
+
+    def _on_report_double_click(self, event, report_type: str) -> None:
+        """Handle double click on report button - generate report immediately."""
+        # Set default dates (last 30 days) and generate
+        self._set_last_30_days()
+        self._generate_report_type(report_type)
+
+    def _generate_report_type(self, report_type: str) -> None:
+        """Generate a report for the given type using current date settings."""
+        start_date = self.start_date.get()
+        end_date = self.end_date.get()
+        status_filter = self.reconciliation_status.get()
+        
+        self._generate_report_with_params(report_type, start_date, end_date, status_filter)
+
+    # Legacy methods for compatibility
+    def _on_report_type_change(self, *args) -> None:
+        """Legacy method for backwards compatibility."""
+        pass
+
+    def _pick_start_date(self) -> None:
+        """Legacy date picker."""
+        pass
+
+    def _pick_end_date(self) -> None:
+        """Legacy date picker."""
+        pass
+
+    def refresh(self) -> None:
+        """Legacy refresh method."""
+        self._refresh_current_view()
+
+    def _build_header(self) -> None:
+        """Build the modern header with navigation and actions."""
+        header = ttk.Frame(self, style=STYLES['frame'])
+        header.grid(row=0, column=0, sticky=tk.EW, pady=HEADER_PADDING)
+        header.columnconfigure(1, weight=1)
+
+        # Title and navigation
+        title_frame = ttk.Frame(header, style=STYLES['frame'])
+        title_frame.grid(row=0, column=0, sticky=tk.W)
+
+        ttk.Label(title_frame, text="📊", font=('Segoe UI', 20)).grid(row=0, column=0, padx=(0, 10))
+        ttk.Label(title_frame, text="Reports Dashboard", style=STYLES['header_label']).grid(row=0, column=1, sticky=tk.W)
+
+        # Action buttons
+        actions_frame = ttk.Frame(header, style=STYLES['frame'])
+        actions_frame.grid(row=0, column=2, sticky=tk.E)
+
+        if self.on_home:
+            ttk.Button(actions_frame, text="🏠 Home", style=STYLES['action_button'],
+                      command=self.on_home).pack(side=tk.LEFT, padx=(0, 10))
+
+        ttk.Button(actions_frame, text="🔄 Refresh", style=STYLES['action_button'],
+                  command=self._refresh_current_view).pack(side=tk.LEFT, padx=(0, 10))
+
+
+# Backwards compatibility
+ReportsFrame = ModernReportsFrame

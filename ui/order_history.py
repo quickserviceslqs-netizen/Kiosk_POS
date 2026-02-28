@@ -11,6 +11,7 @@ import os
 from modules import receipts, refunds
 from utils import set_window_icon
 from utils.security import get_currency_code, subscribe_payment_methods, unsubscribe_payment_methods, get_payment_methods
+from utils.date_utils import format_date, parse_date_flexible, get_date_format, get_tkcalendar_date_pattern
 
 
 # Setup audit logging
@@ -83,15 +84,13 @@ class OrderHistoryFrame(ttk.Frame):
         top = ttk.Frame(self)
         top.grid(row=0, column=0, sticky=tk.EW, pady=(0, 8))
         ttk.Label(top, text="Order History", font=("Segoe UI", 14, "bold")).pack(side=tk.LEFT)
-        if self.on_home:
-            ttk.Button(top, text="🏠 Home", command=self.on_home).pack(side=tk.RIGHT, padx=4)
         
         # Date range filters
         filter_frame = ttk.Frame(self)
         filter_frame.grid(row=1, column=0, sticky=tk.EW, pady=(0, 8))
         
         ttk.Label(filter_frame, text="From:").pack(side=tk.LEFT, padx=(0, 4))
-        self.start_date = tk.StringVar(value=(datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d"))
+        self.start_date = tk.StringVar(value=format_date(datetime.now() - timedelta(days=30)))
         self.start_date.trace("w", lambda *args: self.refresh())
         start_frame = ttk.Frame(filter_frame)
         start_frame.pack(side=tk.LEFT, padx=2)
@@ -100,7 +99,7 @@ class OrderHistoryFrame(ttk.Frame):
         ttk.Button(start_frame, text="📅", width=2, command=self._pick_start_date).pack(side=tk.LEFT, padx=2)
         
         ttk.Label(filter_frame, text="To:").pack(side=tk.LEFT, padx=(8, 4))
-        self.end_date = tk.StringVar(value=datetime.now().strftime("%Y-%m-%d"))
+        self.end_date = tk.StringVar(value=format_date(datetime.now()))
         self.end_date.trace("w", lambda *args: self.refresh())
         end_frame = ttk.Frame(filter_frame)
         end_frame.pack(side=tk.LEFT, padx=2)
@@ -153,13 +152,14 @@ class OrderHistoryFrame(ttk.Frame):
         # Action buttons
         button_frame = ttk.Frame(self)
         button_frame.grid(row=2, column=0, sticky=tk.EW, pady=(0, 8))
-        ttk.Button(button_frame, text="📄 View Receipt", command=self._view_receipt, width=15).pack(side=tk.LEFT, padx=4)
-        ttk.Button(button_frame, text="🖨️ Print Receipt", command=self._print_receipt, width=15).pack(side=tk.LEFT, padx=4)
-        ttk.Button(button_frame, text="💰 Refund", command=self._refund_order, width=15).pack(side=tk.LEFT, padx=4)
-        ttk.Button(button_frame, text="� Void Sale", command=self._void_sale, width=15).pack(side=tk.LEFT, padx=4)
-        ttk.Button(button_frame, text="�💾 Export Receipt", command=self._export_receipt, width=15).pack(side=tk.LEFT, padx=4)
-        ttk.Button(button_frame, text="📊 Export All", command=self._export_all_orders, width=15).pack(side=tk.LEFT, padx=4)
-        ttk.Button(button_frame, text="📋 Order Details", command=self._view_order_details, width=15).pack(side=tk.LEFT, padx=4)
+        btn_pad = dict(side=tk.LEFT, padx=4, ipadx=8)
+        ttk.Button(button_frame, text="📄 View Receipt", command=self._view_receipt).pack(**btn_pad)
+        ttk.Button(button_frame, text="🖨️ Print Receipt", command=self._print_receipt).pack(**btn_pad)
+        ttk.Button(button_frame, text="💰 Refund", command=self._refund_order).pack(**btn_pad)
+        ttk.Button(button_frame, text="❌ Void Sale", command=self._void_sale).pack(**btn_pad)
+        ttk.Button(button_frame, text="💾 Export Receipt", command=self._export_receipt).pack(**btn_pad)
+        ttk.Button(button_frame, text="📊 Export All", command=self._export_all_orders).pack(**btn_pad)
+        ttk.Button(button_frame, text="📋 Order Details", command=self._view_order_details).pack(**btn_pad)
         
         # Order list table (include customer and cashier columns)
         columns = ("sale_id", "date", "time", "customer", "user", "total", "payment_method", "status")
@@ -239,15 +239,16 @@ class OrderHistoryFrame(ttk.Frame):
         
         # Validate date range
         if start and end:
-            from datetime import datetime
             try:
-                start_dt = datetime.strptime(start, "%Y-%m-%d")
-                end_dt = datetime.strptime(end, "%Y-%m-%d")
+                start_dt = parse_date_flexible(start)
+                end_dt = parse_date_flexible(end)
                 if start_dt > end_dt:
                     messagebox.showwarning("Invalid Date Range", "Start date cannot be after end date")
                     return
             except ValueError:
-                messagebox.showwarning("Invalid Date Format", "Please use YYYY-MM-DD format for dates")
+                # Show the user's current date format as an example in the warning
+                example = format_date(datetime.now())
+                messagebox.showwarning("Invalid Date Format", f"Please use the system date format (e.g. {example}) for dates")
                 return
         
         search = self.search_term.get().strip() or None
@@ -300,7 +301,7 @@ class OrderHistoryFrame(ttk.Frame):
                 iid=str(sale["sale_id"]),
                 values=(
                     receipt_num,
-                    sale["date"],
+                    format_date(sale.get("date")),
                     sale["time"],
                     sale.get("customer_name", ""),
                     sale.get("username", ""),
@@ -363,8 +364,8 @@ class OrderHistoryFrame(ttk.Frame):
     
     def _clear_filter(self) -> None:
         """Clear all filters."""
-        self.start_date.set((datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d"))
-        self.end_date.set(datetime.now().strftime("%Y-%m-%d"))
+        self.start_date.set(format_date(datetime.now() - timedelta(days=30)))
+        self.end_date.set(format_date(datetime.now()))
         self.search_term.set("")
         if hasattr(self, 'payment_method_var'):
             self.payment_method_var.set("Any")
@@ -1108,7 +1109,8 @@ class OrderHistoryFrame(ttk.Frame):
     def _pick_start_date(self) -> None:
         """Open calendar picker for start date."""
         try:
-            current = datetime.strptime(self.start_date.get(), "%Y-%m-%d")
+            date_fmt = get_date_format()
+            current = datetime.strptime(self.start_date.get(), date_fmt)
         except ValueError:
             current = datetime.now()
         
@@ -1123,12 +1125,21 @@ class OrderHistoryFrame(ttk.Frame):
         top.transient(root)
         top.grab_set()
         
+        # Get end date constraint
+        try:
+            date_fmt = get_date_format()
+            end_dt = datetime.strptime(self.end_date.get(), date_fmt)
+            maxdate = end_dt.date()
+        except ValueError:
+            maxdate = datetime.now().date()
+        
         cal = tkcalendar.Calendar(
             top, 
             year=current.year, 
             month=current.month, 
             day=current.day,
-            date_pattern="yyyy-mm-dd"
+            date_pattern=get_tkcalendar_date_pattern(),
+            maxdate=maxdate
         )
         cal.pack(fill="both", expand=True, padx=10, pady=10)
         
@@ -1146,7 +1157,8 @@ class OrderHistoryFrame(ttk.Frame):
     def _pick_end_date(self) -> None:
         """Open calendar picker for end date."""
         try:
-            current = datetime.strptime(self.end_date.get(), "%Y-%m-%d")
+            date_fmt = get_date_format()
+            current = datetime.strptime(self.end_date.get(), date_fmt)
         except ValueError:
             current = datetime.now()
         
@@ -1161,12 +1173,29 @@ class OrderHistoryFrame(ttk.Frame):
         top.transient(root)
         top.grab_set()
         
+        # Get start date constraint and today's date
+        mindate = None
+        try:
+            date_fmt = get_date_format()
+            start_dt = datetime.strptime(self.start_date.get(), date_fmt)
+            mindate = start_dt.date()
+        except ValueError:
+            mindate = None
+        
+        maxdate = datetime.now().date()
+        
+        # Ensure mindate doesn't exceed maxdate
+        if mindate and mindate > maxdate:
+            mindate = maxdate
+        
         cal = tkcalendar.Calendar(
             top, 
             year=current.year, 
             month=current.month, 
             day=current.day,
-            date_pattern="yyyy-mm-dd"
+            date_pattern=get_tkcalendar_date_pattern(),
+            mindate=mindate,
+            maxdate=maxdate
         )
         cal.pack(fill="both", expand=True, padx=10, pady=10)
         
@@ -1176,6 +1205,10 @@ class OrderHistoryFrame(ttk.Frame):
             top.destroy()
             self.refresh()
         
+        button_frame = ttk.Frame(top)
+        button_frame.pack(pady=10)
+        ttk.Button(button_frame, text="OK", command=on_select).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Cancel", command=top.destroy).pack(side=tk.LEFT, padx=5)
         button_frame = ttk.Frame(top)
         button_frame.pack(pady=10)
         ttk.Button(button_frame, text="OK", command=on_select).pack(side=tk.LEFT, padx=5)

@@ -7,11 +7,27 @@ from tkinter import ttk, messagebox
 from modules import items
 from modules import portions
 from modules import units_of_measure as uom
+from modules import permissions
 from ui.checkout import CheckoutDialog
 from utils.cart_pubsub import subscribe_cart_changed, unsubscribe_cart_changed, notify_cart_changed
 from utils.i18n import get_currency_symbol
 from utils.images import load_thumbnail
-from utils.security import get_cart_vat_enabled, get_cart_discount_enabled, get_cart_suspend_enabled, subscribe_payment_methods, unsubscribe_payment_methods
+<<<<<<< HEAD
+from utils.security import (
+    get_cart_vat_enabled,
+    get_cart_discount_enabled,
+    get_cart_suspend_enabled,
+    subscribe_payment_methods,
+    unsubscribe_payment_methods,
+    subscribe_cart_settings,
+    unsubscribe_cart_settings,
+    get_username,
+    get_vat_rate,
+    get_max_discount_percent,
+)
+=======
+from utils.security import get_cart_vat_enabled, get_cart_discount_enabled, get_cart_suspend_enabled, subscribe_payment_methods, unsubscribe_payment_methods, subscribe_cart_settings, unsubscribe_cart_settings, get_username, get_vat_rate, get_max_discount_percent
+>>>>>>> 4be079b (update)
 
 
 class PosFrame(ttk.Frame):
@@ -45,17 +61,17 @@ class PosFrame(ttk.Frame):
         self.bind("<FocusIn>", lambda _e: self.ensure_populated())
         self.bind("<Visibility>", lambda _e: self.ensure_populated())
 
-        # Store references to conditionally shown widgets
-        self.vat_label = None
-        self.vat_display = None
-        self.discount_label = None
-        self.discount_entry = None
-        self.suspend_button = None
-        self.resume_button = None
+        # Widget references are created in _build_ui() and should not be cleared here
+        # (Previous code accidentally reset them to None which prevented the cart
+        # features from being displayed even when enabled.)
 
         # Subscribe to payment method changes to update combobox live
         subscribe_payment_methods(self._on_payment_methods_changed)
         self.bind("<Destroy>", lambda _e: unsubscribe_payment_methods(self._on_payment_methods_changed))
+
+        # Subscribe to cart settings changes to update UI live
+        subscribe_cart_settings(self._on_cart_settings_changed)
+        self.bind("<Destroy>", lambda _e: unsubscribe_cart_settings(self._on_cart_settings_changed))
 
         # Subscribe to cart change notifications to refresh view when cart is mutated elsewhere
         subscribe_cart_changed(self._refresh_cart)
@@ -70,6 +86,31 @@ class PosFrame(ttk.Frame):
                 self.payment_method_var.set(methods[0] if methods else "")
         except Exception:
             pass
+
+    def _on_cart_settings_changed(self) -> None:
+        """Refresh cart UI when cart settings change.
+
+        Defensively handle the case where the widget has been destroyed and
+        unsubscribe to avoid repeated errors from stale callbacks.
+        """
+        try:
+            if not getattr(self, 'winfo_exists', lambda: True)() or not self.winfo_exists():
+                # Widget has been destroyed; ensure we're unsubscribed
+                try:
+                    unsubscribe_cart_settings(self._on_cart_settings_changed)
+                except Exception:
+                    pass
+                return
+            self._refresh_cart()
+        except tk.TclError as e:
+            # Common when widgets are destroyed; unsubscribe and report
+            print(f"Error refreshing cart: {e}")
+            try:
+                unsubscribe_cart_settings(self._on_cart_settings_changed)
+            except Exception:
+                pass
+        except Exception as e:
+            print(f"Error refreshing cart: {e}")
 
 
 
@@ -129,6 +170,7 @@ class PosFrame(ttk.Frame):
         cart_container.grid(row=1, column=1, sticky=tk.NSEW)
         cart_container.columnconfigure(0, weight=1)
         cart_container.rowconfigure(1, weight=1)
+        cart_container.rowconfigure(1, weight=1)
 
         ttk.Label(cart_container, text="Cart", font=("Segoe UI", 12, "bold")).grid(row=0, column=0, sticky=tk.W, pady=(0, 4))
         cart_frame = ttk.Frame(cart_container)
@@ -160,6 +202,7 @@ class PosFrame(ttk.Frame):
         totals = ttk.Frame(cart_container)
         totals.grid(row=3, column=0, sticky=tk.EW, pady=(4, 6))
         totals.columnconfigure(1, weight=1)
+        totals.columnconfigure(0, minsize=100)
         self.totals_frame = totals
         ttk.Label(totals, text="Subtotal:").grid(row=0, column=0, sticky=tk.W)
         ttk.Label(totals, textvariable=self.subtotal_var, font=("Segoe UI", 11, "bold")).grid(row=0, column=1, sticky=tk.W, padx=(8, 0))
@@ -191,8 +234,6 @@ class PosFrame(ttk.Frame):
         self.suspend_button = ttk.Button(btn_frame, text="Suspend Cart", command=self._suspend_cart)
         self.resume_button = ttk.Button(btn_frame, text="Resume Cart", command=self._resume_cart)
 
-        ttk.Button(btn_frame, text="Open Cart", command=self._goto_cart).pack(side=tk.LEFT, padx=2)
-        
         # Initialize UI layout
         self._update_ui_layout()
         self._update_resume_btn()
@@ -213,23 +254,56 @@ class PosFrame(ttk.Frame):
 
         row_idx = 1
 
-        # VAT display - conditionally shown
-        if get_cart_vat_enabled() and self.vat_label is not None:
-            self.vat_label.grid(row=row_idx, column=0, sticky=tk.W, pady=(2, 0))
-            self.vat_display.grid(row=row_idx, column=1, sticky=tk.W, padx=(8, 0))
-            row_idx += 1
-        elif self.vat_label is not None:
-            self.vat_label.grid_forget()
-            self.vat_display.grid_forget()
+        # VAT display - conditionally shown based on settings
+        try:
+            if get_cart_vat_enabled():
+                if self.vat_label is not None and self.vat_label.winfo_exists():
+                    self.vat_label.grid(row=row_idx, column=0, sticky=tk.W, pady=(2, 0))
+                    if self.vat_display is not None and self.vat_display.winfo_exists():
+                        self.vat_display.grid(row=row_idx, column=1, sticky=tk.W, padx=(8, 0))
+                    row_idx += 1
+            else:
+                if self.vat_label is not None and self.vat_label.winfo_exists():
+                    try:
+                        self.vat_label.grid_remove()
+                    except tk.TclError:
+                        pass
+                if self.vat_display is not None and self.vat_display.winfo_exists():
+                    try:
+                        self.vat_display.grid_remove()
+                    except tk.TclError:
+                        pass
+        except tk.TclError:
+            # Widget tree may be gone; unsubscribe defensively
+            try:
+                unsubscribe_cart_settings(self._on_cart_settings_changed)
+            except Exception:
+                pass
 
-        # Discount input - conditionally shown
-        if get_cart_discount_enabled() and self.discount_label is not None:
-            self.discount_label.grid(row=row_idx, column=0, sticky=tk.W, pady=(2, 0))
-            self.discount_entry.grid(row=row_idx, column=1, sticky=tk.W, padx=(8, 0))
-            row_idx += 1
-        elif self.discount_label is not None:
-            self.discount_label.grid_forget()
-            self.discount_entry.grid_forget()
+        # Discount input - conditionally shown based on settings
+        try:
+            if get_cart_discount_enabled():
+                if self.discount_label is not None and self.discount_label.winfo_exists():
+                    self.discount_label.grid(row=row_idx, column=0, sticky=tk.W, pady=(2, 0))
+                    if self.discount_entry is not None and self.discount_entry.winfo_exists():
+                        self.discount_entry.grid(row=row_idx, column=1, sticky=tk.W, padx=(8, 0))
+                    row_idx += 1
+            else:
+                if self.discount_label is not None and self.discount_label.winfo_exists():
+                    try:
+                        self.discount_label.grid_remove()
+                    except tk.TclError:
+                        pass
+                if self.discount_entry is not None and self.discount_entry.winfo_exists():
+                    try:
+                        self.discount_entry.grid_remove()
+                    except tk.TclError:
+                        pass
+        except tk.TclError:
+            try:
+                unsubscribe_cart_settings(self._on_cart_settings_changed)
+            except Exception:
+                pass
 
         # Payment method (always shown)
         self.payment_label.grid(row=row_idx, column=0, sticky=tk.W, pady=(2, 0))
@@ -240,19 +314,47 @@ class PosFrame(ttk.Frame):
         self.total_label.grid(row=row_idx, column=0, sticky=tk.W, pady=(4, 0))
         self.total_display.grid(row=row_idx, column=1, sticky=tk.W, padx=(8, 0))
 
-        # Actions - always show checkout and open cart buttons
+        # Actions - always show checkout button
         ttk.Button(self.actions_frame, text="Checkout / Save Sale", command=self._checkout).pack(side=tk.LEFT, padx=2)
 
-        # Suspend/Resume buttons - conditionally shown
-        if get_cart_suspend_enabled() and self.suspend_button is not None:
-            self.suspend_button.pack(side=tk.LEFT, padx=2)
-            self.resume_button.pack(side=tk.LEFT, padx=2)
-        elif self.suspend_button is not None:
-            self.suspend_button.pack_forget()
-            self.resume_button.pack_forget()
+        # Suspend/Resume buttons - conditionally shown based on settings
+        try:
+            if get_cart_suspend_enabled():
+                if self.suspend_button is not None and self.suspend_button.winfo_exists():
+                    self.suspend_button.pack(side=tk.LEFT, padx=2)
+                try:
+                    if self.resume_button is not None and self.resume_button.winfo_exists():
+                        self.resume_button.pack(side=tk.LEFT, padx=2)
+                except Exception:
+                    pass
+            else:
+                if self.suspend_button is not None and self.suspend_button.winfo_exists():
+                    try:
+                        self.suspend_button.pack_forget()
+                    except tk.TclError:
+                        pass
+                if self.resume_button is not None and self.resume_button.winfo_exists():
+                    try:
+                        self.resume_button.pack_forget()
+                    except tk.TclError:
+                        pass
+        except tk.TclError:
+            try:
+                unsubscribe_cart_settings(self._on_cart_settings_changed)
+            except Exception:
+                pass
 
-        ttk.Button(self.actions_frame, text="Open Cart", command=self._goto_cart).pack(side=tk.LEFT, padx=2)
         self._update_resume_btn()
+
+        # Force UI update to ensure layout changes are visible
+        try:
+            self.totals_frame.update_idletasks()
+            self.actions_frame.update_idletasks()
+            self.update_idletasks()  # Force main frame update
+            # Also try update() on the totals frame
+            self.totals_frame.update()
+        except Exception as e:
+            print(f"Error updating UI: {e}")
 
     def _update_resume_btn(self):
         if self.resume_button is not None:
@@ -551,14 +653,15 @@ class PosFrame(ttk.Frame):
                 portions_frame.columnconfigure(col, weight=1)
             
             def add_preset(portion):
-                if portion["portion_ml"] > available_small:
+                portion_amount = portion.get("portion_amount", portion.get("portion_ml", 0))
+                if portion_amount > available_small:
                     messagebox.showerror("Insufficient Stock", f"Not enough stock for {portion['portion_name']}")
                     return
                 # Add preset portion to cart
                 self._add_special_sale(
                     fresh, 
-                    portion["portion_ml"], 
-                    portion["selling_price"] / portion["portion_ml"],  # Price per ml for this portion
+                    portion_amount, 
+                    portion["selling_price"] / portion_amount if portion_amount > 0 else 0,  # Price per small unit
                     small_unit, 
                     multiplier,
                     preset_name=portion["portion_name"],
@@ -668,13 +771,26 @@ class PosFrame(ttk.Frame):
 
     # Cart operations
     def _add_to_cart(self, item: dict) -> None:
+        # Check stock availability
+        current_stock = item.get("quantity", 0)
+        
         # Check if item already exists in cart (non-special items only)
         for entry in self.cart:
             if entry["item_id"] == item["item_id"] and not entry.get("is_special_volume"):
+                # Check if we have enough stock for additional quantity
+                if entry["quantity"] + 1 > current_stock:
+                    messagebox.showerror("Insufficient Stock", 
+                        f"Not enough stock for '{item['name']}'. Available: {current_stock}, In cart: {entry['quantity']}")
+                    return
                 entry["quantity"] += 1
                 self._refresh_cart()
                 notify_cart_changed()
                 return
+        
+        # Check stock for new item
+        if current_stock <= 0:
+            messagebox.showerror("Out of Stock", f"'{item['name']}' is out of stock")
+            return
         
         # Item not in cart, add new entry
         cart_id = self._next_cart_id()
@@ -747,7 +863,6 @@ class PosFrame(ttk.Frame):
         )
         self._refresh_cart()
         notify_cart_changed()
-        self._refresh_cart()
 
     def _add_variant_to_cart(self, item: dict, variant: dict) -> None:
         """Add a specific variant to cart."""
@@ -785,6 +900,7 @@ class PosFrame(ttk.Frame):
             }
         )
         self._refresh_cart()
+        notify_cart_changed()
 
     def _refresh_cart(self) -> None:
         # Update UI layout based on current settings
@@ -876,33 +992,50 @@ class PosFrame(ttk.Frame):
         vat_enabled = get_cart_vat_enabled()
         discount_enabled = get_cart_discount_enabled()
 
-        # Compute VAT based on each item's VAT rate and discount
+        # Parse discount percentage input
         discount_pct = 0.0
         if discount_enabled:
             try:
                 discount_pct = float(self.discount_var.get() or 0) / 100.0
-            except ValueError:
+            except Exception:
                 discount_pct = 0.0
-        
-        discount_amt = subtotal * discount_pct
-        vat_base = subtotal - discount_amt
-        
-        # VAT with per-item rates
-        vat_amt = 0.0
-        if vat_enabled:
-            for entry in self.cart:
-                line_subtotal = entry.get('_line_total', entry.get("price", 0) * entry.get("quantity", 0))
-                # Apply discount proportionally to this item
-                item_discount = line_subtotal * discount_pct
-                item_vat_base = line_subtotal - item_discount
-                item_vat_rate = entry.get("vat_rate", 16.0) / 100.0
-                vat_amt += item_vat_base * item_vat_rate
-        
-        total = vat_base + vat_amt  # Ensure subtotal already includes the discount adjustment
-        
+
+        # Delegate calculation to helper for easier testing
+        try:
+            from utils.cart import compute_totals_from_line_totals
+            default_vat = get_vat_rate()
+            totals = compute_totals_from_line_totals(self.cart, discount_pct=discount_pct, vat_enabled=vat_enabled, default_vat_percent=default_vat)
+            subtotal = totals['subtotal']
+            discount_amt = totals['discount_amt']
+            vat_amt = totals['vat_amt']
+            total = totals['total']
+        except Exception:
+            # Fallback to previous inline behavior on error
+            discount_amt = subtotal * discount_pct
+            vat_amt = 0.0
+            try:
+                default_vat = float(get_vat_rate())
+            except Exception:
+                default_vat = 16.0
+            if vat_enabled:
+                for entry in self.cart:
+                    line_subtotal = entry.get('_line_total', entry.get("price", 0) * entry.get("quantity", 0))
+                    item_discount = line_subtotal * discount_pct
+                    item_vat_base = line_subtotal - item_discount
+                    try:
+                        item_vat_rate = float(entry.get("vat_rate", default_vat)) / 100.0
+                    except Exception:
+                        item_vat_rate = default_vat / 100.0
+                    vat_amt += item_vat_base * item_vat_rate
+            total = (subtotal - discount_amt) + vat_amt
+
         self.subtotal_var.set(f"{self.currency_symbol} {subtotal:.2f}")
         self.vat_var.set(f"{self.currency_symbol} {vat_amt:.2f}")
         self.total_var.set(f"{self.currency_symbol} {total:.2f}")
+        try:
+            print(f"[TOTALS] subtotal={subtotal:.2f}, discount_pct={discount_pct:.4f}, discount_amt={discount_amt:.2f}, vat_amt={vat_amt:.2f}, total={total:.2f}")
+        except Exception:
+            pass
         self._update_change()
 
     def _selected_cart_item(self):
@@ -1020,7 +1153,23 @@ class PosFrame(ttk.Frame):
         if entry.get("is_special_volume"):
             messagebox.showinfo("Special item", "Adjust quantity by removing and re-adding the special volume item")
             return
-        entry["quantity"] = max(1, entry["quantity"] + delta)
+        
+        new_qty = entry["quantity"] + delta
+        
+        # Check stock when increasing quantity
+        if delta > 0:
+            try:
+                item = items.get_item(entry["item_id"])
+                if item:
+                    available = item.get("quantity", 0)
+                    if new_qty > available:
+                        messagebox.showerror("Insufficient Stock", 
+                            f"Not enough stock. Available: {available}")
+                        return
+            except Exception:
+                pass  # If we can't fetch item, allow the change
+        
+        entry["quantity"] = max(1, new_qty)
         self._refresh_cart()
         notify_cart_changed()
 
@@ -1086,6 +1235,12 @@ class PosFrame(ttk.Frame):
         messagebox.showinfo("Resume", "Cart restored")
 
     def _checkout(self) -> None:
+        # Check permission for sales processing
+        current_user = get_username()
+        if not permissions.has_permission(current_user, 'process_sales'):
+            messagebox.showerror("Permission Denied", "You do not have permission to process sales")
+            return
+        
         if not self.cart:
             messagebox.showinfo("Checkout", "Cart is empty")
             return
@@ -1103,6 +1258,13 @@ class PosFrame(ttk.Frame):
         except ValueError:
             messagebox.showerror("Checkout Error", f"Invalid discount value: {discount_str}")
             return
+        
+        # Check discount permission at checkout (not on every keystroke)
+        if discount_pct > 0:
+            if not permissions.has_permission(current_user, 'apply_discounts'):
+                messagebox.showerror("Permission Denied", "You do not have permission to apply discounts")
+                return
+        
         discount_amt = subtotal * discount_pct
         subtotal -= discount_amt
 
@@ -1129,24 +1291,31 @@ class PosFrame(ttk.Frame):
             self._clear_cart()
             self._refresh_items()
 
-    def _goto_cart(self) -> None:
-        root = self.winfo_toplevel()
-        shell = getattr(root, "shell", None)
-        if shell and hasattr(shell, "on_nav"):
-            shell.on_nav("cart")
-        elif shell and hasattr(shell, "_nav"):
-            shell._nav("cart")
-        else:
-            messagebox.showinfo("Cart", "Cart view is not available")
-
     def refresh(self) -> None:
-        currency = get_currency_code()
+        currency = get_currency_symbol()
         # Update currency symbol in case it has changed
         self.currency_symbol = currency
-        self.total_var.set(f"{currency} {float(self.total_var.get()):.2f}")
-        self.subtotal_var.set(f"{currency} {float(self.subtotal_var.get()):.2f}")
-        self.vat_var.set(f"{currency} {float(self.vat_var.get()):.2f}")
-        self.change_var.set(f"{currency} {float(self.change_var.get()):.2f}")
+        # Re-parse values safely, stripping any existing currency symbol
+        try:
+            total_val = float(self.total_var.get().replace(self.currency_symbol, '').replace(currency, '').strip() or '0')
+            self.total_var.set(f"{currency} {total_val:.2f}")
+        except (ValueError, AttributeError):
+            pass
+        try:
+            subtotal_val = float(self.subtotal_var.get().replace(self.currency_symbol, '').replace(currency, '').strip() or '0')
+            self.subtotal_var.set(f"{currency} {subtotal_val:.2f}")
+        except (ValueError, AttributeError):
+            pass
+        try:
+            vat_val = float(self.vat_var.get().replace(self.currency_symbol, '').replace(currency, '').strip() or '0')
+            self.vat_var.set(f"{currency} {vat_val:.2f}")
+        except (ValueError, AttributeError):
+            pass
+        try:
+            change_val = float(self.change_var.get().replace(self.currency_symbol, '').replace(currency, '').strip() or '0')
+            self.change_var.set(f"{currency} {change_val:.2f}")
+        except (ValueError, AttributeError):
+            pass
 
     def refresh_all(self) -> None:
         """Refresh catalog and cart to prevent blank states when revisiting POS."""

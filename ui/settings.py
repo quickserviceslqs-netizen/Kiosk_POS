@@ -134,16 +134,21 @@ class CurrencySettingsFrame(ttk.Frame):
 
     def load_currency(self):
         with get_connection() as conn:
-            # Load currency code
+            # Load currency code (legacy key is 'currency' if present)
             cursor = conn.execute("SELECT value FROM settings WHERE key = 'currency_code'")
             row = cursor.fetchone()
             if row:
                 code = row['value'] if isinstance(row, dict) else row[0]
-                self.currency_var.set(code)
             else:
-                self.currency_var.set('USD')  # default
-                code = 'USD'
-            
+                # try legacy key for older upgrades
+                cursor = conn.execute("SELECT value FROM settings WHERE key = 'currency'")
+                row = cursor.fetchone()
+                if row:
+                    code = row['value'] if isinstance(row, dict) else row[0]
+                else:
+                    code = 'USD'
+            self.currency_var.set(code)
+
             # Load currency symbol
             cursor = conn.execute("SELECT value FROM settings WHERE key = 'currency_symbol'")
             row = cursor.fetchone()
@@ -170,8 +175,10 @@ class CurrencySettingsFrame(ttk.Frame):
             return
         
         with get_connection() as conn:
+            # store both modern and legacy keys, update existing symbol entry
             conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", ("currency_code", code))
             conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", ("currency_symbol", symbol))
+            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", ("currency", code))
             conn.commit()
         
         messagebox.showinfo("Saved", f"Currency set to {code} ({symbol})")

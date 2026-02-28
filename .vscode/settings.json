@@ -1,4 +1,14 @@
 {
     "python-envs.defaultEnvManager": "ms-python.python:venv",
-    "python-envs.pythonProjects": []
+    "python-envs.pythonProjects": [],
+    // Use the current active terminal for running code
+    "code-runner.runInTerminal": true,
+    "code-runner.executorMap": {
+        "python": "python -u"
+    },
+    // Prevent new terminal creation for each run
+    "code-runner.preserveFocus": true,
+    "code-runner.clearPreviousOutput": false,
+    "python.terminal.executeInFileDir": false,
+    "python.terminal.launchArgs": []
 }

@@ -1,0 +1,37 @@
+{
+  "accounts": [
+    {
+      "name": "Main Cash Register",
+      "type": "cash_register",
+      "payment_method": "Cash",
+      "api_endpoint": "http://localhost:8080/api/cash_balance",
+      "api_key": "",
+      "enabled": true
+    },
+    {
+      "name": "M-Pesa Business Account",
+      "type": "mpesa",
+      "payment_method": "M-Pesa",
+      "api_endpoint": "https://api.safaricom.co.ke/mpesa/b2b/v1/accountbalance",
+      "api_key": "your_mpesa_api_key_here",
+      "enabled": false
+    },
+    {
+      "name": "Bank Account - KCB",
+      "type": "bank",
+      "payment_method": "Bank Transfer",
+      "api_endpoint": "https://api.kcbgroup.com/balance",
+      "api_key": "your_bank_api_key_here",
+      "enabled": false
+    },
+    {
+      "name": "Card Payment Processor",
+      "type": "card_processor",
+      "payment_method": "Credit Card",
+      "api_endpoint": "https://api.cardprocessor.com/balance",
+      "api_key": "your_card_api_key_here",
+      "enabled": false
+    }
+  ],
+  "cache_timeout_minutes": 5
+}

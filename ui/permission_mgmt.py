@@ -212,7 +212,12 @@ class PermissionManagementFrame(ttk.Frame):
                 "Reports": [],
                 "Order History": [],
                 "Expenses": [],
+                "Customers": [],
+                "Cart Management": [],
+                "Reconciliation": [],
+                "External Accounts": [],
                 "User Management": [],
+                "Permission Management": [],
                 "Settings": [],
                 "System": []
             }
@@ -230,9 +235,19 @@ class PermissionManagementFrame(ttk.Frame):
                     perm_groups["Order History"].append((perm_key, description))
                 elif perm_key.startswith(("view_expenses", "add_expenses", "edit_expenses", "delete_expenses", "add_expense_categories", "delete_expense_categories")):
                     perm_groups["Expenses"].append((perm_key, description))
-                elif perm_key.startswith(("view_users", "manage_users", "manage_roles")):
+                elif perm_key.startswith(("view_customers", "add_customers", "edit_customers", "delete_customers")):
+                    perm_groups["Customers"].append((perm_key, description))
+                elif perm_key.startswith(("view_cart", "manage_suspended_carts")):
+                    perm_groups["Cart Management"].append((perm_key, description))
+                elif perm_key.startswith(("view_reconciliation", "create_reconciliation", "edit_reconciliation", "approve_reconciliation", "view_reconciliation_reports")):
+                    perm_groups["Reconciliation"].append((perm_key, description))
+                elif perm_key.startswith(("view_external_accounts", "manage_external_accounts")):
+                    perm_groups["External Accounts"].append((perm_key, description))
+                elif perm_key.startswith(("view_users", "manage_users")):
                     perm_groups["User Management"].append((perm_key, description))
-                elif perm_key.startswith(("view_settings", "manage_settings", "manage_permissions", "manage_upgrades")):
+                elif perm_key.startswith("manage_permissions"):
+                    perm_groups["Permission Management"].append((perm_key, description))
+                elif perm_key.startswith(("view_settings", "manage_settings", "manage_upgrades", "view_system_info", "manage_vat_settings", "manage_uom_settings", "manage_email_settings", "manage_currency_settings", "manage_date_format", "manage_receipt_settings", "manage_pos_settings", "manage_report_settings", "manage_inventory_settings")):
                     perm_groups["Settings"].append((perm_key, description))
                 else:
                     perm_groups["System"].append((perm_key, description))

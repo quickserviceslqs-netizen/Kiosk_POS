@@ -29,9 +29,11 @@ from modules import backup
 # UI and other imports that access the database are imported lazily inside main()
 # to ensure database initialization runs before any module-level database access.
 from ui.order_history import OrderHistoryFrame
+from ui.shell import AppShell
+from ui.reports import ReportsFrame
 
-APP_TITLE = "Kiosk POS v1.003"
-APP_VERSION = "1.003"
+APP_TITLE = "Kiosk POS v1.004"
+APP_VERSION = "1.004"
 
 
 # Use per-install config to determine DB path
@@ -118,6 +120,20 @@ def bootstrap_database(*, create_default_admin: bool = True) -> Path:
         backup.check_and_run_auto_backup()
     except Exception:
         pass
+
+    # Apply any pending database migrations automatically during bootstrap
+    try:
+        from database.migrations import run_pending_migrations
+        applied = run_pending_migrations()
+        if applied:
+            try:
+                import tkinter as _tk
+                _tk.messagebox.showinfo("Database Updated", f"Applied migrations: {', '.join(applied)}")
+            except Exception:
+                logger.info(f"Applied migrations: {', '.join(applied)}")
+    except Exception as e:
+        logger.warning(f"Failed to run pending migrations at startup: {e}")
+
     return db_path
 
 
@@ -149,13 +165,19 @@ def _ensure_shell(root: tk.Tk) -> AppShell | None:
     return _build_shell(root, user)
 
 
-def _render(root: tk.Tk, *, title: str, builder, subtitle: str | None = None):
+def _render(root: tk.Tk, *, title: str, builder, subtitle: str | None = None, cache_key: str | None = None):
     """Render a frame inside the shell's content area."""
     shell = _ensure_shell(root)
     if not shell:
         return None
-    frame = builder(shell.content_area)
-    shell.set_content(frame, title=title, subtitle=subtitle)
+    
+    # Use cached frame if available, otherwise build new one
+    if cache_key and cache_key in shell.cached_frames:
+        frame = shell.cached_frames[cache_key]
+    else:
+        frame = builder(shell.content_area)
+    
+    shell.set_content(frame, title=title, subtitle=subtitle, cache_key=cache_key)
     return frame
 
 
@@ -176,12 +198,18 @@ def _handle_nav(root: tk.Tk, key: str) -> None:
         show_pos(root)
     elif key == "inventory":
         show_inventory(root)
+    elif key == "stock_receiving":
+        show_stock_receiving(root)
     elif key == "reports":
         show_reports(root)
     elif key == "order_history":
         show_order_history(root)
     elif key == "expenses":
         show_expenses(root)
+    elif key == "reconciliation":
+        show_reconciliation(root)
+    elif key == "stock_recon":
+        show_stock_reconciliation(root)
     elif key == "backup":
         show_backup(root)
     elif key == "settings":
@@ -211,9 +239,9 @@ def _go_back(root: tk.Tk) -> None:
 
 
 def _set_refresh_button(shell, root: tk.Tk, page_key: str) -> None:
-    """Set the header button to Refresh for main pages."""
+    """Set the header button to Home for main pages."""
     if shell:
-        shell.set_header_button("🔄 Refresh", lambda: _handle_nav(root, page_key))
+        shell.set_header_button("🏠 Home", lambda: show_home(root, getattr(root, "current_user", {})))
 
 
 def _set_back_button(shell, root: tk.Tk) -> None:
@@ -259,7 +287,7 @@ def show_home(root: tk.Tk, user: dict) -> None:
     if not shell:
         return
     frame = DashboardFrame(shell.content_area, on_home=None)
-    shell.set_content(frame, title="Dashboard", subtitle="Today at a glance")
+    shell.set_content(frame, title="Dashboard", subtitle="Today at a glance", cache_key="dashboard")
     shell.activate_nav("dashboard")
     _set_refresh_button(shell, root, "dashboard")
 
@@ -280,11 +308,15 @@ def _show_settings_menu(root: tk.Tk, user: dict) -> None:
             ("👤 User Management", lambda: show_user_mgmt(root)),
             ("� Permission Management", lambda: show_permission_mgmt(root)),
             ("�📊 VAT Settings", lambda: show_vat_settings(root)),
-            ("🛒 Cart Management", lambda: show_cart_settings(root)),
             ("⚖️ Units of Measure", lambda: show_uom_settings(root)),
             ("📧 Email Notifications", lambda: show_email_settings(root)),
-            ("� Financial Reconciliation", lambda: show_reconciliation(root, user)),
-            ("�🔧 System Info", lambda: show_system_info(root)),
+            ("📅 Date Format", lambda: show_date_format_settings(root)),
+            ("🧾 Receipt Settings", lambda: show_receipt_settings(root)),
+            ("🛍️ POS Settings", lambda: show_pos_settings(root)),
+            ("📊 Report Settings", lambda: show_report_settings(root)),
+            ("📦 Inventory Settings", lambda: show_inventory_settings(root)),
+            ("💰 Financial Reconciliation", lambda: show_reconciliation(root)),
+            ("🔧 System Info", lambda: show_system_info(root)),
             ("📋 Audit Logs", lambda: show_audit_logs(root)),
             ("⬆️ Upgrade Manager", lambda: show_upgrade_manager(root)),
             ("🔑 Change Password", lambda: show_change_password(root, user)),
@@ -295,7 +327,7 @@ def _show_settings_menu(root: tk.Tk, user: dict) -> None:
             ttk.Button(frame, text=label, width=28, command=cmd).grid(row=2 + r, column=c, sticky=tk.EW, padx=6, pady=6)
         return frame
     
-    frame = _render(root, title="Settings", subtitle="Manage your system", builder=builder)
+    frame = _render(root, title="Settings", subtitle="Manage your system", builder=builder, cache_key="settings")
     shell = _ensure_shell(root)
     if shell and frame:
         shell.activate_nav("settings")
@@ -348,36 +380,120 @@ def show_currency_settings(root: tk.Tk) -> None:
     if shell and frame:
         _activate_settings_subpage(shell, "currency_settings")
         _set_back_button(shell, root)
-        try:
-            frame.refresh()
-        except Exception:
-            pass
+
+
+def show_date_format_settings(root: tk.Tk) -> None:
+    if not _require_admin(root):
+        return
+    from ui.date_format_settings import DateFormatSettingsFrame
+
+    frame = _render(root, title="Date Format", subtitle="Choose how dates are displayed", builder=lambda parent: DateFormatSettingsFrame(parent))
+    shell = _ensure_shell(root)
+    if shell and frame:
+        _activate_settings_subpage(shell, "date_format_settings")
+        _set_back_button(shell, root)
+
+
+def show_receipt_settings(root: tk.Tk) -> None:
+    if not _require_admin(root):
+        return
+    from ui.receipt_settings import ReceiptSettingsFrame
+
+    frame = _render(root, title="Receipt Settings", subtitle="Configure receipt printing options", builder=lambda parent: ReceiptSettingsFrame(parent))
+    shell = _ensure_shell(root)
+    if shell and frame:
+        _activate_settings_subpage(shell, "receipt_settings")
+        _set_back_button(shell, root)
+
+
+def show_pos_settings(root: tk.Tk) -> None:
+    if not _require_admin(root):
+        return
+    from ui.pos_settings import POSSettingsFrame
+
+    frame = _render(root, title="POS Settings", subtitle="Configure POS behavior and display", builder=lambda parent: POSSettingsFrame(parent))
+    shell = _ensure_shell(root)
+    if shell and frame:
+        _activate_settings_subpage(shell, "pos_settings")
+        _set_back_button(shell, root)
+
+
+def show_report_settings(root: tk.Tk) -> None:
+    if not _require_admin(root):
+        return
+    from ui.report_settings import ReportSettingsFrame
+
+    frame = _render(root, title="Report Settings", subtitle="Configure report display and export preferences", builder=lambda parent: ReportSettingsFrame(parent))
+    shell = _ensure_shell(root)
+    if shell and frame:
+        _activate_settings_subpage(shell, "report_settings")
+        _set_back_button(shell, root)
+
+
+def show_inventory_settings(root: tk.Tk) -> None:
+    if not _require_admin(root):
+        return
+    from ui.inventory_settings import InventorySettingsFrame
+
+    frame = _render(root, title="Inventory Settings", subtitle="Configure inventory alerts and behavior", builder=lambda parent: InventorySettingsFrame(parent))
+    shell = _ensure_shell(root)
+    if shell and frame:
+        _activate_settings_subpage(shell, "inventory_settings")
+        _set_back_button(shell, root)
 
 
 def show_inventory(root: tk.Tk) -> None:
     if not _require_permission(root, "view_inventory"):
         return
-    frame = _render(root, title="Inventory", subtitle="Items, stock, and pricing", builder=lambda parent: InventoryFrame(parent))
+    frame = _render(root, title="Inventory", subtitle="Items, stock, and pricing", builder=lambda parent: InventoryFrame(parent), cache_key="inventory")
     shell = _ensure_shell(root)
     if shell and frame:
         shell.activate_nav("inventory")
         _set_refresh_button(shell, root, "inventory")
-        try:
-            frame.refresh()
-        except Exception:
-            pass
+
+
+def show_stock_receiving(root: tk.Tk) -> None:
+    """Show the Stock Receiving UI for managing inventory purchases with lot tracking."""
+    if not _require_permission(root, "receive_stock"):
+        return
+    from ui.stock_receiving import StockReceivingFrame
+    
+    user_id = getattr(root, "current_user", {}).get("user_id")
+    frame = _render(
+        root, 
+        title="Stock Receiving", 
+        subtitle="Receive inventory with cost tracking", 
+        builder=lambda parent: StockReceivingFrame(parent, user_id=user_id),
+        cache_key="stock_receiving"
+    )
+    shell = _ensure_shell(root)
+    if shell and frame:
+        shell.activate_nav("stock_receiving")
+        # Store frame reference for refresh button and create custom refresh handler
+        root.stock_receiving_frame = frame
+        shell.set_header_button("🏠 Home", lambda: show_home(root, getattr(root, "current_user", {})))
 
 
 def show_pos(root: tk.Tk) -> None:
     if not _require_permission(root, "access_pos"):
         return
     cart_state = getattr(root, "cart_state", {"items": [], "suspended": []})
-    root.cart_state = cart_state  # Ensure cart_state is stored on root
-    frame = _render(root, title="Point of Sale", subtitle="Sell, scan, and collect payments", builder=lambda parent: PosFrame(parent, cart_state=cart_state))
+    # ensure cart_state is stored on the root so it persists across
+    # rebuilds (new session, etc). the branch we are rebasing onto added
+    # cache_key support, so keep that too.
+    root.cart_state = cart_state
+    frame = _render(
+        root,
+        title="Point of Sale",
+        subtitle="Sell, scan, and collect payments",
+        builder=lambda parent: PosFrame(parent, cart_state=cart_state),
+        cache_key="pos",
+    )
     shell = _ensure_shell(root)
     if shell and frame:
         shell.activate_nav("pos")
         _set_refresh_button(shell, root, "pos")
+        # refresh helpers from HEAD branch
         try:
             frame.refresh_all()
             frame.ensure_populated(force=True)
@@ -393,11 +509,18 @@ def show_user_mgmt(root: tk.Tk) -> None:
     if shell and frame:
         _activate_settings_subpage(shell, "user_mgmt")
         _set_back_button(shell, root)
-        try:
-            if hasattr(frame, "refresh"):
-                frame.refresh()
-        except Exception:
-            pass
+
+
+def show_permission_mgmt(root: tk.Tk) -> None:
+    if not _require_permission(root, "manage_permissions"):
+        return
+    from ui.permission_mgmt import PermissionManagementFrame
+
+    frame = _render(root, title="Permission Management", subtitle="Manage user permissions explicitly", builder=lambda parent: PermissionManagementFrame(parent))
+    shell = _ensure_shell(root)
+    if shell and frame:
+        _activate_settings_subpage(shell, "permission_mgmt")
+        _set_back_button(shell, root)
 
 
 def show_permission_mgmt(root: tk.Tk) -> None:
@@ -409,11 +532,6 @@ def show_permission_mgmt(root: tk.Tk) -> None:
     if shell and frame:
         _activate_settings_subpage(shell, "permission_mgmt")
         _set_back_button(shell, root)
-        try:
-            if hasattr(frame, "refresh"):
-                frame.refresh()
-        except Exception:
-            pass
 
 
 def show_vat_settings(root: tk.Tk) -> None:
@@ -423,21 +541,6 @@ def show_vat_settings(root: tk.Tk) -> None:
     shell = _ensure_shell(root)
     if shell and frame:
         _activate_settings_subpage(shell, "vat_settings")
-        _set_back_button(shell, root)
-        try:
-            frame.refresh()
-        except Exception:
-            pass
-
-
-def show_cart_settings(root: tk.Tk) -> None:
-    if not _require_admin(root):
-        return
-    from ui.cart_settings import CartSettingsFrame
-    frame = _render(root, title="Cart Management", subtitle="Configure cart features", builder=lambda parent: CartSettingsFrame(parent, on_home=lambda: show_home(root, getattr(root, "current_user", {}))))
-    shell = _ensure_shell(root)
-    if shell and frame:
-        _activate_settings_subpage(shell, "cart_settings")
         _set_back_button(shell, root)
 
 
@@ -449,68 +552,46 @@ def show_uom_settings(root: tk.Tk) -> None:
     if shell and frame:
         _activate_settings_subpage(shell, "uom_settings")
         _set_back_button(shell, root)
-        try:
-            frame.refresh()
-        except Exception:
-            pass
 
 
 def show_reports(root: tk.Tk) -> None:
     if not _require_permission(root, "view_reports"):
         return
-    frame = _render(root, title="Reports", subtitle="Performance and history", builder=lambda parent: ReportsFrame(parent, on_home=lambda: show_home(root, getattr(root, "current_user", {}))))
+    frame = _render(root, title="Reports", subtitle="Performance and history", builder=lambda parent: ReportsFrame(parent, on_home=lambda: show_home(root, getattr(root, "current_user", {}))), cache_key="reports")
     shell = _ensure_shell(root)
     if shell and frame:
         shell.activate_nav("reports")
         _set_refresh_button(shell, root, "reports")
-        try:
-            if hasattr(frame, "refresh"):
-                frame.refresh()
-        except Exception:
-            pass
 
 
 def show_order_history(root: tk.Tk) -> None:
     if not _require_permission(root, "view_order_history"):
         return
-    frame = _render(root, title="Order History", subtitle="View orders and receipts", builder=lambda parent: OrderHistoryFrame(parent, on_home=lambda: show_home(root, getattr(root, "current_user", {}))))
+    frame = _render(root, title="Order History", subtitle="View orders and receipts", builder=lambda parent: OrderHistoryFrame(parent, on_home=lambda: show_home(root, getattr(root, "current_user", {}))), cache_key="order_history")
     shell = _ensure_shell(root)
     if shell and frame:
         shell.activate_nav("order_history")
         _set_refresh_button(shell, root, "order_history")
-        try:
-            if hasattr(frame, "refresh"):
-                frame.refresh()
-        except Exception:
-            pass
 
 
 def show_expenses(root: tk.Tk) -> None:
     if not _require_permission(root, "view_expenses"):
         return
-    frame = _render(root, title="Expenses", subtitle="Track spending", builder=lambda parent: ExpensesFrame(parent, on_home=lambda: show_home(root, getattr(root, "current_user", {}))))
+    frame = _render(root, title="Expenses", subtitle="Track spending", builder=lambda parent: ExpensesFrame(parent, on_home=lambda: show_home(root, getattr(root, "current_user", {}))), cache_key="expenses")
     shell = _ensure_shell(root)
     if shell and frame:
         shell.activate_nav("expenses")
         _set_refresh_button(shell, root, "expenses")
-        try:
-            frame.refresh()
-        except Exception:
-            pass
 
 
 def show_backup(root: tk.Tk) -> None:
     if not _require_admin(root):
         return
-    frame = _render(root, title="Backup", subtitle="Protect your data", builder=lambda parent: BackupFrame(parent, on_home=None))
+    frame = _render(root, title="Backup", subtitle="Protect your data", builder=lambda parent: BackupFrame(parent, on_home=None), cache_key="backup")
     shell = _ensure_shell(root)
     if shell and frame:
         shell.activate_nav("backup")
         shell.set_header_button("🏠 Home", lambda: show_home(root, getattr(root, "current_user", {})))
-        try:
-            frame._refresh_list()
-        except Exception:
-            pass
 
 
 def show_email_settings(root: tk.Tk) -> None:
@@ -521,18 +602,84 @@ def show_email_settings(root: tk.Tk) -> None:
     if shell and frame:
         _activate_settings_subpage(shell, "email_settings")
         _set_back_button(shell, root)
-        try:
-            frame.refresh()
-        except Exception:
-            pass
 
 
-def show_reconciliation(root: tk.Tk, user: dict) -> None:
-    """Show financial reconciliation interface."""
+def show_reconciliation(root: tk.Tk) -> None:
+    """Show financial reconciliation interface inside the app shell (default).
+
+    Use the header button 'Open in Window' to pop the view into a separate window if needed.
+    """
     if not _require_admin(root):
         return
-    from ui.reconciliation import ReconciliationDialog
-    ReconciliationDialog(root, user.get('user_id', 1), user.get('role', 'cashier'))
+    # Lazy import to avoid module-level UI imports before DB init
+    from ui.comprehensive_reconciliation_ui import ComprehensiveReconciliationUI
+
+    # Render inside the main app shell
+    def builder(parent: tk.Misc):
+        frame = ComprehensiveReconciliationUI(parent, on_home=lambda: show_home(root, getattr(root, 'current_user', {})))
+        return frame
+
+    frame = _render(root, title="Payment Reconciliation", builder=builder, subtitle="Reconcile payments", cache_key="reconciliation")
+    shell = _ensure_shell(root)
+
+    if shell and frame:
+        shell.activate_nav("reconciliation")
+        shell.set_header_button("🏠 Home", lambda: show_home(root, getattr(root, "current_user", {})))
+
+
+def show_reconciliation_window(root: tk.Tk) -> None:
+    """Open the reconciliation UI in a dedicated, well-sized Toplevel window."""
+    if not _require_admin(root):
+        return
+    from ui.comprehensive_reconciliation_ui import ComprehensiveReconciliationUI
+
+    recon_window = tk.Toplevel(root)
+    recon_window.title("Payment Reconciliation - Kiosk POS")
+
+    # Use a sensible default size that fits most screens and lets the UI display fully
+    recon_window.geometry("1200x800")
+    recon_window.minsize(900, 700)
+    recon_window.resizable(True, True)
+
+    recon_ui = ComprehensiveReconciliationUI(recon_window, on_home=lambda: recon_window.destroy())
+    recon_ui.pack(fill=tk.BOTH, expand=True)
+
+    # Ensure decorations and focus
+    recon_window.attributes('-topmost', False)
+    recon_window.overrideredirect(False)
+    recon_window.lift()
+    recon_window.focus_set()
+
+    # Center on screen
+    screen_width = recon_window.winfo_screenwidth()
+    screen_height = recon_window.winfo_screenheight()
+    final_width = min(1200, screen_width - 150)
+    final_height = min(800, screen_height - 150)
+    x = max(0, (screen_width // 2) - (final_width // 2))
+    y = max(0, (screen_height // 2) - (final_height // 2))
+    recon_window.geometry(f"{final_width}x{final_height}+{x}+{y}")
+
+    def on_close():
+        recon_window.destroy()
+
+    recon_window.protocol("WM_DELETE_WINDOW", on_close)
+    recon_window.focus_set()
+
+
+def show_stock_reconciliation(root: tk.Tk) -> None:
+    """Show stock reconciliation interface inside the app shell."""
+    if not _require_admin(root):
+        return
+    from ui.stock_reconciliation_ui import StockReconciliationUI
+
+    def builder(parent: tk.Misc):
+        frame = StockReconciliationUI(parent, on_home=lambda: show_home(root, getattr(root, 'current_user', {})))
+        return frame
+
+    frame = _render(root, title="Stock Reconciliation", builder=builder, subtitle="Reconcile physical stock counts", cache_key="stock_recon")
+    shell = _ensure_shell(root)
+    if shell and frame:
+        shell.activate_nav("stock_recon")
 
 
 def show_change_password(root: tk.Tk, user: dict) -> None:
@@ -641,6 +788,9 @@ def main() -> None:
             root.destroy()
             raise
         return
+
+    # Command line support: recalculate per-unit prices
+    if "--recalc-prices" in sys.argv:
         try:
             root = tk.Tk()
             root.withdraw()
@@ -755,7 +905,6 @@ def main() -> None:
     from ui.dashboard import DashboardFrame as _DashboardFrame
     from ui.email_settings import EmailSettingsFrame as _EmailSettingsFrame
     from ui.shell import AppShell as _AppShell
-    from ui.cart import CartFrame as _CartFrame
     from ui.order_history import OrderHistoryFrame as _OrderHistoryFrame
     from ui.admin_setup import AdminSetupFrame as _AdminSetupFrame
 
@@ -773,7 +922,6 @@ def main() -> None:
         'DashboardFrame': _DashboardFrame,
         'EmailSettingsFrame': _EmailSettingsFrame,
         'AppShell': _AppShell,
-        'CartFrame': _CartFrame,
         'OrderHistoryFrame': _OrderHistoryFrame,
         'AdminSetupFrame': _AdminSetupFrame,
     })

@@ -3,10 +3,37 @@ from __future__ import annotations
 
 import sqlite3
 import time
+import logging
 from datetime import datetime, timedelta
 from typing import Optional
 
 from database.init_db import get_connection
+from utils.date_utils import format_date
+
+# ReportData class used by generator wrappers
+# ReportData is imported locally inside wrappers to avoid circular dependency
+
+logger = logging.getLogger(__name__)
+
+# Registry for report generator functions.  Each generator is
+# responsible for returning raw data (list or dict) appropriate to
+# the report type.  The UI/controller will invoke these by key.
+REPORT_GENERATORS: dict[str, callable] = {}
+
+
+def report_generator(key: str):
+    """Decorator to register a report generator under a given key.
+
+    The decorated function should accept the usual filters (usually
+    start_date/end_date plus any additional parameters) and return
+    either a list or a dict; the controller will wrap the result in a
+    ReportData object later.
+    """
+    def decorator(func):
+        REPORT_GENERATORS[key] = func
+        return func
+    return decorator
+
 
 # Simple in-memory cache with TTL
 _cache = {}
@@ -54,6 +81,7 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
     return {k: row[k] for k in row.keys()}
 
 
+@report_generator('sales_summary')
 def get_sales_summary(start_date: str, end_date: str) -> dict:
     """Get sales summary for a date range."""
     key = f"sales_summary_{start_date}_{end_date}"
@@ -74,12 +102,14 @@ def _get_sales_summary_uncached(start_date: str, end_date: str) -> dict:
             FROM sales
             WHERE date BETWEEN ? AND ?
             AND (voided IS NULL OR voided = 0)
+            AND (voided IS NULL OR voided = 0)
             """,
             (start_date, end_date)
         ).fetchone()
     return _row_to_dict(row) if row else {}
 
 
+@report_generator('daily')
 def get_daily_sales(date: str) -> list[dict]:
     """Get all sales for a specific date."""
     with get_connection() as conn:
@@ -99,6 +129,7 @@ def get_daily_sales(date: str) -> list[dict]:
     return [_row_to_dict(r) for r in rows]
 
 
+@report_generator('range')
 def get_date_range_sales(start_date: str, end_date: str) -> list[dict]:
     """Get sales grouped by date for a date range."""
     with get_connection() as conn:
@@ -121,11 +152,61 @@ def get_date_range_sales(start_date: str, end_date: str) -> list[dict]:
     return [_row_to_dict(r) for r in rows]
 
 
+@report_generator('bestsellers')
 def get_best_selling_items(start_date: str, end_date: str, limit: int = 10) -> list[dict]:
     """Get best-selling items for a date range (excludes refunded sales).
     For fractional items, quantities are converted to base units (L/kg/m)."""
     key = f"best_selling_{start_date}_{end_date}_{limit}"
     return _get_cached(key, _get_best_selling_items_uncached, start_date, end_date, limit)
+
+
+@report_generator('overview')
+def get_overview(start_date: str, end_date: str) -> dict:
+    """Produce high level dashboard metrics for the specified date period.
+
+    This mirrors the logic previously contained in the UI frame so that the
+    controller can treat "overview" like any other report type.  Only
+    *metadata* is returned; data itself is always an empty list.
+    """
+    # today's revenue/transactions use daily sales helper
+    today_data = get_daily_sales(start_date)
+    today_revenue = sum(item.get('total', 0) for item in today_data) if today_data else 0
+    today_transactions = len({item.get('receipt_number') for item in today_data}) if today_data else 0
+
+    # week metrics based on provided range or compute week boundaries
+    try:
+        from datetime import datetime, timedelta
+        # if start/end are same day, treat that as "today" and compute this week
+        sd = datetime.strptime(start_date, "%Y-%m-%d")
+    except Exception:
+        sd = None
+
+    if sd:
+        week_start = (sd - timedelta(days=sd.weekday())).strftime("%Y-%m-%d")
+        week_end = (sd + timedelta(days=6 - sd.weekday())).strftime("%Y-%m-%d")
+        week_data = get_date_range_sales(week_start, week_end)
+        week_revenue = sum(item.get('total_sales', 0) for item in week_data) if week_data else 0
+
+        last_week_start = (sd - timedelta(days=sd.weekday() + 7)).strftime("%Y-%m-%d")
+        last_week_end = (sd - timedelta(days=sd.weekday() + 1)).strftime("%Y-%m-%d")
+        last_week_data = get_date_range_sales(last_week_start, last_week_end)
+        last_week_revenue = sum(item.get('total_sales', 0) for item in last_week_data) if last_week_data else 0
+    else:
+        week_revenue = 0
+        last_week_revenue = 0
+
+    growth_rate = 0.0
+    if last_week_revenue > 0:
+        growth_rate = ((week_revenue - last_week_revenue) / last_week_revenue) * 100
+    elif week_revenue > 0:
+        growth_rate = 100.0
+
+    return {
+        'today_revenue': today_revenue,
+        'today_transactions': today_transactions,
+        'week_revenue': week_revenue,
+        'growth_rate': growth_rate
+    }
 
 
 def _get_best_selling_items_uncached(start_date: str, end_date: str, limit: int = 10) -> list[dict]:
@@ -179,6 +260,7 @@ def _get_best_selling_items_uncached(start_date: str, end_date: str, limit: int 
     return results
 
 
+@report_generator('profit')
 def get_profit_analysis(start_date: str, end_date: str) -> dict:
     """Calculate profit/loss for a date range."""
     with get_connection() as conn:
@@ -253,6 +335,7 @@ def get_profit_analysis(start_date: str, end_date: str) -> dict:
         }
 
 
+@report_generator('category')
 def get_category_sales(start_date: str, end_date: str) -> list[dict]:
     """Get sales grouped by item category.
     For categories with fractional items, shows total items sold (integer count).
@@ -286,6 +369,7 @@ def get_category_sales(start_date: str, end_date: str) -> list[dict]:
     return results
 
 
+@report_generator('hourly')
 def get_hourly_sales(date: str) -> list[dict]:
     """Get sales grouped by hour for a specific date."""
     with get_connection() as conn:
@@ -307,6 +391,7 @@ def get_hourly_sales(date: str) -> list[dict]:
     return [_row_to_dict(r) for r in rows]
 
 
+@report_generator('refunds')
 def get_refunds(start_date: str, end_date: str) -> list[dict]:
     """Get refunds within a date range (inclusive)."""
     with get_connection() as conn:
@@ -331,6 +416,7 @@ def get_refunds(start_date: str, end_date: str) -> list[dict]:
     return [_row_to_dict(r) for r in rows]
 
 
+@report_generator('voided')
 def get_voided_sales(start_date: str, end_date: str) -> list[dict]:
     """Get voided sales within a date range."""
     with get_connection() as conn:
@@ -863,3 +949,732 @@ def get_sales_log_count(start_date: str, end_date: str) -> int:
         ).fetchone()[0]
 
         return sales_count + voided_count + refunds_count
+
+
+@report_generator('voided')
+def get_voided_sales(start_date: str, end_date: str) -> list[dict]:
+    """Get voided sales within a date range."""
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT 
+                s.sale_id,
+                s.receipt_number,
+                s.date,
+                s.time,
+                s.total,
+                s.void_reason,
+                s.voided_at,
+                u.username as voided_by_username,
+                (SELECT COUNT(*) FROM sales_items WHERE sale_id = s.sale_id) as item_count
+            FROM sales s
+            LEFT JOIN users u ON s.voided_by = u.user_id
+            WHERE s.voided = 1
+            AND s.date BETWEEN ? AND ?
+            ORDER BY s.voided_at DESC
+            """,
+            (start_date, end_date)
+        ).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+def get_comprehensive_sales_summary(start_date: str, end_date: str) -> dict:
+    """Get comprehensive sales summary including voided sales and refunds."""
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        
+        # Valid sales (not voided)
+        valid_sales = conn.execute(
+            """
+            SELECT 
+                COUNT(*) as transactions,
+                SUM(total) as total_sales,
+                AVG(total) as avg_transaction
+            FROM sales
+            WHERE date BETWEEN ? AND ?
+            AND (voided IS NULL OR voided = 0)
+            """,
+            (start_date, end_date)
+        ).fetchone()
+        
+        # Voided sales
+        voided_sales = conn.execute(
+            """
+            SELECT 
+                COUNT(*) as voided_transactions,
+                SUM(total) as voided_amount
+            FROM sales
+            WHERE date BETWEEN ? AND ?
+            AND voided = 1
+            """,
+            (start_date, end_date)
+        ).fetchone()
+        
+        # Refunds
+        refunds = conn.execute(
+            """
+            SELECT 
+                COUNT(*) as refund_count,
+                SUM(refund_amount) as total_refunded
+            FROM refunds
+            WHERE DATE(created_at) BETWEEN ? AND ?
+            """,
+            (start_date, end_date)
+        ).fetchone()
+        
+        # Net sales (valid sales minus refunds)
+        net_sales = (valid_sales['total_sales'] or 0) - (refunds['total_refunded'] or 0)
+        
+        return {
+            'valid_transactions': valid_sales['transactions'] or 0,
+            'valid_sales_amount': valid_sales['total_sales'] or 0,
+            'avg_valid_transaction': valid_sales['avg_transaction'] or 0,
+            'voided_transactions': voided_sales['voided_transactions'] or 0,
+            'voided_amount': voided_sales['voided_amount'] or 0,
+            'refund_count': refunds['refund_count'] or 0,
+            'total_refunded': refunds['total_refunded'] or 0,
+            'net_sales': max(0, net_sales),
+            'total_gross_sales': (valid_sales['total_sales'] or 0) + (voided_sales['voided_amount'] or 0)
+        }
+
+
+def get_voided_sales_by_reason(start_date: str, end_date: str) -> list[dict]:
+    """Get voided sales grouped by reason."""
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT 
+                COALESCE(void_reason, 'No Reason Specified') as reason,
+                COUNT(*) as count,
+                SUM(total) as total_amount
+            FROM sales
+            WHERE voided = 1
+            AND date BETWEEN ? AND ?
+            GROUP BY void_reason
+            ORDER BY total_amount DESC
+            """,
+            (start_date, end_date)
+        ).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+def get_refunds_by_reason(start_date: str, end_date: str) -> list[dict]:
+    """Get refunds grouped by reason."""
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT 
+                COALESCE(r.reason, 'No Reason Specified') as reason,
+                COUNT(*) as count,
+                SUM(r.refund_amount) as total_amount
+            FROM refunds r
+            WHERE DATE(r.created_at) BETWEEN ? AND ?
+            GROUP BY r.reason
+            ORDER BY total_amount DESC
+            """,
+            (start_date, end_date)
+        ).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+def get_daily_voided_and_refunds(start_date: str, end_date: str) -> list[dict]:
+    """Get daily breakdown of voided sales and refunds."""
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        
+        # Get voided sales by date
+        voided_rows = conn.execute(
+            """
+            SELECT 
+                date,
+                COUNT(*) as voided_count,
+                SUM(total) as voided_amount
+            FROM sales
+            WHERE voided = 1
+            AND date BETWEEN ? AND ?
+            GROUP BY date
+            """,
+            (start_date, end_date)
+        ).fetchall()
+        
+        # Get refunds by date
+        refund_rows = conn.execute(
+            """
+            SELECT 
+                DATE(created_at) as date,
+                COUNT(*) as refund_count,
+                SUM(refund_amount) as refunded_amount
+            FROM refunds
+            WHERE DATE(created_at) BETWEEN ? AND ?
+            GROUP BY DATE(created_at)
+            """,
+            (start_date, end_date)
+        ).fetchall()
+        
+        # Combine the data
+        voided_dict = {row['date']: _row_to_dict(row) for row in voided_rows}
+        refund_dict = {row['date']: _row_to_dict(row) for row in refund_rows}
+        
+        # Get all dates in range
+        from datetime import datetime, timedelta
+        start = datetime.strptime(start_date, '%Y-%m-%d')
+        end = datetime.strptime(end_date, '%Y-%m-%d')
+        
+        results = []
+        current = start
+        while current <= end:
+            date_str = current.strftime('%Y-%m-%d')
+            voided = voided_dict.get(date_str, {'voided_count': 0, 'voided_amount': 0})
+            refunded = refund_dict.get(date_str, {'refund_count': 0, 'refunded_amount': 0})
+            
+            results.append({
+                'date': format_date(current),
+                'voided_count': voided['voided_count'],
+                'voided_amount': voided['voided_amount'],
+                'refund_count': refunded['refund_count'],
+                'refunded_amount': refunded['refunded_amount']
+            })
+            current += timedelta(days=1)
+        
+        return results
+
+
+def get_detailed_sales_transactions(start_date: str, end_date: str, limit: int = None, offset: int = 0) -> list[dict]:
+    """Get detailed sales transactions with line items for a date range, including voided sales and refunds."""
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+
+        # Get regular sales (not voided) with line items
+        regular_sales_query = """
+            SELECT
+                'sale' as transaction_type,
+                s.sale_id,
+                s.receipt_number,
+                s.date,
+                s.time,
+                i.name as item_name,
+                i.category,
+                si.quantity,
+                si.price,
+                (si.quantity * si.price) as line_total,
+                s.total,
+                s.payment,
+                s.payment_method,
+                NULL as void_reason,
+                NULL as refund_reason,
+                NULL as refund_amount,
+                0 as is_voided,
+                0 as is_refund
+            FROM sales s
+            JOIN sales_items si ON s.sale_id = si.sale_id
+            JOIN items i ON si.item_id = i.item_id
+            WHERE s.date BETWEEN ? AND ?
+            AND (s.voided IS NULL OR s.voided = 0)
+        """
+
+        # Get voided sales with line items
+        voided_sales_query = """
+            SELECT
+                'void' as transaction_type,
+                s.sale_id,
+                s.receipt_number,
+                s.date,
+                s.time,
+                i.name as item_name,
+                i.category,
+                si.quantity,
+                si.price,
+                (si.quantity * si.price) as line_total,
+                s.total,
+                s.payment,
+                s.payment_method,
+                s.void_reason,
+                NULL as refund_reason,
+                NULL as refund_amount,
+                1 as is_voided,
+                0 as is_refund
+            FROM sales s
+            JOIN sales_items si ON s.sale_id = si.sale_id
+            JOIN items i ON si.item_id = i.item_id
+            WHERE s.date BETWEEN ? AND ?
+            AND s.voided = 1
+        """
+
+        # Get refunds (refunds don't have line items, so we'll create a single line entry)
+        refunds_query = """
+            SELECT
+                'refund' as transaction_type,
+                r.refund_id as sale_id,
+                r.receipt_number,
+                date(r.created_at) as date,
+                time(r.created_at) as time,
+                'REFUND' as item_name,
+                'Refund' as category,
+                1 as quantity,
+                r.refund_amount as price,
+                r.refund_amount as line_total,
+                r.refund_amount as total,
+                NULL as payment,
+                NULL as payment_method,
+                NULL as void_reason,
+                r.reason as refund_reason,
+                r.refund_amount,
+                0 as is_voided,
+                1 as is_refund
+            FROM refunds r
+            WHERE date(r.created_at) BETWEEN ? AND ?
+        """
+
+        # Combine all queries
+        combined_query = f"""
+            {regular_sales_query}
+            UNION ALL
+            {voided_sales_query}
+            UNION ALL
+            {refunds_query}
+            ORDER BY date DESC, time DESC, sale_id DESC
+        """
+
+        params = [start_date, end_date, start_date, end_date, start_date, end_date]
+
+        if limit is not None:
+            combined_query += " LIMIT ? OFFSET ?"
+            params.extend([limit, offset])
+
+        rows = conn.execute(combined_query, params).fetchall()
+    
+    results = []
+    for row in rows:
+        row_dict = _row_to_dict(row)
+        # Format date for display
+        if row_dict.get('date'):
+            row_dict['date_display'] = format_date(row_dict['date'])
+        else:
+            row_dict['date_display'] = ''
+        results.append(row_dict)
+    
+    return results
+
+
+def get_sales_by_payment_method(start_date: str, end_date: str) -> list[dict]:
+    """Get sales breakdown by payment method."""
+    try:
+        with get_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                """
+                SELECT 
+                    COALESCE(payment_method, 'Cash') as payment_method,
+                    COUNT(*) as transaction_count,
+                    SUM(total) as total_sales,
+                    AVG(total) as avg_transaction,
+                    MIN(total) as min_transaction,
+                    MAX(total) as max_transaction
+                FROM sales
+                WHERE date BETWEEN ? AND ? 
+                AND (voided IS NULL OR voided = 0)
+                GROUP BY payment_method
+                ORDER BY total_sales DESC
+                """,
+                (start_date, end_date)
+            ).fetchall()
+        result = [_row_to_dict(r) for r in rows] if rows is not None else []
+        return result
+    except Exception as e:
+        logger.error(f"Failed to get sales by payment method: {e}")
+        return []
+
+def get_sales_performance_trends(start_date: str, end_date: str, group_by: str = 'day') -> list[dict]:
+    """Get sales performance trends over time."""
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        
+        if group_by == 'day':
+            date_format = '%Y-%m-%d'
+            group_field = 'date'
+        elif group_by == 'week':
+            date_format = '%Y-%W'
+            group_field = "strftime('%Y-%W', date)"
+        elif group_by == 'month':
+            date_format = '%Y-%m'
+            group_field = "strftime('%Y-%m', date)"
+        else:
+            date_format = '%Y-%m-%d'
+            group_field = 'date'
+        
+        # Get sales data
+        sales_query = f"""
+            SELECT 
+                {group_field} as period,
+                COUNT(*) as transactions,
+                SUM(total) as total_sales,
+                AVG(total) as avg_sale,
+                SUM(payment) as subtotal,
+                SUM(total - payment) as total_vat,
+                SUM(total - payment) as total_discounts
+            FROM sales
+            WHERE date BETWEEN ? AND ?
+            AND (voided IS NULL OR voided = 0)
+            GROUP BY period
+            ORDER BY period
+        """
+        
+        rows = conn.execute(sales_query, (start_date, end_date)).fetchall()
+        
+        results = []
+        for r in rows:
+            row_dict = _row_to_dict(r)
+            # Format period label nicely
+            if group_by == 'day':
+                row_dict['period_label'] = row_dict['period']
+            elif group_by == 'week':
+                year, week = row_dict['period'].split('-')
+                row_dict['period_label'] = f"{year} Week {int(week) + 1}"
+            elif group_by == 'month':
+                year, month = row_dict['period'].split('-')
+                from datetime import datetime
+                month_name = datetime.strptime(month, '%m').strftime('%B')
+                row_dict['period_label'] = f"{month_name} {year}"
+            else:
+                row_dict['period_label'] = row_dict['period']
+            
+            results.append(row_dict)
+        
+        return results
+
+
+def get_comprehensive_sales_log(start_date: str, end_date: str, limit: int = 100, offset: int = 0) -> list[dict]:
+    """Get comprehensive sales log including all transactions, refunds, and voids for audit trail."""
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+
+        # Get regular sales (not voided)
+        sales_query = """
+            SELECT
+                'sale' as transaction_type,
+                s.sale_id as transaction_id,
+                s.receipt_number,
+                s.date,
+                s.time,
+                s.total as amount,
+                s.payment,
+                s.change,
+                s.payment_method,
+                s.subtotal,
+                s.vat_amount,
+                s.discount_amount,
+                NULL as refund_amount,
+                NULL as void_reason,
+                NULL as refund_reason,
+                u.username as user_name,
+                GROUP_CONCAT(i.name || ' (x' || si.quantity || ')', ', ') as items_summary,
+                COUNT(si.item_id) as item_count
+            FROM sales s
+            LEFT JOIN users u ON s.user_id = u.user_id
+            LEFT JOIN sales_items si ON s.sale_id = si.sale_id
+            LEFT JOIN items i ON si.item_id = i.item_id
+            WHERE s.date BETWEEN ? AND ?
+            AND (s.voided IS NULL OR s.voided = 0)
+            GROUP BY s.sale_id
+        """
+
+        # Get voided sales
+        voided_query = """
+            SELECT
+                'void' as transaction_type,
+                s.sale_id as transaction_id,
+                s.receipt_number,
+                s.date,
+                s.time,
+                s.total as amount,
+                s.payment,
+                s.change,
+                s.payment_method,
+                s.subtotal,
+                s.vat_amount,
+                s.discount_amount,
+                NULL as refund_amount,
+                s.void_reason,
+                NULL as refund_reason,
+                vu.username as user_name,
+                GROUP_CONCAT(i.name || ' (x' || si.quantity || ')', ', ') as items_summary,
+                COUNT(si.item_id) as item_count
+            FROM sales s
+            LEFT JOIN users vu ON s.voided_by = vu.user_id
+            LEFT JOIN sales_items si ON s.sale_id = si.sale_id
+            LEFT JOIN items i ON si.item_id = i.item_id
+            WHERE s.date BETWEEN ? AND ?
+            AND s.voided = 1
+            GROUP BY s.sale_id
+        """
+
+        # Get refunds
+        refunds_query = """
+            SELECT
+                'refund' as transaction_type,
+                r.refund_id as transaction_id,
+                r.receipt_number,
+                r.created_at as date,
+                r.created_at as time,
+                r.refund_amount as amount,
+                NULL as payment,
+                NULL as change,
+                NULL as payment_method,
+                NULL as subtotal,
+                NULL as vat_amount,
+                NULL as discount_amount,
+                r.refund_amount,
+                NULL as void_reason,
+                r.reason as refund_reason,
+                u.username as user_name,
+                'Refund' as items_summary,
+                1 as item_count
+            FROM refunds r
+            LEFT JOIN users u ON r.user_id = u.user_id
+            WHERE date(r.created_at) BETWEEN ? AND ?
+        """
+
+        # Combine all queries with UNION ALL and apply pagination
+        combined_query = f"""
+            {sales_query}
+            UNION ALL
+            {voided_query}
+            UNION ALL
+            {refunds_query}
+            ORDER BY date DESC, time DESC
+            LIMIT ? OFFSET ?
+        """
+
+        params = [start_date, end_date, start_date, end_date, start_date, end_date, limit, offset]
+
+        rows = conn.execute(combined_query, params).fetchall()
+
+        # Convert to dict and add formatted fields
+        results = []
+        for row in rows:
+            row_dict = _row_to_dict(row)
+
+            # Format date/time for display
+            if row_dict.get('time') and len(row_dict['time']) > 5:
+                # Extract time part if it's a full datetime
+                row_dict['time_display'] = row_dict['time'].split(' ')[-1] if ' ' in row_dict['time'] else row_dict['time']
+            else:
+                row_dict['time_display'] = row_dict.get('time', '')
+
+            # Format date for display
+            if row_dict.get('date'):
+                row_dict['date_display'] = format_date(row_dict['date'])
+            else:
+                row_dict['date_display'] = ''
+
+            # Add transaction description
+            if row_dict['transaction_type'] == 'sale':
+                row_dict['description'] = f"Sale - {row_dict['item_count']} items"
+            elif row_dict['transaction_type'] == 'void':
+                row_dict['description'] = f"Voided Sale - {row_dict.get('void_reason', 'No reason')}"
+            elif row_dict['transaction_type'] == 'refund':
+                row_dict['description'] = f"Refund - {row_dict.get('refund_reason', 'No reason')}"
+
+            results.append(row_dict)
+
+        return results
+
+
+def get_sales_log_count(start_date: str, end_date: str) -> int:
+    """Get total count of transactions in the sales log for pagination."""
+    with get_connection() as conn:
+        # Count regular sales
+        sales_count = conn.execute(
+            "SELECT COUNT(*) FROM sales WHERE date BETWEEN ? AND ? AND (voided IS NULL OR voided = 0)",
+            (start_date, end_date)
+        ).fetchone()[0]
+
+        # Count voided sales
+        voided_count = conn.execute(
+            "SELECT COUNT(*) FROM sales WHERE date BETWEEN ? AND ? AND voided = 1",
+            (start_date, end_date)
+        ).fetchone()[0]
+
+        # Count refunds
+        refunds_count = conn.execute(
+            "SELECT COUNT(*) FROM refunds WHERE date(created_at) BETWEEN ? AND ?",
+            (start_date, end_date)
+        ).fetchone()[0]
+
+        return sales_count + voided_count + refunds_count
+
+# Inventory report wrappers.  These replicate the logic originally
+# in ui/reports_inventory.py but live in the modules layer so the
+# controller can call them without importing UI classes.
+
+@report_generator('inventory_stock_levels')
+def get_inventory_stock_levels(start_date: str, end_date: str) -> 'ReportData':
+    from ui.reports_base import ReportData
+    """Return current stock levels for all items."""
+    from database.init_db import get_connection
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT
+                item_id,
+                name,
+                category,
+                quantity,
+                low_stock_threshold,
+                cost_price,
+                selling_price,
+                unit_of_measure AS unit,
+                created_at
+            FROM items
+            ORDER BY category, name
+            """
+        ).fetchall()
+    data = []
+    total_value = 0
+    low_stock_count = 0
+    for r in rows:
+        item = dict(r)
+        qty = item.get('quantity') or 0
+        cost = item.get('cost_price') or 0
+        inventory_value = qty * cost
+        total_value += inventory_value
+        low_threshold = item.get('low_stock_threshold') or 0
+        is_low = low_threshold and qty <= low_threshold
+        if is_low:
+            low_stock_count += 1
+        item['inventory_value'] = inventory_value
+        item['unit'] = item.get('unit') or 'pcs'
+        item['is_low_stock'] = bool(is_low)
+        data.append(item)
+    metadata = {
+        'total_items': len(data),
+        'total_value': total_value,
+        'low_stock_count': low_stock_count,
+    }
+    return ReportData('inventory_stock_levels', start_date, end_date, data, metadata)
+
+
+@report_generator('inventory_low_stock')
+def get_inventory_low_stock(start_date: str, end_date: str) -> 'ReportData':
+    from ui.reports_base import ReportData
+    """Return items that are currently below their low-stock thresholds."""
+    from database.init_db import get_connection
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT
+                item_id,
+                name,
+                category,
+                quantity,
+                low_stock_threshold,
+                cost_price,
+                selling_price,
+                unit_of_measure AS unit
+            FROM items
+            WHERE quantity <= low_stock_threshold
+            AND low_stock_threshold > 0
+            ORDER BY (low_stock_threshold - quantity) DESC, name
+            """
+        ).fetchall()
+    data = []
+    for r in rows:
+        item = dict(r)
+        qty = item.get('quantity') or 0
+        low_threshold = item.get('low_stock_threshold') or 0
+        shortage = low_threshold - qty
+        item['shortage'] = shortage
+        item['unit'] = item.get('unit') or 'pcs'
+        item['estimated_cost_to_restock'] = shortage * (item.get('cost_price') or 0)
+        item['category'] = item.get('category') or 'Uncategorized'
+        data.append(item)
+    metadata = {
+        'low_stock_items': len(data)
+    }
+    return ReportData('inventory_low_stock', start_date, end_date, data, metadata)
+
+
+@report_generator('inventory_value')
+def get_inventory_value(start_date: str, end_date: str) -> 'ReportData':
+    from ui.reports_base import ReportData
+    """Return inventory valuation grouped by category."""
+    from database.init_db import get_connection
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        categories = conn.execute(
+            """
+            SELECT
+                COALESCE(category, 'Uncategorized') as category,
+                COUNT(*) as item_count,
+                SUM(quantity) as total_quantity,
+                SUM(quantity * cost_price) as total_cost_value,
+                SUM(quantity * selling_price) as total_selling_value,
+                AVG(cost_price) as avg_cost_price,
+                AVG(selling_price) as avg_selling_price
+            FROM items
+            GROUP BY category
+            ORDER BY total_cost_value DESC
+            """
+        ).fetchall()
+        totals = conn.execute(
+            """
+            SELECT
+                COUNT(*) as total_items,
+                SUM(quantity) as total_quantity,
+                SUM(quantity * cost_price) as total_cost_value,
+                SUM(quantity * selling_price) as total_selling_value
+            FROM items
+            """
+        ).fetchone()
+    data = []
+    for r in categories:
+        item = dict(r)
+        item['potential_profit'] = (item.get('total_selling_value') or 0) - (item.get('total_cost_value') or 0)
+        data.append(item)
+    metadata = {
+        'total_items': totals['total_items'] if totals else 0,
+        'total_quantity': totals['total_quantity'] if totals else 0,
+        'total_cost_value': totals['total_cost_value'] if totals else 0,
+        'total_selling_value': totals['total_selling_value'] if totals else 0,
+        'total_categories': len(data)
+    }
+    return ReportData('inventory_value', start_date, end_date, data, metadata)
+
+
+# reconciliation wrappers delegate to the UI generators; placing them here
+# reduces the hardcoded legacy mapping in the controller and keeps the
+# registry definition in one place.
+@report_generator('reconciliation_summary')
+def get_reconciliation_summary(start_date: str, end_date: str, status: str = 'all') -> 'ReportData':
+    from ui.reports_base import ReportData
+    from ui.reports_reconciliation import ReconciliationSummaryGenerator
+    return ReconciliationSummaryGenerator(start_date, end_date, status).generate_data()
+
+
+@report_generator('reconciliation_details')
+def get_reconciliation_details(start_date: str, end_date: str, status: str = 'all') -> 'ReportData':
+    from ui.reports_base import ReportData
+    from ui.reports_reconciliation import ReconciliationDetailsGenerator
+    return ReconciliationDetailsGenerator(start_date, end_date, status).generate_data()
+
+
+# Override registry entries with the final definitions
+for _name, _key in [
+    ('get_voided_sales', 'voided'),
+    ('get_comprehensive_sales_summary', 'comprehensive_sales_summary'),
+    ('get_voided_sales_by_reason', 'voided_by_reason'),
+    ('get_refunds_by_reason', 'refunds_by_reason'),
+    ('get_daily_voided_and_refunds', 'daily_voided_refunds'),
+    ('get_detailed_sales_transactions', 'transactions'),
+    ('get_sales_by_payment_method', 'payment_methods'),
+    ('get_sales_performance_trends', 'trends'),
+    ('get_comprehensive_sales_log', 'sales_log'),
+    ('get_sales_log_count', 'sales_log_count'),
+]:
+    if _name in globals():
+        REPORT_GENERATORS[_key] = globals()[_name]

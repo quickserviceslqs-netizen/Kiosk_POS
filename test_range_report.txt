@@ -1,0 +1,26 @@
+RANGE REPORT
+============
+Period: 08.02.2026 to 15.02.2026
+
+OVERALL SUMMARY:
+
+  Total Sales: KES9.50
+  Total Units Sold: 3
+  Number of Transactions: 1
+  Sales Records: 2
+TOP ITEMS SOLD:
+----------------------------------------------------------------------
+#   Item Name                      Qty      Total          
+-----------------------------------------------------------
+1   Coffee                         2        KES7.00        
+2   Croissant                      1        KES2.50        
+
+DETAILED SALES RECORDS:
+------------------------------------------------------------------------------------------
+Time                Receipt      Item                      Qty   Price      Total       
+----------------------------------------------------------------------------------------
+08.02.2026 09:30:00 R001         Coffee                    2     KES3.50    KES7.00     
+08.02.2026 09:30:00 R001         Croissant                 1     KES2.50    KES2.50     
+
+
+Report generated at: 15.02.2026 09:28:39

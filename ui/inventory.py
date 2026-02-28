@@ -75,85 +75,145 @@ class InventoryFrame(ttk.Frame):
         self.category_var = tk.StringVar(value="All")
         self.stock_var = tk.StringVar(value="All")
         self.loading_var = tk.StringVar()
-        self.sort_column = None
-        self.sort_reverse = False
         self._build_ui()
 
     def _build_ui(self) -> None:
         style = ttk.Style()
         style.configure("Red.TButton", foreground="red")
-
-        header = ttk.Label(self, text="Inventory", font=("Segoe UI", 14, "bold"))
-        header.grid(row=0, column=0, sticky=tk.W, pady=(0, 12))
-        ttk.Label(self, textvariable=self.count_var).grid(row=0, column=1, sticky=tk.E)
-        loading_label = ttk.Label(self, textvariable=self.loading_var)
-        loading_label.grid(row=0, column=2, sticky=tk.E)
-
-        filter_frame = ttk.Frame(self)
-        filter_frame.grid(row=1, column=0, columnspan=2, sticky=tk.EW, pady=4)
-        ttk.Label(filter_frame, text="Category:").pack(side=tk.LEFT)
-        category_combo = ttk.Combobox(filter_frame, textvariable=self.category_var, state="readonly")
-        categories = items.get_categories()
-        category_combo['values'] = ["All"] + categories
-        category_combo.set("All")
-        category_combo.pack(side=tk.LEFT, padx=(0,10))
-        category_combo.bind("<<ComboboxSelected>>", lambda e: self.refresh())
-        ttk.Label(filter_frame, text="Stock:").pack(side=tk.LEFT)
-        stock_combo = ttk.Combobox(filter_frame, textvariable=self.stock_var, values=["All", "In Stock", "Low Stock", "Out of Stock"], state="readonly")
-        stock_combo.pack(side=tk.LEFT, padx=(0,10))
-        stock_combo.bind("<<ComboboxSelected>>", lambda e: self.refresh())
+        style.configure("Action.TButton", padding=(8, 4))
+        style.configure("Primary.TButton", padding=(10, 6))
         
-        ttk.Label(filter_frame, text="Search:").pack(side=tk.LEFT)
-        search_entry = ttk.Entry(filter_frame, textvariable=self.search_var, width=20)
-        search_entry.pack(side=tk.LEFT, padx=(0,5))
+        current_row = 0
+
+        # ═══════════════════════════════════════════════════════════════════
+        # ROW 0: Header with title and item count
+        # ═══════════════════════════════════════════════════════════════════
+        header_frame = ttk.Frame(self)
+        header_frame.grid(row=current_row, column=0, columnspan=3, sticky=tk.EW, pady=(0, 8))
+        header_frame.columnconfigure(1, weight=1)
+        
+        ttk.Label(header_frame, text="Inventory", font=("Segoe UI", 16, "bold")).grid(row=0, column=0, sticky=tk.W)
+        
+        # Right side: count and loading
+        right_header = ttk.Frame(header_frame)
+        right_header.grid(row=0, column=2, sticky=tk.E)
+        ttk.Label(right_header, textvariable=self.count_var, font=("Segoe UI", 10)).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Label(right_header, textvariable=self.loading_var, foreground="blue").pack(side=tk.LEFT)
+        
+        current_row += 1
+
+        # ═══════════════════════════════════════════════════════════════════
+        # ROW 1: Quick Actions - Most common operations as visible buttons
+        # ═══════════════════════════════════════════════════════════════════
+        actions_group = ttk.LabelFrame(self, text=" Quick Actions ", padding=(10, 5))
+        actions_group.grid(row=current_row, column=0, columnspan=3, sticky=tk.EW, pady=(0, 6))
+        
+        # Primary action - Add Item (larger, more prominent)
+        self.add_btn = ttk.Button(actions_group, text="+ Add Item", command=self._add_item_checked, style="Primary.TButton", width=14)
+        self.add_btn.pack(side=tk.LEFT, padx=(0, 8))
+        ToolTip(self.add_btn, "Create a new inventory item")
+        
+        # Secondary actions
+        self.edit_btn = ttk.Button(actions_group, text="Edit", command=self._edit_selected_checked, style="Action.TButton", width=10)
+        self.edit_btn.pack(side=tk.LEFT, padx=(0, 4))
+        ToolTip(self.edit_btn, "Edit selected item")
+        
+        self.delete_btn = ttk.Button(actions_group, text="Delete", command=self._delete_selected_checked, style="Action.TButton", width=10)
+        self.delete_btn.pack(side=tk.LEFT, padx=(0, 4))
+        ToolTip(self.delete_btn, "Delete selected item")
+        
+        ttk.Separator(actions_group, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=10, pady=2)
+        
+        self.variants_btn = ttk.Button(actions_group, text="Variants", command=self._manage_variants_checked, style="Action.TButton", width=10)
+        self.variants_btn.pack(side=tk.LEFT, padx=(0, 4))
+        ToolTip(self.variants_btn, "Manage item variants (sizes, colors, etc.)")
+        
+        # Refresh on the right
+        ttk.Button(actions_group, text="Refresh", command=self.refresh, width=8).pack(side=tk.RIGHT, padx=(4, 0))
+        
+        current_row += 1
+
+        # ═══════════════════════════════════════════════════════════════════
+        # ROW 2: Search and Filters
+        # ═══════════════════════════════════════════════════════════════════
+        filter_group = ttk.LabelFrame(self, text=" Search & Filter ", padding=(10, 5))
+        filter_group.grid(row=current_row, column=0, columnspan=3, sticky=tk.EW, pady=(0, 6))
+        
+        # Search with label
+        ttk.Label(filter_group, text="Search:").pack(side=tk.LEFT)
+        search_entry = ttk.Entry(filter_group, textvariable=self.search_var, width=25)
+        search_entry.pack(side=tk.LEFT, padx=(4, 0))
         search_entry.bind("<KeyRelease>", lambda e: self.refresh())
         ToolTip(search_entry, "Search by name, category, or barcode")
         
-        # Clear search button
-        clear_btn = ttk.Button(filter_frame, text="×", width=2, command=self._clear_search)
-        clear_btn.pack(side=tk.LEFT, padx=(0,10))
+        clear_btn = ttk.Button(filter_group, text="×", width=2, command=self._clear_search)
+        clear_btn.pack(side=tk.LEFT, padx=(2, 15))
         ToolTip(clear_btn, "Clear search")
+        
+        # Category filter
+        ttk.Label(filter_group, text="Category:").pack(side=tk.LEFT)
+        self.category_combo = ttk.Combobox(filter_group, textvariable=self.category_var, state="readonly", width=15)
+        categories = items.get_categories()
+        self.category_combo['values'] = ["All"] + categories
+        self.category_combo.set("All")
+        self.category_combo.pack(side=tk.LEFT, padx=(4, 15))
+        self.category_combo.bind("<<ComboboxSelected>>", lambda e: self.refresh())
+        
+        # Stock filter
+        ttk.Label(filter_group, text="Stock:").pack(side=tk.LEFT)
+        stock_combo = ttk.Combobox(filter_group, textvariable=self.stock_var, 
+                                   values=["All", "In Stock", "Low Stock", "Out of Stock"], 
+                                   state="readonly", width=12)
+        stock_combo.pack(side=tk.LEFT, padx=(4, 0))
+        stock_combo.bind("<<ComboboxSelected>>", lambda e: self.refresh())
+        
+        current_row += 1
 
-        # Actions menu
-        actions_menu = Menu(filter_frame, tearoff=0)
-        item_menu = Menu(actions_menu, tearoff=0)
-        item_menu.add_command(label="Add Item", command=self._add_item_checked)
-        item_menu.add_command(label="Edit Item", command=self._edit_selected_checked)
-        item_menu.add_command(label="Delete Item", command=self._delete_selected_checked)
-        item_menu.add_command(label="Manage Variants", command=self._manage_variants_checked)
-        actions_menu.add_cascade(label="Item Management", menu=item_menu)
+        # ═══════════════════════════════════════════════════════════════════
+        # ROW 3: Tools - Import/Export and Settings
+        # ═══════════════════════════════════════════════════════════════════
+        tools_group = ttk.LabelFrame(self, text=" Tools ", padding=(10, 5))
+        tools_group.grid(row=current_row, column=0, columnspan=3, sticky=tk.EW, pady=(0, 6))
         
-        data_menu = Menu(actions_menu, tearoff=0)
-        data_menu.add_command(label="Export CSV", command=self._export_csv)
-        data_menu.add_command(label="Import CSV", command=self._import_csv_checked)
-        data_menu.add_command(label="Download Categories", command=self._download_categories)
-        data_menu.add_command(label="Export Template", command=self._export_template)
-        actions_menu.add_cascade(label="Data", menu=data_menu)
+        # Data operations
+        ttk.Button(tools_group, text="Import CSV", command=self._import_csv_checked, width=12).pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Button(tools_group, text="Export CSV", command=self._export_csv, width=12).pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Button(tools_group, text="Template", command=self._export_template, width=10).pack(side=tk.LEFT, padx=(0, 4))
         
-        settings_menu = Menu(actions_menu, tearoff=0)
-        settings_menu.add_command(label="Refresh", command=self.refresh)
-        settings_menu.add_command(label="Manage Categories", command=self._manage_categories)
-        settings_menu.add_command(label="Customize Columns", command=self._open_columns_dialog)
-        actions_menu.add_cascade(label="Settings", menu=settings_menu)
+        ttk.Separator(tools_group, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=10, pady=2)
         
-        actions_btn = ttk.Menubutton(filter_frame, text="Actions", menu=actions_menu)
-        actions_btn.pack(side=tk.LEFT, padx=(10,0))
-        ToolTip(actions_btn, "Inventory actions menu")
+        # Settings
+        ttk.Button(tools_group, text="Columns", command=self._open_columns_dialog, width=10).pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Button(tools_group, text="Categories", command=self._manage_categories, width=11).pack(side=tk.LEFT, padx=(0, 4))
+        
+        current_row += 1
 
-        preview_toggle = ttk.Checkbutton(self, text="Show Preview", variable=self.preview_visible, command=self._toggle_preview)
-        preview_toggle.grid(row=2, column=1, sticky=tk.W, padx=(8,0))
+        # ═══════════════════════════════════════════════════════════════════
+        # ROW 4: Tab bar and preview toggle
+        # ═══════════════════════════════════════════════════════════════════
+        tab_header = ttk.Frame(self)
+        tab_header.grid(row=current_row, column=0, columnspan=3, sticky=tk.EW, pady=(4, 0))
         
-        # Create tabs for Items and Parents
+        # Preview toggle on the right
+        preview_toggle = ttk.Checkbutton(tab_header, text="Show Preview", 
+                                         variable=self.preview_visible, command=self._toggle_preview)
+        preview_toggle.pack(side=tk.RIGHT)
+        
+        current_row += 1
+
+        # ═══════════════════════════════════════════════════════════════════
+        # ROW 5: Notebook with Items and Parents tabs
+        # ═══════════════════════════════════════════════════════════════════
         self.notebook = ttk.Notebook(self)
-        self.notebook.grid(row=3, column=0, columnspan=2, sticky=tk.NSEW, pady=(8, 0))
+        self.notebook.grid(row=current_row, column=0, columnspan=2, sticky=tk.NSEW, pady=(0, 0))
         
-        # Items tab - regular items without variants
+        # Items tab - all items (clearer name)
         items_frame = ttk.Frame(self.notebook)
-        self.notebook.add(items_frame, text="Items")
+        self.notebook.add(items_frame, text="All Items")
         
-        # Parents tab - items with variants
+        # Parents tab - items with variants (clearer name)
         parents_frame = ttk.Frame(self.notebook)
-        self.notebook.add(parents_frame, text="Parents")
+        self.notebook.add(parents_frame, text="Items with Variants")
         
         # Bind tab change event
         self.notebook.bind("<<NotebookTabChanged>>", lambda e: self.refresh())
@@ -169,7 +229,7 @@ class InventoryFrame(ttk.Frame):
 
         # Preview panel
         preview = ttk.Frame(self, padding=(12, 0))
-        preview.grid(row=3, column=2, sticky=tk.N, padx=(8, 0))
+        preview.grid(row=current_row, column=2, sticky=tk.N, padx=(8, 0))
         self.preview = preview
         self.preview_label = ttk.Label(preview, text="(No image)", anchor=tk.CENTER)
         self.preview_label.pack()
@@ -192,7 +252,7 @@ class InventoryFrame(ttk.Frame):
             pass
 
         # Configure grid weights for proper resizing
-        self.rowconfigure(3, weight=1)
+        self.rowconfigure(5, weight=1)  # Row 5 is the notebook/tree row
         self.columnconfigure(0, weight=1)
         self.columnconfigure(1, weight=1)
 
@@ -253,10 +313,6 @@ class InventoryFrame(ttk.Frame):
         tree.tag_configure("even", background="#F9F9F9")
         tree.tag_configure("odd", background="#FFFFFF")
 
-        # Bind sorting
-        for col in self.columns:
-            tree.heading(col, command=lambda c=col: self._sort_by_column(c))
-
         parent_frame.rowconfigure(0, weight=1)
         parent_frame.columnconfigure(0, weight=1)
         self.bind("<Delete>", lambda e: self._delete_selected_checked())
@@ -264,7 +320,7 @@ class InventoryFrame(ttk.Frame):
 
     def _toggle_preview(self):
         if self.preview_visible.get():
-            self.preview.grid(row=3, column=2, sticky=tk.N, padx=(8, 0))
+            self.preview.grid(row=5, column=2, sticky=tk.N, padx=(8, 0))
         else:
             self.preview.grid_forget()
 
@@ -273,38 +329,29 @@ class InventoryFrame(ttk.Frame):
         self.search_var.set("")
         self.refresh()
 
-    def _sort_by_column(self, col):
-        if self.sort_column == col:
-            self.sort_reverse = not self.sort_reverse
-        else:
-            self.sort_column = col
-            self.sort_reverse = False
-        self.refresh()
-
     def refresh(self) -> None:
         if not hasattr(self, 'items_tree') or not hasattr(self, 'parents_tree'):
             return  # UI not built yet
         
         self.loading_var.set("Loading...")
         
-        # Determine which tab is active
-        current_tab = self.notebook.index(self.notebook.select())
-        if current_tab == 0:  # Items tab
-            tree = self.items_tree
-            show_parents_only = False
-            show_variants_inline = True  # Show variants as individual rows in Items tab
-        else:  # Parents tab
-            tree = self.parents_tree
-            show_parents_only = True
-            show_variants_inline = False  # Show variants as children in Parents tab
+        # Update category combo with latest categories
+        if hasattr(self, 'category_combo'):
+            current_cat = self.category_var.get()
+            categories = items.get_categories()
+            self.category_combo['values'] = ["All"] + categories
+            # Keep current selection if still valid
+            if current_cat not in ["All"] + categories:
+                self.category_var.set("All")
         
-        search = self.search_var.get().strip()
-        
-        # Clear the tree
-        for row in tree.get_children():
-            tree.delete(row)
-        
-        rows = items.list_items(search=search if search else None)
+        # Refresh both tabs
+        self._refresh_items_tab()
+        self._refresh_parents_tab()
+        self._update_ui_after_refresh()
+
+    def _refresh_items_tab(self) -> None:
+        """Refresh the Items tab."""
+        self._refresh_tab(0)
         
         # Apply filters
         filtered_rows = []
@@ -333,7 +380,10 @@ class InventoryFrame(ttk.Frame):
             
             # Filter based on tab
             from modules import variants as variants_module
-            has_variants = variants_module.has_variants(row["item_id"])
+            has_variants_flag = bool(row.get("has_variants", 0))
+            has_actual_variants = variants_module.has_variants(row["item_id"])
+            has_variants = has_variants_flag or has_actual_variants
+            
             if show_parents_only and not has_variants:
                 continue  # Parents tab: only show items with variants
             elif not show_parents_only and not show_variants_inline and has_variants:
@@ -343,20 +393,6 @@ class InventoryFrame(ttk.Frame):
             filtered_rows.append(row)
         
         rows = filtered_rows
-        
-        # Sort
-        if self.sort_column:
-            def sort_key(r):
-                val = r.get(self.sort_column, "")
-                if self.sort_column in ["cost_price", "selling_price", "quantity"]:
-                    try:
-                        return float(val) if isinstance(val, str) else val
-                    except:
-                        return 0
-                elif isinstance(val, str):
-                    return val.lower()
-                return val
-            rows.sort(key=sort_key, reverse=self.sort_reverse)
         
         self.count_var.set(f"Items: {len(rows)}")
         from utils.security import get_currency_code
@@ -444,8 +480,8 @@ class InventoryFrame(ttk.Frame):
                 from modules import variants as variants_module
                 vars_list = variants_module.list_variants(row["item_id"])
 
-                # If parent is catalog-only, show variants as top-level rows
-                if row.get("is_catalog_only"):
+                # If parent is catalog-only and has actual variants, show variants as top-level rows
+                if row.get("is_catalog_only") and vars_list:
                     for v in vars_list:
                         v_qty = int(v.get("quantity") or 0)
                         v_cost = v.get("cost_price") if isinstance(v.get("cost_price"), (int, float)) else 0.0
@@ -618,7 +654,342 @@ class InventoryFrame(ttk.Frame):
             self._update_preview()
         self._update_low_stock_label()
 
-    def _selected_id(self) -> int | None:
+    def _refresh_items_tab(self) -> None:
+        """Refresh the Items tab."""
+        self._refresh_tab(0)
+
+    def _refresh_parents_tab(self) -> None:
+        """Refresh the Items with Variants tab."""
+        self._refresh_tab(1)
+
+    def _refresh_tab(self, tab_index: int) -> None:
+        """Refresh a specific tab by index."""
+        if tab_index == 0:
+            tree = self.items_tree
+            show_parents_only = False
+            # Hide parents from the main Items tab so items with variants only appear
+            # in the 'Items with Variants' tab (user requested behavior).
+            show_variants_inline = False
+        else:
+            tree = self.parents_tree
+            show_parents_only = True
+            show_variants_inline = False
+        
+        # Clear the tree
+        for row in tree.get_children():
+            tree.delete(row)
+        
+        rows = items.list_items(search=self.search_var.get().strip() if self.search_var.get().strip() else None)
+        
+        # Apply filters
+        filtered_rows = []
+        for row in rows:
+            cat = self.category_var.get()
+            if cat != "All" and row.get("category") != cat:
+                continue
+            
+            stock = self.stock_var.get()
+            qty = row["quantity"]
+            low_thresh = row.get("low_stock_threshold") or self.LOW_STOCK_THRESHOLD
+            if stock == "Low Stock":
+                if row.get("is_special_volume"):
+                    unit_size = float(row.get("unit_size_ml") or 1)
+                    actual_volume = qty * unit_size
+                    if actual_volume > low_thresh:
+                        continue
+                elif qty > low_thresh:
+                    continue
+            elif stock == "Out of Stock":
+                if qty > 0:
+                    continue
+            elif stock == "In Stock":
+                if qty <= 0:
+                    continue
+            
+            # Filter based on tab
+            from modules import variants as variants_module
+            has_variants_flag = bool(row.get("has_variants", 0))
+            has_actual_variants = variants_module.has_variants(row["item_id"])
+            has_variants = has_variants_flag or has_actual_variants
+            
+            if show_parents_only and not has_variants:
+                continue  # Parents tab: only show items with variants
+            elif not show_parents_only and not show_variants_inline and has_variants:
+                continue  # Items tab without inline variants: only show items without variants
+            # For Items tab with inline variants, show all items (variants will be handled in display logic)
+            
+            filtered_rows.append(row)
+        
+        rows = filtered_rows
+        
+        from utils.security import get_currency_code
+        global_currency = get_currency_code()
+
+        for i, row in enumerate(rows):
+            tags = []
+            # Skip low stock check for catalog-only items (parents with variants)
+            if not row.get("is_catalog_only"):
+                # For fractional items, check actual volume against threshold
+                if row.get("is_special_volume"):
+                    unit_size = float(row.get("unit_size_ml") or 1)
+                    low_threshold = float(row.get("low_stock_threshold") or 10)
+                    actual_volume = row["quantity"] * unit_size
+                    if actual_volume <= low_threshold:
+                        tags.append("low")
+                elif row["quantity"] <= (row.get("low_stock_threshold") or self.LOW_STOCK_THRESHOLD):
+                    tags.append("low")
+            if i % 2 == 0:
+                tags.append("even")
+            else:
+                tags.append("odd")
+
+            unit = row.get("unit_of_measure", "pieces")
+            
+            # For Parents tab, show parent with variants as children
+            if show_parents_only:
+                from modules import variants as variants_module
+                vars_list = variants_module.list_variants(row["item_id"])
+                
+                # Calculate aggregated quantity
+                agg_qty = 0
+                agg_volume = 0.0
+                for v in vars_list:
+                    q = int(v.get("quantity") or 0)
+                    agg_qty += q
+                    if row.get("is_special_volume"):
+                        unit_size = float(row.get("unit_size_ml") or 1)
+                        agg_volume += q * unit_size
+
+                # Choose qty display (respecting special volume)
+                if row.get("is_special_volume"):
+                    qty_display = f"{agg_volume}"
+                else:
+                    qty_display = str(agg_qty)
+
+                parent_iid = f"parent-{row['item_id']}"
+                tree.insert(
+                    "",
+                    tk.END,
+                    iid=parent_iid,
+                    values=(row["name"], row.get("category", ""), unit, "", "", qty_display, ""),
+                    tags=tuple(tags),
+                )
+
+                # Insert each variant as child row
+                for v in vars_list:
+                    v_qty = int(v.get("quantity") or 0)
+                    v_cost = v.get("cost_price") if isinstance(v.get("cost_price"), (int, float)) else 0.0
+                    v_price = v.get("selling_price") if isinstance(v.get("selling_price"), (int, float)) else 0.0
+                    v_name = f"{row.get('name')} — {v.get('variant_name')}"
+                    variant_iid = f"variant-{row['item_id']}-{v.get('variant_id')}"
+                    
+                    # Check variant low stock
+                    variant_tags = []
+                    v_threshold = v.get("low_stock_threshold") or self.LOW_STOCK_THRESHOLD
+                    if v_qty <= v_threshold:
+                        variant_tags.append("low")
+                    if i % 2 == 0:
+                        variant_tags.append("even")
+                    else:
+                        variant_tags.append("odd")
+                    
+                    tree.insert(
+                        parent_iid,
+                        tk.END,
+                        iid=variant_iid,
+                        values=(v_name, row.get("category", ""), unit, f"{global_currency} {v_cost:.4f}", f"{global_currency} {v_price:.4f}", str(v_qty), ""),
+                        tags=tuple(variant_tags),
+                    )
+                continue
+
+            # For Items tab with inline variants, show variants as individual rows
+            if show_variants_inline and has_variants:
+                from modules import variants as variants_module
+                vars_list = variants_module.list_variants(row["item_id"])
+
+                # If parent is catalog-only and has actual variants, show variants as top-level rows
+                if row.get("is_catalog_only") and vars_list:
+                    for v in vars_list:
+                        v_qty = int(v.get("quantity") or 0)
+                        v_cost = v.get("cost_price") if isinstance(v.get("cost_price"), (int, float)) else 0.0
+                        v_price = v.get("selling_price") if isinstance(v.get("selling_price"), (int, float)) else 0.0
+                        v_name = f"{row.get('name')} — {v.get('variant_name')}"
+                        variant_iid = f"variant-{row['item_id']}-{v.get('variant_id')}"
+                        
+                        # Check variant low stock
+                        variant_tags = []
+                        v_threshold = v.get("low_stock_threshold") or self.LOW_STOCK_THRESHOLD
+                        if v_qty <= v_threshold:
+                            variant_tags.append("low")
+                        if i % 2 == 0:
+                            variant_tags.append("even")
+                        else:
+                            variant_tags.append("odd")
+                        
+                        tree.insert(
+                            "",
+                            tk.END,
+                            iid=variant_iid,
+                            values=(v_name, row.get("category", ""), unit, f"{global_currency} {v_cost:.4f}", f"{global_currency} {v_price:.4f}", str(v_qty), ""),
+                            tags=tuple(variant_tags),
+                        )
+                    continue
+                else:
+                    # Show parent item first, then variants
+                    # Calculate aggregated quantity for parent
+                    agg_qty = 0
+                    agg_volume = 0.0
+                    for v in vars_list:
+                        q = int(v.get("quantity") or 0)
+                        agg_qty += q
+                        if row.get("is_special_volume"):
+                            unit_size = float(row.get("unit_size_ml") or 1)
+                            agg_volume += q * unit_size
+
+                    # Choose qty display (respecting special volume)
+                    if row.get("is_special_volume"):
+                        qty_display = f"{agg_volume}"
+                    else:
+                        qty_display = str(agg_qty)
+
+                    parent_iid = f"parent-{row['item_id']}"
+                    tree.insert(
+                        "",
+                        tk.END,
+                        iid=parent_iid,
+                        values=(row["name"], row.get("category", ""), unit, "", "", qty_display, ""),
+                        tags=tuple(tags),
+                    )
+
+                    # Insert each variant as child row
+                    for v in vars_list:
+                        v_qty = int(v.get("quantity") or 0)
+                        v_cost = v.get("cost_price") if isinstance(v.get("cost_price"), (int, float)) else 0.0
+                        v_price = v.get("selling_price") if isinstance(v.get("selling_price"), (int, float)) else 0.0
+                        v_name = f"{row.get('name')} — {v.get('variant_name')}"
+                        variant_iid = f"variant-{row['item_id']}-{v.get('variant_id')}"
+                        
+                        # Check variant low stock
+                        variant_tags = []
+                        v_threshold = v.get("low_stock_threshold") or self.LOW_STOCK_THRESHOLD
+                        if v_qty <= v_threshold:
+                            variant_tags.append("low")
+                        if i % 2 == 0:
+                            variant_tags.append("even")
+                        else:
+                            variant_tags.append("odd")
+                        
+                        tree.insert(
+                            parent_iid,
+                            tk.END,
+                            iid=variant_iid,
+                            values=(v_name, row.get("category", ""), unit, f"{global_currency} {v_cost:.4f}", f"{global_currency} {v_price:.4f}", str(v_qty), ""),
+                            tags=tuple(variant_tags),
+                        )
+                    continue
+
+            # For Items tab without inline variants, show regular items only
+            # Calculate per-unit prices based on base unit of measure
+            unit_lower = unit.lower()
+            unit_size = float(row.get("unit_size_ml") or 1)
+
+            # Use configured conversion factor and abbreviation from units_of_measure
+            try:
+                unit_info = uom.get_unit_by_name(unit) or {}
+                conv_factor = float(unit_info.get("conversion_factor", 1) or 1)
+                abbr = unit_info.get("abbreviation") or ""
+                base_unit = (unit_info.get("base_unit") or "").lower()
+            except Exception:
+                conv_factor = items._get_unit_multiplier(unit)
+                abbr = ""
+                base_unit = ""
+
+            # Friendly unit label (use abbreviation if present)
+            unit_label = abbr or unit or "unit"
+
+            # Price per large unit (e.g., per L/kg/m) = bulk price / package_size
+            try:
+                if abbr:
+                    cost_per_unit = (row["cost_price"] / unit_size) if unit_size > 0 else row["cost_price"]
+                    price_per_unit = (row["selling_price"] / unit_size) if unit_size > 0 else row["selling_price"]
+                else:
+                    cost_per_unit = row["cost_price"]
+                    price_per_unit = row["selling_price"]
+            except Exception:
+                cost_per_unit = row["cost_price"]
+                price_per_unit = row["selling_price"]
+            
+            # For fractional sales items, show available volume/weight/length instead of just container count
+            qty_display = row["quantity"]
+            if row.get("is_special_volume"):
+                unit_size = float(row.get("unit_size_ml") or 1)
+                # total in small units (e.g., ml, g, cm)
+                try:
+                    total_small = row["quantity"] * unit_size * conv_factor
+                except Exception:
+                    total_small = row["quantity"] * unit_size
+                # Choose small unit abbreviation
+                if "mill" in base_unit:
+                    small_abbr = "ml"
+                elif "gram" in base_unit:
+                    small_abbr = "g"
+                elif "cent" in base_unit:
+                    small_abbr = "cm"
+                else:
+                    small_abbr = base_unit or "units"
+                
+                # If we know a large unit abbreviation (abbr), show large unit when appropriate
+                if abbr:
+                    if total_small >= conv_factor:
+                        qty_display = f"{total_small/conv_factor:.1f} {abbr}"
+                    else:
+                        qty_display = f"{int(total_small)} {small_abbr}"
+                else:
+                    # Fallback: show package count
+                    qty_display = f"{row['quantity']}"
+            
+            tree.insert(
+                "",
+                tk.END,
+                iid=str(row["item_id"]),
+                values=(row["name"], row.get("category", ""), unit, f"{global_currency} {cost_per_unit:.4f}/{unit_label}", f"{global_currency} {price_per_unit:.4f}/{unit_label}", qty_display, row.get("barcode", "")),
+                tags=tuple(tags),
+            )
+        
+        # Configure tag colors
+        tree.tag_configure("low", foreground="red")
+        tree.tag_configure("even", background="#F9F9F9")
+        tree.tag_configure("odd", background="#FFFFFF")
+
+    def _update_ui_after_refresh(self) -> None:
+        """Update UI elements after refreshing tabs."""
+        # Update item count - use the count from the currently active tab
+        current_tab = self.notebook.index(self.notebook.select())
+        if current_tab == 0:
+            tree = self.items_tree
+        else:
+            tree = self.parents_tree
+        self.count_var.set(f"Items: {len(tree.get_children())}")
+        
+        # Apply saved column visibility
+        try:
+            vis = self._load_visible_columns()
+            if not vis:
+                vis = list(self.DEFAULT_VISIBLE_COLUMNS)
+            self._apply_visible_columns(vis)
+        except Exception:
+            pass
+        
+        # Auto-fit columns
+        try:
+            self._autofit_columns()
+        except Exception:
+            pass
+        
+        self.loading_var.set("")
+        if hasattr(self, 'preview_label') and self.preview_label:
+            self._update_preview()
+        self._update_low_stock_label()
         # Determine which tab is active
         current_tab = self.notebook.index(self.notebook.select())
         if current_tab == 0:  # Items tab
@@ -653,6 +1024,36 @@ class InventoryFrame(ttk.Frame):
             messagebox.showerror("Access Denied", "Only administrators can modify inventory items.")
             return False
         return True
+
+    def _selected_id(self) -> int | None:
+        """Get the selected item ID from the current tab."""
+        # Determine which tab is active
+        current_tab = self.notebook.index(self.notebook.select())
+        if current_tab == 0:  # Items tab
+            tree = self.items_tree
+        else:  # Parents tab
+            tree = self.parents_tree
+        
+        sel = tree.selection()
+        if not sel:
+            return None
+        
+        item_iid = sel[0]
+        
+        # Handle variant selections (for Parents tab)
+        if item_iid.startswith("variant-"):
+            parts = item_iid.split("-")
+            if len(parts) >= 2:
+                try:
+                    return int(parts[1])  # item_id is the second part
+                except ValueError:
+                    return None
+        else:
+            # Regular item selection
+            try:
+                return int(item_iid)
+            except ValueError:
+                return None
 
     def _add_item_checked(self) -> None:
         """Admin-only: Add new item."""
@@ -741,8 +1142,10 @@ class InventoryFrame(ttk.Frame):
         dialog = SimplifiedItemDialog(self, existing=existing, is_admin=is_admin)
         dialog.show()
 
-        # Refresh the inventory list after dialog closes
-        self.refresh()
+        # Refresh both tabs after dialog closes
+        self._refresh_items_tab()
+        self._refresh_parents_tab()
+        self._update_ui_after_refresh()
 
     def _manage_categories(self) -> None:
         dialog = tk.Toplevel(self)
@@ -879,7 +1282,30 @@ class InventoryFrame(ttk.Frame):
             self.preview_label.configure(text="(No items)", image="")
             return
 
-        item_id = self._selected_id()
+        try:
+            item_id = self._selected_id()
+        except AttributeError:
+            # Fallback for environments where _selected_id may not exist
+            logger.debug("_selected_id not found; using fallback selection parsing in _update_preview")
+            current_tab = self.notebook.index(self.notebook.select())
+            tree = self.items_tree if current_tab == 0 else self.parents_tree
+            sel = tree.selection()
+            if not sel:
+                item_id = None
+            else:
+                item_iid = sel[0]
+                if item_iid.startswith("variant-"):
+                    parts = item_iid.split("-")
+                    try:
+                        item_id = int(parts[1]) if len(parts) >= 2 else None
+                    except Exception:
+                        item_id = None
+                else:
+                    try:
+                        item_id = int(item_iid)
+                    except Exception:
+                        item_id = None
+
         if not item_id:
             self.preview_image = None
             self.preview_label.configure(text="(No image)", image="")
@@ -1238,14 +1664,39 @@ class InventoryFrame(ttk.Frame):
         tree.column("variant_name", width=150)
         
         def reload_variants():
+            # Clear any previous rows and status
             for row in tree.get_children():
                 tree.delete(row)
-            variant_list = variants.list_variants(item_id)
+            try:
+                variant_list = variants.list_variants(item_id)
+            except Exception:
+                variant_list = []
             unit = item.get("unit_of_measure", "pieces")
+
+            # If no variants exist but item indicates it does, fix stale flag in DB
+            if not variant_list:
+                try:
+                    from modules import items as items_module
+                    parent = items_module.get_item(item_id)
+                    if parent and parent.get("has_variants"):
+                        # Clear stale flags so Parents tab and other logic remain correct
+                        items_module.update_item(item_id, has_variants=0, is_catalog_only=0)
+                        # Add an informational row so user isn't confused
+                        tree.insert("", tk.END, iid="_no_variants", values=("— No variants defined —", "", "", "", "", ""))
+                        return
+                except Exception:
+                    # If cleanup fails, just continue and show an empty list
+                    pass
+
+            # Populate tree with variants
             for v in variant_list:
-                tree.insert("", tk.END, iid=str(v["variant_id"]), 
-                           values=(v["variant_name"], f"{v['selling_price']:.2f}", 
-                                   f"{v['cost_price']:.2f}", v.get("quantity", 0), unit, f"{v.get('vat_rate', 16.0):.1f}"))
+                try:
+                    tree.insert("", tk.END, iid=str(v["variant_id"]), 
+                               values=(v["variant_name"], f"{v['selling_price']:.2f}", 
+                                       f"{v['cost_price']:.2f}", v.get("quantity", 0), unit, f"{v.get('vat_rate', 16.0):.1f}"))
+                except Exception:
+                    # Ignore any malformed variant rows
+                    continue
         
         def selected_variant_id():
             sel = tree.selection()

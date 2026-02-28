@@ -179,52 +179,27 @@ def list_sales_with_search(
     limit: int = 100
 ) -> list[dict]:
     """List sales with optional date range and search filters."""
+    from utils.date_utils import parse_date_flexible
+
+    # Convert display-format dates (e.g. 07.02.2026) to ISO (2026-02-07)
+    # so they match the YYYY-MM-DD values stored in the database.
+    if start_date:
+        try:
+            start_date = parse_date_flexible(start_date).strftime("%Y-%m-%d")
+        except ValueError:
+            pass  # leave as-is if already ISO or unparseable
+    if end_date:
+        try:
+            end_date = parse_date_flexible(end_date).strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+
     with get_connection() as conn:
         conn.row_factory = sqlite3.Row
         
         # Check if customers table exists
         tables = [row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
         has_customers = 'customers' in tables
-        
-        # Select sales with user and customer info for easier display
-        if has_customers:
-            query = (
-                "SELECT s.*, u.username AS username, c.name AS customer_name "
-                "FROM sales s "
-                "LEFT JOIN users u ON s.user_id = u.user_id "
-                "LEFT JOIN customers c ON s.customer_id = c.customer_id "
-                "WHERE 1=1"
-            )
-        else:
-            query = (
-                "SELECT s.*, u.username AS username, NULL AS customer_name "
-                "FROM sales s "
-                "LEFT JOIN users u ON s.user_id = u.user_id "
-                "WHERE 1=1"
-            )
-        params = []
-        
-        if start_date:
-            query += " AND s.date >= ?"
-            params.append(start_date)
-        if end_date:
-            query += " AND s.date <= ?"
-            params.append(end_date)
-        
-        # Search by sale_id, receipt_number, username, or customer name
-        if search_term:
-            try:
-                search_id = int(search_term)
-                query += " AND (s.sale_id = ? OR s.user_id = ?)"
-                params.extend([search_id, search_id])
-            except ValueError:
-                # Try searching by receipt_number or username or customer name (case-insensitive)
-                if has_customers:
-                    query += " AND (UPPER(s.receipt_number) LIKE UPPER(?) OR UPPER(u.username) LIKE UPPER(?) OR UPPER(c.name) LIKE UPPER(?))"
-                    params.extend([f"%{search_term}%"] * 3)
-                else:
-                    query += " AND (UPPER(s.receipt_number) LIKE UPPER(?) OR UPPER(u.username) LIKE UPPER(?))"
-                    params.extend([f"%{search_term}%"] * 2)
         
         # Select sales with user and customer info for easier display
         if has_customers:

@@ -363,22 +363,89 @@ def validate_item_low_stock_threshold(threshold: Any) -> int:
 
 def validate_item_unit_of_measure(unit: str) -> str:
     """
-    Validate unit of measure.
+    Validate unit of measure and map common synonyms/abbreviations to canonical names.
 
     Args:
         unit: Unit to validate
 
     Returns:
-        Validated unit
+        Canonical unit name to store
 
     Raises:
         ValidationError: If validation fails
     """
-    valid_units = ["pieces", "liters", "kilograms", "meters", "grams", "milliliters"]
-    unit = sanitize_string(unit, max_length=20, allow_empty=False)
-    if unit not in valid_units:
-        raise ValidationError(f"Invalid unit of measure. Must be one of: {', '.join(valid_units)}")
-    return unit
+    unit = sanitize_string(unit, max_length=40, allow_empty=False)
+
+    # Normalise common abbreviations and British/American spellings to canonical names
+    synonyms = {
+        # pieces
+        "piece": "pieces",
+        "pieces": "pieces",
+        "pc": "pieces",
+        "pcs": "pieces",
+        "unit": "pieces",
+        "pack": "pieces",
+        "box": "pieces",
+        "bottle": "pieces",
+        # liters
+        "l": "liters",
+        "liter": "liters",
+        "litre": "liters",
+        "liters": "liters",
+        "litres": "liters",
+        # milliliters
+        "ml": "milliliters",
+        "milliliter": "milliliters",
+        "millilitre": "milliliters",
+        "milliliters": "milliliters",
+        "millilitres": "milliliters",
+        # kilograms/grams
+        "kg": "kilograms",
+        "kilogram": "kilograms",
+        "kilograms": "kilograms",
+        "g": "grams",
+        "gram": "grams",
+        "grams": "grams",
+        # meters
+        "m": "meters",
+        "meter": "meters",
+        "metre": "meters",
+        "meters": "meters",
+        "metres": "meters",
+        # common imperial units (map to approximate measurable units)
+        "lb": "kilograms",
+        "lbs": "kilograms",
+        "oz": "grams",
+        # allow long-form singular
+        "millilitre": "milliliters",
+    }
+
+    key = unit.strip().lower()
+
+    # Try to map known synonyms
+    if key in synonyms:
+        return synonyms[key]
+
+    # If database of units exists, attempt case-insensitive exact match
+    try:
+        from modules import units_of_measure
+        unit_names = [u.lower() for u in units_of_measure.get_unit_names(active_only=True)]
+        if key in unit_names:
+            # return the canonical DB name (preserve DB casing)
+            for u in units_of_measure.get_unit_names(active_only=True):
+                if u.lower() == key:
+                    return u
+    except Exception:
+        # ignore DB access errors and fall back to synonyms
+        pass
+
+    # As a last resort, allow simple pluralisation match (e.g., 'piece' -> 'pieces')
+    if key.endswith('s') and key[:-1] in synonyms:
+        return synonyms[key[:-1]]
+
+    # Build helpful message listing example accepted values
+    example = sorted(set(["pieces", "liters", "kilograms", "meters", "grams", "milliliters", "kg", "g", "ml", "l"]))
+    raise ValidationError(f"Invalid unit of measure. Accepted examples: {', '.join(example)}. Use the Unit dropdown to select a supported unit.")
 
 
 def validate_item_package_size(size: Any) -> int:

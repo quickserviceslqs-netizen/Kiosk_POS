@@ -1,0 +1,18 @@
+PAYMENT METHODS REPORT
+======================
+Period: 08.02.2026 to 15.02.2026
+
+PAYMENT SUMMARY:
+
+  Total Revenue: KES9.50
+  Total Transactions: 2
+  Payment Methods: 2
+PAYMENT METHODS BREAKDOWN:
+---------------------------------------------------------------------------
+Method             Amount          Count      Avg          % of Total     
+--------------------------------------------------------------------------
+Cash               KES7.00         1          KES7.00      73.7%          
+Card               KES2.50         1          KES2.50      26.3%          
+
+
+Report generated at: 15.02.2026 09:28:39

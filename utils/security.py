@@ -1,6 +1,26 @@
 from __future__ import annotations
 """Password hashing utilities using PBKDF2-HMAC (SHA-256)."""
 
+def get_username() -> str:
+    """Get the current logged-in username from the Tkinter root window.
+    
+    Returns:
+        str: The username of the current user, or 'Unknown' if not available.
+    """
+    try:
+        import tkinter as tk
+        root = tk.Tk.winfo_toplevel(tk._default_root) if tk._default_root else None
+        if root:
+            current_user = getattr(root, 'current_user', {})
+            if isinstance(current_user, dict):
+                return current_user.get('username', 'Unknown')
+            elif hasattr(current_user, 'get'):
+                return current_user.get('username', 'Unknown')
+    except Exception:
+        pass
+    return 'Unknown'
+
+
 def get_currency_code():
     """Return the configured ISO 4217 currency code (e.g., 'USD', 'KES')."""
     from database.init_db import get_connection
@@ -54,6 +74,7 @@ def set_cart_vat_enabled(enabled: bool):
     with get_connection() as conn:
         conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('vat_enabled', ?)", (str(enabled).lower(),))
         conn.commit()
+    _notify_cart_settings_changed()
 
 
 def set_cart_discount_enabled(enabled: bool):
@@ -62,6 +83,7 @@ def set_cart_discount_enabled(enabled: bool):
     with get_connection() as conn:
         conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('discount_enabled', ?)", (str(enabled).lower(),))
         conn.commit()
+    _notify_cart_settings_changed()
 
 
 def set_cart_suspend_enabled(enabled: bool):
@@ -70,6 +92,7 @@ def set_cart_suspend_enabled(enabled: bool):
     with get_connection() as conn:
         conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('suspend_enabled', ?)", (str(enabled).lower(),))
         conn.commit()
+    _notify_cart_settings_changed()
 
 
 # Payment methods helpers
@@ -133,6 +156,36 @@ def unsubscribe_payment_methods(cb: callable) -> None:
 def _notify_payment_methods_changed() -> None:
     """Call all registered callbacks safely."""
     for cb in list(_payment_methods_listeners):
+        try:
+            cb()
+        except Exception:
+            # Swallow exceptions from user callbacks to avoid affecting app flow
+            pass
+
+
+# Simple in-process pub/sub for cart settings changes
+_cart_settings_listeners: list[callable] = []
+
+def subscribe_cart_settings(cb: callable) -> None:
+    """Register a callback to be notified when cart settings change.
+
+    The callback must be callable without arguments.
+    """
+    if cb not in _cart_settings_listeners:
+        _cart_settings_listeners.append(cb)
+
+
+def unsubscribe_cart_settings(cb: callable) -> None:
+    """Unregister a previously registered callback."""
+    try:
+        _cart_settings_listeners.remove(cb)
+    except ValueError:
+        pass
+
+
+def _notify_cart_settings_changed() -> None:
+    """Call all registered callbacks safely."""
+    for cb in list(_cart_settings_listeners):
         try:
             cb()
         except Exception:
@@ -290,3 +343,162 @@ def check_login_rate_limit(identifier: str) -> bool:
         True if login is allowed, False if rate limited
     """
     return login_rate_limiter.is_allowed(identifier)
+
+
+# Additional cart settings helpers
+
+def get_cart_auto_calculate_enabled():
+    """Return True if auto-calculation of cart totals is enabled."""
+    from database.init_db import get_connection
+    with get_connection() as conn:
+        cursor = conn.execute("SELECT value FROM settings WHERE key = 'cart_auto_calculate'")
+        row = cursor.fetchone()
+        if row:
+            value = row['value'] if isinstance(row, dict) else row[0]
+            return value.lower() == 'true'
+        return True  # Default to enabled
+
+
+def set_cart_auto_calculate_enabled(enabled: bool):
+    """Set whether auto-calculation of cart totals is enabled."""
+    from database.init_db import get_connection
+    with get_connection() as conn:
+        conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('cart_auto_calculate', ?)", (str(enabled).lower(),))
+        conn.commit()
+    _notify_cart_settings_changed()
+
+
+def get_cart_show_images_enabled():
+    """Return True if showing item images in cart is enabled."""
+    from database.init_db import get_connection
+    with get_connection() as conn:
+        cursor = conn.execute("SELECT value FROM settings WHERE key = 'cart_show_images'")
+        row = cursor.fetchone()
+        if row:
+            value = row['value'] if isinstance(row, dict) else row[0]
+            return value.lower() == 'true'
+        return True  # Default to enabled
+
+
+def set_cart_show_images_enabled(enabled: bool):
+    """Set whether showing item images in cart is enabled."""
+    from database.init_db import get_connection
+    with get_connection() as conn:
+        conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('cart_show_images', ?)", (str(enabled).lower(),))
+        conn.commit()
+    _notify_cart_settings_changed()
+
+
+def get_cart_allow_negative_qty():
+    """Return True if negative quantities are allowed in cart."""
+    from database.init_db import get_connection
+    with get_connection() as conn:
+        cursor = conn.execute("SELECT value FROM settings WHERE key = 'cart_allow_negative_qty'")
+        row = cursor.fetchone()
+        if row:
+            value = row['value'] if isinstance(row, dict) else row[0]
+            return value.lower() == 'true'
+        return False  # Default to disabled
+
+
+def set_cart_allow_negative_qty(enabled: bool):
+    """Set whether negative quantities are allowed in cart."""
+    from database.init_db import get_connection
+    with get_connection() as conn:
+        conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('cart_allow_negative_qty', ?)", (str(enabled).lower(),))
+        conn.commit()
+    _notify_cart_settings_changed()
+
+
+def get_cart_max_items():
+    """Get maximum number of items allowed in cart."""
+    from database.init_db import get_connection
+    with get_connection() as conn:
+        cursor = conn.execute("SELECT value FROM settings WHERE key = 'cart_max_items'")
+        row = cursor.fetchone()
+        if row:
+            value = row['value'] if isinstance(row, dict) else row[0]
+            try:
+                return int(value)
+            except ValueError:
+                pass
+        return 100  # Default
+
+
+def set_cart_max_items(max_items: int):
+    """Set maximum number of items allowed in cart."""
+    from database.init_db import get_connection
+    with get_connection() as conn:
+        conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('cart_max_items', ?)", (str(max_items),))
+        conn.commit()
+    _notify_cart_settings_changed()
+
+
+def get_vat_rate():
+    """Get the default VAT rate as a float."""
+    from database.init_db import get_connection
+    with get_connection() as conn:
+        cursor = conn.execute("SELECT value FROM settings WHERE key = 'vat_rate'")
+        row = cursor.fetchone()
+        if row:
+            value = row['value'] if isinstance(row, dict) else row[0]
+            try:
+                return float(value)
+            except ValueError:
+                pass
+        return 16.0  # Default VAT rate
+
+
+def set_vat_rate(rate: float):
+    """Set the default VAT rate."""
+    from database.init_db import get_connection
+    with get_connection() as conn:
+        conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('vat_rate', ?)", (str(rate),))
+        conn.commit()
+    # Notify listeners so UI can refresh immediately
+    try:
+        _notify_cart_settings_changed()
+    except Exception:
+        pass
+
+
+def get_vat_rate() -> float:
+    """Get the default VAT rate (as a percentage)."""
+    from database.init_db import get_connection
+    with get_connection() as conn:
+        cursor = conn.execute("SELECT value FROM settings WHERE key = 'vat_rate'")
+        row = cursor.fetchone()
+        if row:
+            value = row['value'] if isinstance(row, dict) else row[0]
+            try:
+                return float(value)
+            except Exception:
+                pass
+        return 16.0  # Default VAT rate
+
+
+def set_max_discount_percent(percent: float) -> None:
+    """Set the maximum discount percentage allowed and notify listeners."""
+    from database.init_db import get_connection
+    with get_connection() as conn:
+        conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('max_discount_percent', ?)", (str(percent),))
+        conn.commit()
+    try:
+        _notify_cart_settings_changed()
+    except Exception:
+        pass
+
+
+def get_max_discount_percent():
+    """Get the maximum discount percentage allowed."""
+    from database.init_db import get_connection
+    with get_connection() as conn:
+        cursor = conn.execute("SELECT value FROM settings WHERE key = 'max_discount_percent'")
+        row = cursor.fetchone()
+        if row:
+            value = row['value'] if isinstance(row, dict) else row[0]
+            try:
+                return float(value)
+            except ValueError:
+                pass
+        return 50.0  # Default max discount

@@ -5,7 +5,9 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 
 from modules import users
+from modules import permissions
 from utils import set_window_icon
+from utils.security import get_username
 
 
 class ChangePasswordDialog:
@@ -55,6 +57,13 @@ class UserManagementFrame(ttk.Frame):
         super().__init__(master, padding=16, **kwargs)
         self.current_user = getattr(master.winfo_toplevel(), "current_user", {})
         self.is_admin = self.current_user.get("role") == "admin"
+        
+        # Check permission to view users
+        current_username = get_username()
+        if not permissions.has_permission(current_username, 'view_users'):
+            messagebox.showerror("Permission Denied", "You do not have permission to view users")
+            return
+        
         self.tree = None
         self._build_ui()
         self.refresh()
@@ -191,6 +200,12 @@ class UserManagementFrame(ttk.Frame):
         return sel[0]
 
     def _add_user_dialog(self) -> None:
+        # Check permission to manage users
+        current_username = get_username()
+        if not permissions.has_permission(current_username, 'manage_users'):
+            messagebox.showerror("Permission Denied", "You do not have permission to manage users")
+            return
+        
         dialog = tk.Toplevel(self)
         dialog.title("Add User")
         set_window_icon(dialog)
@@ -286,6 +301,12 @@ class UserManagementFrame(ttk.Frame):
         messagebox.showinfo("Status", f"User {uname} {state_text}")
 
     def _delete_user(self) -> None:
+        # Check permission to manage users
+        current_username = get_username()
+        if not permissions.has_permission(current_username, 'manage_users'):
+            messagebox.showerror("Permission Denied", "You do not have permission to manage users")
+            return
+        
         uname = self._selected_username()
         if not uname:
             messagebox.showinfo("Delete", "Select a user first")

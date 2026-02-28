@@ -1,0 +1,19 @@
+INVENTORY STOCK LEVELS REPORT
+=============================
+Period: 08.02.2026 to 15.02.2026
+
+INVENTORY SUMMARY:
+
+  Total Items: 2
+  Total Inventory Value: KES507.50
+  Low Stock Items: 1
+  Categories: 2
+STOCK LEVELS DETAILS:
+--------------------------------------------------------------------------------------------------------------
+Item Name                      Category             Qty      Unit   Cost       Sell       Value        Status  
+---------------------------------------------------------------------------------------------------------------
+Coffee Beans                   Beverages            50       kg     KES10.00     KES15.00     KES500.00              
+Croissants                     Bakery               5        pcs    KES1.50      KES2.50      KES7.50        LOW     
+
+
+Report generated at: 15.02.2026 09:28:39

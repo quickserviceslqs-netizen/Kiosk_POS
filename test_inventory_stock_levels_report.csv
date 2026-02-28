@@ -1,0 +1,13 @@
+INVENTORY STOCK LEVELS REPORT
+Period,2026-02-08 to 2026-02-15
+Generated At,15.02.2026 09:28:39
+
+INVENTORY SUMMARY
+Total Items,2
+Total Inventory Value,507.5
+Low Stock Items,1
+
+STOCK LEVELS DETAILS
+Item ID,Name,Category,Quantity,Unit,Cost Price,Selling Price,Inventory Value,Low Stock
+,Coffee Beans,Beverages,50,kg,10.0,15.0,500.0,No
+,Croissants,Bakery,5,pcs,1.5,2.5,7.5,Yes

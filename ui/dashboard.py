@@ -10,13 +10,26 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 from modules import dashboard
-from utils.security import get_currency_code
+from modules import permissions
+from utils.i18n import get_currency_symbol
+from utils.date_utils import format_date
+from utils.security import get_username
 
 
 class DashboardFrame(ttk.Frame):
     def __init__(self, master: tk.Misc, on_home=None, **kwargs):
         super().__init__(master, padding=(8, 8, 8, 12), **kwargs)
         self.on_home = on_home
+        
+        # Check permission to view dashboard
+        current_user = get_username()
+        if not permissions.has_permission(current_user, 'view_dashboard'):
+            # Show permission denied message
+            from tkinter import messagebox
+            messagebox.showerror("Permission Denied", "You do not have permission to view the dashboard")
+            # Create empty frame
+            return
+        
         self._build_ui()
         self._refresh_data()
 
@@ -264,8 +277,7 @@ class DashboardFrame(ttk.Frame):
 
     def _create_summary_card(self, parent: tk.Widget, title: str, icon: str) -> ttk.Frame:
         """Create a modern summary statistics card."""
-        from utils.security import get_currency_code
-        currency = get_currency_code()
+        currency = get_currency_symbol()
 
         # Main card container with modern styling
         card = ttk.Frame(parent, relief="raised", borderwidth=2, style="Card.TFrame")
@@ -306,7 +318,7 @@ class DashboardFrame(ttk.Frame):
         logger = logging.getLogger(__name__)
         try:
             logger.info("Refreshing dashboard data")
-            currency = get_currency_code()
+            currency = get_currency_symbol()
             
             # Update summary cards
             today = dashboard.get_today_summary()
@@ -463,8 +475,7 @@ class DashboardFrame(ttk.Frame):
 
     def _draw_trend_chart(self) -> None:
         """Draw a bar chart for sales trend using Matplotlib."""
-        from utils.security import get_currency_code
-        currency = get_currency_code()
+        currency = get_currency_symbol()
         
         data = dashboard.get_sales_trend_data(7)
         if not data:
@@ -479,7 +490,7 @@ class DashboardFrame(ttk.Frame):
             self.trend_canvas.draw()
             return
         
-        dates = [datetime.strptime(d["date"], "%Y-%m-%d").strftime("%m/%d") for d in data]
+        dates = [format_date(datetime.strptime(d["date"], "%Y-%m-%d")) for d in data]
         revenues = [d["revenue"] for d in data]
         
         self.trend_ax.clear()
@@ -507,8 +518,7 @@ class DashboardFrame(ttk.Frame):
 
     def _draw_hourly_chart(self) -> None:
         """Draw a bar chart for today's hourly sales using Matplotlib."""
-        from utils.security import get_currency_code
-        currency = get_currency_code()
+        currency = get_currency_symbol()
         
         today = datetime.now().strftime("%Y-%m-%d")
         data = dashboard.get_hourly_sales_data(today)
@@ -641,9 +651,9 @@ class DashboardFrame(ttk.Frame):
 
         # Draw trend chart
         data = dashboard.get_sales_trend_data(7)
-        currency = get_currency_code()
+        currency = get_currency_symbol()
         if data:
-            dates = [datetime.strptime(d["date"], "%Y-%m-%d").strftime("%m/%d") for d in data]
+            dates = [format_date(datetime.strptime(d["date"], "%Y-%m-%d")) for d in data]
             revenues = [d["revenue"] for d in data]
             
             bars = trend_ax.bar(dates, revenues, color='#1976D2', edgecolor='#0D47A1', width=0.6, alpha=0.8)
@@ -742,9 +752,9 @@ class DashboardFrame(ttk.Frame):
 
         # Draw trend chart
         data = dashboard.get_sales_trend_data(7)
-        currency = get_currency_code()
+        currency = get_currency_symbol()
         if data:
-            dates = [datetime.strptime(d["date"], "%Y-%m-%d").strftime("%m/%d") for d in data]
+            dates = [format_date(datetime.strptime(d["date"], "%Y-%m-%d")) for d in data]
             revenues = [d["revenue"] for d in data]
             
             bars = trend_ax.bar(dates, revenues, color='#1976D2', edgecolor='#0D47A1', width=0.6, alpha=0.8)
@@ -802,7 +812,7 @@ class DashboardFrame(ttk.Frame):
         # Draw hourly chart
         today = datetime.now().strftime("%Y-%m-%d")
         data = dashboard.get_hourly_sales_data(today)
-        currency = get_currency_code()
+        currency = get_currency_symbol()
         if data:
             hours = [f"{int(d['hour']):02d}:00" for d in data]
             revenues = [d["revenue"] for d in data]
@@ -861,7 +871,7 @@ class DashboardFrame(ttk.Frame):
 
         # Draw expenses pie chart
         data = dashboard.get_expenses_by_category(30)
-        currency = get_currency_code()
+        currency = get_currency_symbol()
         if data and any(d['total_amount'] > 0 for d in data):
             # Filter out zero amounts and prepare data
             filtered_data = [d for d in data if d['total_amount'] > 0]
@@ -939,7 +949,7 @@ class DashboardFrame(ttk.Frame):
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
         # Populate data
-        currency = get_currency_code()
+        currency = get_currency_symbol()
         top_products = dashboard.get_top_products(50)
         for i, product in enumerate(top_products):
             qty_display = product.get("qty_display", str(product.get("quantity_sold", 0)))
@@ -1056,7 +1066,7 @@ class DashboardFrame(ttk.Frame):
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
         # Populate data
-        currency = get_currency_code()
+        currency = get_currency_symbol()
         recent_sales = dashboard.get_recent_sales(50)
         for i, txn in enumerate(recent_sales):
             tags = []

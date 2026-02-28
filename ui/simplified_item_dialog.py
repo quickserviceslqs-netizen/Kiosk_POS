@@ -55,9 +55,29 @@ class SimplifiedItemDialog:
         if not self.dialog:
             return
 
-        # Create notebook for wizard-style interface
-        notebook = ttk.Notebook(self.dialog)
-        notebook.grid(row=0, column=0, sticky=tk.NSEW, padx=10, pady=(10, 0))
+        # Use pack layout for main container - more reliable for ensuring buttons stay visible
+        main_container = ttk.Frame(self.dialog)
+        main_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        # Button frame at BOTTOM using pack - this ensures it's always visible
+        button_frame = ttk.Frame(main_container)
+        button_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(10, 0))
+        
+        # Add a separator above buttons
+        ttk.Separator(button_frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=(0, 10))
+        
+        # Button container with explicit height
+        btn_container = ttk.Frame(button_frame)
+        btn_container.pack(fill=tk.X, pady=(0, 5))
+        
+        cancel_btn = ttk.Button(btn_container, text="Cancel", command=self._on_cancel, width=12)
+        cancel_btn.pack(side=tk.RIGHT, padx=(10, 0))
+        save_btn = ttk.Button(btn_container, text="Save Item", command=self._on_save, width=14)
+        save_btn.pack(side=tk.RIGHT)
+
+        # Create notebook for wizard-style interface - fills remaining space
+        notebook = ttk.Notebook(main_container)
+        notebook.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
         # Tab 1: Basic Information
         basic_frame = ttk.Frame(notebook)
@@ -94,19 +114,6 @@ class SimplifiedItemDialog:
         # Auto-size the dialog to fit content
         self._auto_size_dialog()
 
-        # Button frame at bottom
-        button_frame = ttk.Frame(self.dialog)
-        button_frame.grid(row=1, column=0, sticky=tk.EW, padx=10, pady=(5, 10))
-
-        ttk.Button(button_frame, text="Cancel", command=self._on_cancel).pack(side=tk.RIGHT, padx=(5, 0))
-        save_btn = ttk.Button(button_frame, text="Save Item", command=self._on_save)
-        save_btn.pack(side=tk.RIGHT)
-
-        # Configure grid weights to push buttons to bottom
-        self.dialog.grid_rowconfigure(0, weight=1)
-        self.dialog.grid_rowconfigure(1, weight=0)
-        self.dialog.grid_columnconfigure(0, weight=1)
-
     def _init_form_fields(self) -> None:
         """Initialize form fields with defaults and existing values, and error labels."""
         self.fields = {}
@@ -122,7 +129,7 @@ class SimplifiedItemDialog:
         # Pricing fields - simplified to single base price approach
         self.fields["base_price"] = tk.StringVar(value="")
         self.fields["cost_price"] = tk.StringVar(value="")
-        self.fields["item_type"] = tk.StringVar(value="standard")  # standard, bulk_package, fractional
+        self.fields["item_type"] = tk.StringVar(value="discrete")  # discrete or measurable
 
         # Unit fields
         self.fields["unit_of_measure"] = tk.StringVar(value=self.existing.get("unit_of_measure", "pieces") if self.existing else "pieces")
@@ -131,6 +138,7 @@ class SimplifiedItemDialog:
         # Advanced fields
         self.fields["vat_rate"] = tk.StringVar(value=str(self.existing.get("vat_rate", 16.0) if self.existing else 16.0))
         self.fields["low_stock_threshold"] = tk.StringVar(value=str(self.existing.get("low_stock_threshold", 10) if self.existing else 10))
+        # Quantity only for editing existing items, not for new items
         self.fields["quantity"] = tk.StringVar(value=str(self.existing.get("quantity", 0) if self.existing else 0))
 
         # Error labels for each field
@@ -148,15 +156,15 @@ class SimplifiedItemDialog:
 
         # Determine item type based on existing data
         if self.existing.get("is_special_volume"):
-            self.fields["item_type"].set("fractional")
-            # For fractional items, base price is price per unit
+            self.fields["item_type"].set("measurable")
+            # For measurable items, base price is price per unit
             unit_multiplier = items._get_unit_multiplier(self.existing.get("unit_of_measure", "pieces"))
             if self.existing.get("price_per_ml"):
                 self.fields["base_price"].set(f"{self.existing['price_per_ml'] * unit_multiplier:.2f}")
             elif self.existing.get("selling_price_per_unit"):
                 self.fields["base_price"].set(f"{self.existing['selling_price_per_unit']:.2f}")
         else:
-            self.fields["item_type"].set("bulk_package")
+            self.fields["item_type"].set("discrete")
             self.fields["base_price"].set(f"{self.existing.get('selling_price', 0):.2f}")
 
         self.fields["cost_price"].set(f"{self.existing.get('cost_price', 0):.2f}")
@@ -194,6 +202,11 @@ class SimplifiedItemDialog:
         # Per-tab horizontal scrollbar is not packed; the dialog-level persistent scrollbar is used instead
         row = 0
 
+        # Required fields note
+        required_note = ttk.Label(scrollable_frame, text="* Required fields", font=("Segoe UI", 8), foreground="#666666")
+        required_note.grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=(5, 10), padx=10)
+        row += 1
+
         # Item Name
         ttk.Label(scrollable_frame, text="Item Name *", font=("Segoe UI", 10, "bold")).grid(row=row, column=0, sticky=tk.W, pady=(10, 5), padx=10)
         name_entry = ttk.Entry(scrollable_frame, textvariable=self.fields["name"], width=50)
@@ -216,12 +229,10 @@ class SimplifiedItemDialog:
 
         # Category
         ttk.Label(scrollable_frame, text="Category", font=("Segoe UI", 9)).grid(row=row, column=0, sticky=tk.W, pady=5, padx=10)
-        category_combo = ttk.Combobox(scrollable_frame, textvariable=self.fields["category"], width=47, state="readonly")
-        # Populate values and ensure the dropdown can be shown on click/focus
-        category_combo['values'] = self._get_category_list()
-        # Refresh the list when the widget receives focus so it stays up-to-date
-        category_combo.bind("<FocusIn>", lambda e: category_combo.configure(values=self._get_category_list()))
-        category_combo.grid(row=row, column=1, sticky=tk.EW, pady=5, padx=(0, 10))
+        self.category_combo = ttk.Combobox(scrollable_frame, textvariable=self.fields["category"], width=47, state="readonly")
+        # Populate values once - categories rarely change during item editing
+        self.category_combo['values'] = self._get_category_list()
+        self.category_combo.grid(row=row, column=1, sticky=tk.EW, pady=5, padx=(0, 10))
         self.error_labels["category"] = ttk.Label(scrollable_frame, text="", foreground="red", font=("Segoe UI", 8))
         self.error_labels["category"].grid(row=row+1, column=1, sticky=tk.W, padx=(0, 10))
         def validate_category(*_):
@@ -253,30 +264,28 @@ class SimplifiedItemDialog:
         row += 2
 
         # Item Type Selection
-        ttk.Label(scrollable_frame, text="Item Type", font=("Segoe UI", 10, "bold")).grid(row=row, column=0, sticky=tk.W, pady=(15, 5), padx=10)
+        ttk.Label(scrollable_frame, text="Item Type *", font=("Segoe UI", 10, "bold")).grid(row=row, column=0, sticky=tk.W, pady=(15, 5), padx=10)
         type_frame = ttk.Frame(scrollable_frame)
         type_frame.grid(row=row, column=1, sticky=tk.W, pady=(15, 5), padx=(0, 10))
 
-        ttk.Radiobutton(type_frame, text="Standard Item (sold whole)", variable=self.fields["item_type"],
-                       value="standard", command=self._on_item_type_change).pack(side=tk.LEFT, padx=(0, 20))
-        ttk.Radiobutton(type_frame, text="Bulk Package (sold by package)", variable=self.fields["item_type"],
-                       value="bulk_package", command=self._on_item_type_change).pack(side=tk.LEFT, padx=(0, 20))
-        ttk.Radiobutton(type_frame, text="Fractional Item (sold by weight/volume)", variable=self.fields["item_type"],
-                       value="fractional", command=self._on_item_type_change).pack(side=tk.LEFT)
+        ttk.Radiobutton(type_frame, text="Discrete (sold as whole units: pieces, packs, boxes)", variable=self.fields["item_type"],
+                       value="discrete", command=self._on_item_type_change).pack(side=tk.LEFT, padx=(0, 20))
+        ttk.Radiobutton(type_frame, text="Measurable (sold by weight/volume: kg, liters)", variable=self.fields["item_type"],
+                       value="measurable", command=self._on_item_type_change).pack(side=tk.LEFT)
         row += 1
 
         # Unit of Measure (shown for all types)
         ttk.Label(scrollable_frame, text="Unit of Measure", font=("Segoe UI", 9)).grid(row=row, column=0, sticky=tk.W, pady=5, padx=10)
-        unit_combo = ttk.Combobox(scrollable_frame, textvariable=self.fields["unit_of_measure"], width=47, state="readonly")
-        unit_combo['values'] = self._get_unit_list()
-        # Refresh the list when the widget receives focus so it stays up-to-date
-        unit_combo.bind("<FocusIn>", lambda e: unit_combo.configure(values=self._get_unit_list()))
-        unit_combo.grid(row=row, column=1, sticky=tk.EW, pady=5, padx=(0, 10))
-        unit_combo.bind("<<ComboboxSelected>>", lambda e: self._on_unit_change())
+        self.unit_combo = ttk.Combobox(scrollable_frame, textvariable=self.fields["unit_of_measure"], width=47, state="readonly")
+        self.unit_combo['values'] = self._get_unit_list()
+        # Units are updated by _on_item_type_change when item type changes
+        self.unit_combo.grid(row=row, column=1, sticky=tk.EW, pady=5, padx=(0, 10))
+        self.unit_combo.bind("<<ComboboxSelected>>", lambda e: self._on_unit_change())
         self.error_labels["unit_of_measure"] = ttk.Label(scrollable_frame, text="", foreground="red", font=("Segoe UI", 8))
         self.error_labels["unit_of_measure"].grid(row=row+1, column=1, sticky=tk.W, padx=(0, 10))
 
-        # Manage Portions (only enabled for fractional items and when editing an existing item)
+        # Manage Portions (only enabled for measurable items when editing an existing item)
+        # State is set by _on_item_type_change() which is called after tabs are built
         self.manage_portions_btn = ttk.Button(scrollable_frame, text="Manage Portions...", command=self._manage_portions, width=18)
         try:
             # Place to the right of the unit combobox (column 2)
@@ -284,7 +293,7 @@ class SimplifiedItemDialog:
         except Exception:
             # If layout grid doesn't have a column 2, just pack below
             self.manage_portions_btn.grid(row=row+2, column=1, sticky=tk.W, padx=(0, 10))
-        self.manage_portions_btn.config(state="disabled")
+        # Initial state set by _on_item_type_change() after UI is built
         def validate_unit_of_measure(*_):
             value = self.fields["unit_of_measure"].get().strip()
             if not value:
@@ -417,8 +426,8 @@ class SimplifiedItemDialog:
         validate_base_price()
         row += 2
 
-        # Cost price
-        cost_label = ttk.Label(scrollable_frame, text="Cost Price", font=("Segoe UI", 9))
+        # Cost price with guidance for new items
+        cost_label = ttk.Label(scrollable_frame, text="Estimated Cost Price", font=("Segoe UI", 9))
         cost_label.grid(row=row, column=0, sticky=tk.W, pady=5, padx=10)
         self.pricing_widgets.append(cost_label)
         cost_frame = ttk.Frame(scrollable_frame)
@@ -427,11 +436,21 @@ class SimplifiedItemDialog:
         ttk.Label(cost_frame, text=f"{self.currency_symbol}", font=("Segoe UI", 9)).pack(side=tk.LEFT)
         cost_price_entry = ttk.Entry(cost_frame, textvariable=self.fields["cost_price"], width=20, state="normal" if self.is_admin else "readonly")
         cost_price_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self.fields["cost_unit_label"] = ttk.Label(cost_frame, text="(per piece)", font=("Segoe UI", 8), foreground="gray")
+        self.fields["cost_unit_label"] = ttk.Label(cost_frame, text="(per unit)", font=("Segoe UI", 8), foreground="gray")
         self.fields["cost_unit_label"].pack(side=tk.RIGHT, padx=(10, 0))
         self.error_labels["cost_price"] = ttk.Label(scrollable_frame, text="", foreground="red", font=("Segoe UI", 8))
         self.error_labels["cost_price"].grid(row=row+1, column=1, sticky=tk.W, padx=(0, 10))
         self.pricing_widgets.append(self.error_labels["cost_price"])
+        row += 2
+        
+        # Cost price guidance text
+        cost_info = ttk.Label(scrollable_frame,
+            text="💡 Tip: Actual costs are tracked per stock lot via Stock Receiving. This is an estimated cost for profit margin display.",
+            font=("Segoe UI", 8), foreground="#666666", wraplength=500)
+        cost_info.grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 10), padx=10)
+        self.pricing_widgets.append(cost_info)
+        row += 1
+        
         def validate_cost_price(*_):
             value = self.fields["cost_price"].get().strip()
             try:
@@ -447,7 +466,6 @@ class SimplifiedItemDialog:
                     self.error_labels["cost_price"].config(text="")
         self.trace_ids["cost_price"] = self.fields["cost_price"].trace_add("write", validate_cost_price)
         validate_cost_price()
-        row += 2
 
         # Profit margin display
         profit_margin_label = ttk.Label(scrollable_frame, text="Profit Margin", font=("Segoe UI", 9))
@@ -465,39 +483,14 @@ class SimplifiedItemDialog:
                 cost = float(self.fields["cost_price"].get() or 0)
                 if sell > 0 and cost > 0:
                     margin = ((sell - cost) / sell) * 100
-                    self.fields["profit_margin"].config(text=f"{margin:.1f}%", foreground="green" if margin >= 0 else "red")
+                    color = "green" if margin >= 20 else ("orange" if margin >= 0 else "red")
+                    self.fields["profit_margin"].config(text=f"{margin:.1f}%", foreground=color)
+                elif sell > 0:
+                    self.fields["profit_margin"].config(text="--", foreground="gray")
                 else:
-                    self.fields["profit_margin"].config(text="--")
+                    self.fields["profit_margin"].config(text="--", foreground="gray")
             except ValueError:
-                self.fields["profit_margin"].config(text="--")
-
-        self.fields["cost_unit_label"].pack(side=tk.RIGHT, padx=(10, 0))
-        self.error_labels["cost_price"] = ttk.Label(scrollable_frame, text="", foreground="red", font=("Segoe UI", 8))
-        self.error_labels["cost_price"].grid(row=row+1, column=1, sticky=tk.W, padx=(0, 10))
-        self.pricing_widgets.append(self.error_labels["cost_price"])
-        row += 1
-
-        # Profit margin display
-        profit_label = ttk.Label(scrollable_frame, text="Profit Margin", font=("Segoe UI", 9))
-        profit_label.grid(row=row, column=0, sticky=tk.W, pady=5, padx=10)
-        self.pricing_widgets.append(profit_label)
-        self.fields["profit_margin"] = ttk.Label(scrollable_frame, text="--", font=("Segoe UI", 9, "bold"), foreground="green")
-        self.fields["profit_margin"].grid(row=row, column=1, sticky=tk.W, pady=5, padx=(0, 10))
-        self.pricing_widgets.append(self.fields["profit_margin"])
-        row += 1
-
-        # Auto-calculate profit margin
-        def update_profit_margin(*args):
-            try:
-                sell = float(self.fields["base_price"].get() or 0)
-                cost = float(self.fields["cost_price"].get() or 0)
-                if sell > 0 and cost > 0:
-                    margin = ((sell - cost) / sell) * 100
-                    self.fields["profit_margin"].config(text=f"{margin:.1f}%", foreground="green" if margin >= 0 else "red")
-                else:
-                    self.fields["profit_margin"].config(text="--")
-            except ValueError:
-                self.fields["profit_margin"].config(text="--")
+                self.fields["profit_margin"].config(text="--", foreground="gray")
 
         self.trace_ids["base_price_profit"] = self.fields["base_price"].trace_add("write", update_profit_margin)
         self.trace_ids["cost_price_profit"] = self.fields["cost_price"].trace_add("write", update_profit_margin)
@@ -521,15 +514,24 @@ class SimplifiedItemDialog:
         screen_w = self.dialog.winfo_screenwidth()
         screen_h = self.dialog.winfo_screenheight()
 
-        min_width = max(req_width, 800)
-        min_height = max(req_height, 600)
+        # Ensure minimum size that fits all content including button frame
+        # Add extra height for button frame and padding
+        min_width = max(req_width, 850)
+        min_height = max(req_height + 100, 700)  # +100 for button frame margin
 
         # Cap to a percentage of the screen so dialog doesn't exceed visible area
         final_width = min(min_width, int(screen_w * 0.95))
-        final_height = min(min_height, int(screen_h * 0.9))
+        final_height = min(min_height, int(screen_h * 0.85))
 
-        # Set the dialog size
-        self.dialog.geometry(f"{final_width}x{final_height}")
+        # Center horizontally, position higher vertically (1/4 from top instead of center)
+        x = (screen_w - final_width) // 2
+        y = (screen_h - final_height) // 4  # Position closer to top
+
+        # Set the dialog size and position
+        self.dialog.geometry(f"{final_width}x{final_height}+{x}+{y}")
+        
+        # Set minimum size to prevent shrinking below usable dimensions
+        self.dialog.minsize(800, 600)
 
         # Force a geometry update so canvases receive the configure event
         self.dialog.update_idletasks()
@@ -578,31 +580,42 @@ class SimplifiedItemDialog:
         ttk.Label(scrollable_frame, text="Stock Settings", font=("Segoe UI", 10, "bold")).grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=(10, 5), padx=10)
         row += 1
 
-        qty_label = ttk.Label(scrollable_frame, text="Current Quantity", font=("Segoe UI", 9))
-        qty_label.grid(row=row, column=0, sticky=tk.W, pady=5, padx=10)
-        self.quantity_widgets.append(qty_label)
-        qty_entry = ttk.Entry(scrollable_frame, textvariable=self.fields["quantity"], width=20)
-        qty_entry.grid(row=row, column=1, sticky=tk.W, pady=5, padx=(0, 10))
-        self.quantity_widgets.append(qty_entry)
+        # For new items, show guidance about using Stock Receiving
+        # For existing items, show current quantity as read-only with edit option
+        if self.existing:
+            # Existing item - show current quantity (read-only) with guidance
+            qty_label = ttk.Label(scrollable_frame, text="Current Stock", font=("Segoe UI", 9))
+            qty_label.grid(row=row, column=0, sticky=tk.W, pady=5, padx=10)
+            self.quantity_widgets.append(qty_label)
+            
+            qty_display_frame = ttk.Frame(scrollable_frame)
+            qty_display_frame.grid(row=row, column=1, sticky=tk.W, pady=5, padx=(0, 10))
+            self.quantity_widgets.append(qty_display_frame)
+            
+            qty_value = ttk.Label(qty_display_frame, text=str(self.existing.get("quantity", 0)), font=("Segoe UI", 9, "bold"))
+            qty_value.pack(side=tk.LEFT)
+            self.fields["qty_display"] = qty_value
+            
+            ttk.Label(qty_display_frame, text="  (Use Stock Receiving to add inventory)", font=("Segoe UI", 8), foreground="gray").pack(side=tk.LEFT, padx=(5, 0))
+            row += 1
+        else:
+            # New item - show info message about Stock Receiving
+            info_frame = ttk.Frame(scrollable_frame)
+            info_frame.grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=5, padx=10)
+            self.quantity_widgets.append(info_frame)
+            
+            ttk.Label(info_frame, text="📦", font=("Segoe UI", 12)).pack(side=tk.LEFT, padx=(0, 5))
+            info_text = ttk.Label(info_frame, 
+                text="Initial stock will be 0. After saving, use Stock Receiving to add inventory with proper cost tracking.",
+                font=("Segoe UI", 9), foreground="#666666", wraplength=450)
+            info_text.pack(side=tk.LEFT)
+            row += 1
+
+        # Hidden quantity field for internal use (always 0 for new items)
+        self.fields["quantity"].set("0" if not self.existing else str(self.existing.get("quantity", 0)))
         self.error_labels["quantity"] = ttk.Label(scrollable_frame, text="", foreground="red", font=("Segoe UI", 8))
-        self.error_labels["quantity"].grid(row=row+1, column=1, sticky=tk.W, padx=(0, 10))
-        self.quantity_widgets.append(self.error_labels["quantity"])
-        def validate_quantity(*_):
-            value = self.fields["quantity"].get().strip()
-            if not value:
-                self.error_labels["quantity"].config(text="")
-                return
-            try:
-                v = float(value)
-                if v < 0:
-                    self.error_labels["quantity"].config(text="Must be >= 0")
-                else:
-                    self.error_labels["quantity"].config(text="")
-            except Exception:
-                self.error_labels["quantity"].config(text="Invalid number")
-        self.trace_ids["quantity"] = self.fields["quantity"].trace_add("write", validate_quantity)
-        validate_quantity()
-        row += 2
+        # Don't grid the error label, keep it hidden
+        row += 1
 
         ttk.Label(scrollable_frame, text="Low Stock Alert Threshold", font=("Segoe UI", 9)).grid(row=row, column=0, sticky=tk.W, pady=5, padx=10)
         low_stock_entry = ttk.Entry(scrollable_frame, textvariable=self.fields["low_stock_threshold"], width=20)
@@ -666,15 +679,26 @@ class SimplifiedItemDialog:
         """Handle item type changes to show/hide relevant fields."""
         item_type = self.fields["item_type"].get()
 
-        # Enable/disable Manage Portions button: only enabled for fractional items when editing an existing item
+        # Enable/disable Manage Portions button: enabled for measurable items (even new ones)
+        # If clicked on a new item, _manage_portions() will show a "save first" message
         if hasattr(self, 'manage_portions_btn'):
-            if item_type == 'fractional' and self.existing and self.existing.get('item_id'):
+            if item_type == 'measurable':
                 self.manage_portions_btn.config(state='normal')
             else:
                 self.manage_portions_btn.config(state='disabled')
 
-        if item_type == "standard":
-            # Standard items: hide package size, price per piece
+        # Update unit of measure list based on item type
+        if hasattr(self, 'unit_combo'):
+            new_units = self._get_unit_list()
+            self.unit_combo['values'] = new_units
+            current_unit = self.fields["unit_of_measure"].get()
+            # If current unit is not valid for this item type, reset to first option
+            if current_unit not in new_units and new_units:
+                self.fields["unit_of_measure"].set(new_units[0])
+                self._on_unit_change()
+
+        if item_type == "discrete":
+            # Discrete items: hide package size, price per unit
             if "package_size_label" in self.fields:
                 self.fields["package_size_label"].grid_remove()
             if "package_size_entry" in self.fields:
@@ -682,25 +706,12 @@ class SimplifiedItemDialog:
             if "package_size" in self.error_labels:
                 self.error_labels["package_size"].grid_remove()
             if "price_unit_label" in self.fields:
-                self.fields["price_unit_label"].config(text="(per piece)")
+                self.fields["price_unit_label"].config(text="(per unit)")
             if "cost_unit_label" in self.fields:
-                self.fields["cost_unit_label"].config(text="(per piece)")
+                self.fields["cost_unit_label"].config(text="(per unit)")
 
-        elif item_type == "bulk_package":
-            # Bulk packages: show package size, price per package
-            if "package_size_label" in self.fields:
-                self.fields["package_size_label"].grid()
-            if "package_size_entry" in self.fields:
-                self.fields["package_size_entry"].grid()
-            if "package_size" in self.error_labels:
-                self.error_labels["package_size"].grid()
-            if "price_unit_label" in self.fields:
-                self.fields["price_unit_label"].config(text="(per package)")
-            if "cost_unit_label" in self.fields:
-                self.fields["cost_unit_label"].config(text="(per package)")
-
-        elif item_type == "fractional":
-            # Fractional items: show package size, price per base unit
+        elif item_type == "measurable":
+            # Measurable items: show package size, price per base unit
             if "package_size_label" in self.fields:
                 self.fields["package_size_label"].grid()
             if "package_size_entry" in self.fields:
@@ -708,7 +719,7 @@ class SimplifiedItemDialog:
             if "package_size" in self.error_labels:
                 self.error_labels["package_size"].grid()
             unit = self.fields["unit_of_measure"].get().lower()
-            if "liter" in unit or "l" == unit:
+            if "liter" in unit or "l" == unit or "litre" in unit:
                 if "price_unit_label" in self.fields:
                     self.fields["price_unit_label"].config(text="(per liter)")
                 if "cost_unit_label" in self.fields:
@@ -718,6 +729,11 @@ class SimplifiedItemDialog:
                     self.fields["price_unit_label"].config(text="(per kg)")
                 if "cost_unit_label" in self.fields:
                     self.fields["cost_unit_label"].config(text="(per kg)")
+            elif "meter" in unit or "m" == unit or "metre" in unit:
+                if "price_unit_label" in self.fields:
+                    self.fields["price_unit_label"].config(text="(per meter)")
+                if "cost_unit_label" in self.fields:
+                    self.fields["cost_unit_label"].config(text="(per meter)")
             else:
                 if "price_unit_label" in self.fields:
                     self.fields["price_unit_label"].config(text="(per unit)")
@@ -730,14 +746,14 @@ class SimplifiedItemDialog:
         item_type = self.fields["item_type"].get()
 
         # Set default package sizes for common units
-        if item_type == "fractional":
-            if "liter" in unit or "l" == unit:
+        if item_type == "measurable":
+            if "liter" in unit or "l" == unit or "litre" in unit:
                 if not self.fields["package_size"].get() or self.fields["package_size"].get() == "1":
                     self.fields["package_size"].set("1000")  # 1000ml per liter
             elif "kilo" in unit or "kg" in unit:
                 if not self.fields["package_size"].get() or self.fields["package_size"].get() == "1":
                     self.fields["package_size"].set("1000")  # 1000g per kg
-            elif "meter" in unit or "m" == unit:
+            elif "meter" in unit or "m" == unit or "metre" in unit:
                 if not self.fields["package_size"].get() or self.fields["package_size"].get() == "1":
                     self.fields["package_size"].set("100")  # 100cm per meter
 
@@ -753,8 +769,11 @@ class SimplifiedItemDialog:
             messagebox.showinfo("Save Item First", "Please save the item before managing portions.")
             return
 
-        # Open management dialog
-        ManagePortionsDialog(self.parent, self.existing['item_id'])
+        # Get current unit of measure from the dialog (not from database)
+        current_unit = self.fields["unit_of_measure"].get() if "unit_of_measure" in self.fields else None
+        
+        # Open management dialog with current unit
+        ManagePortionsDialog(self.parent, self.existing['item_id'], unit_of_measure=current_unit)
 
     def _on_variants_change(self) -> None:
         """Handle has variants checkbox changes to show/hide pricing and quantity fields.
@@ -918,18 +937,39 @@ class SimplifiedItemDialog:
         unit = self.fields["unit_of_measure"].get()
         has_variants = self.fields["has_variants"].get()
 
+        # Validate name is not a duplicate (for new items or name changes)
+        name = self.fields["name"].get().strip()
+        if name:
+            existing_items = items.list_items(search=name)
+            for existing_item in existing_items:
+                if existing_item.get("name", "").lower() == name.lower():
+                    # Allow if it's the same item being edited
+                    if self.existing and existing_item.get("item_id") == self.existing.get("item_id"):
+                        continue
+                    raise ValidationError(f"An item with name '{name}' already exists")
+
         # Base data
         data = {
-            "name": self.fields["name"].get().strip(),
+            "name": name,
             "category": self.fields["category"].get().strip() or None,
             "barcode": self.fields["barcode"].get().strip() or None,
             "image_path": self.fields["image_path"].get().strip() or None,
             "unit_of_measure": unit,
             "vat_rate": validate_numeric(self.fields["vat_rate"].get(), 0, 100),
             "low_stock_threshold": validate_integer(self.fields["low_stock_threshold"].get(), 0),
-            "quantity": 0 if has_variants else validate_numeric(self.fields["quantity"].get(), 0),
             "has_variants": 1 if has_variants else 0,
         }
+
+        # Quantity handling: 
+        # - For new items without variants: always 0 (use Stock Receiving)
+        # - For existing items: keep current quantity
+        # - For items with variants: always 0
+        if has_variants:
+            data["quantity"] = 0
+        elif self.existing:
+            data["quantity"] = self.existing.get("quantity", 0)  # Keep existing quantity
+        else:
+            data["quantity"] = 0  # New items start at 0
 
         # Pricing logic based on item type
         if has_variants:
@@ -947,8 +987,17 @@ class SimplifiedItemDialog:
             base_price = validate_numeric(self.fields["base_price"].get(), 0)
             cost_price = validate_numeric(self.fields["cost_price"].get(), 0) if self.is_admin else 0
 
-            if item_type == "standard":
-                # Standard items: price per piece, no special volume
+            # Warn if cost > selling (but don't block - it might be intentional for promos)
+            if cost_price > 0 and base_price > 0 and base_price < cost_price:
+                if not messagebox.askyesno(
+                    "Low Margin Warning",
+                    f"Selling price ({base_price:.2f}) is less than cost price ({cost_price:.2f}).\n\n"
+                    "This will result in a loss on each sale. Continue anyway?"
+                ):
+                    raise ValidationError("Cancelled due to pricing concern")
+
+            if item_type == "discrete":
+                # Discrete items: price per unit, no special volume
                 data.update({
                     "selling_price": base_price,
                     "cost_price": cost_price,
@@ -959,21 +1008,8 @@ class SimplifiedItemDialog:
                     "cost_price_per_unit": None,
                 })
 
-            elif item_type == "bulk_package":
-                # Bulk packages: price per package
-                package_size = validate_integer(self.fields["package_size"].get(), 1)
-                data.update({
-                    "selling_price": base_price,
-                    "cost_price": cost_price,
-                    "is_special_volume": 0,
-                    "unit_size_ml": package_size,
-                    "price_per_ml": None,
-                    "selling_price_per_unit": None,
-                    "cost_price_per_unit": None,
-                })
-
-            elif item_type == "fractional":
-                # Fractional items: price per base unit, enable special volume
+            elif item_type == "measurable":
+                # Measurable items: price per base unit, enable special volume
                 package_size = validate_integer(self.fields["package_size"].get(), 1)
                 unit_multiplier = items._get_unit_multiplier(unit)
 
@@ -992,15 +1028,9 @@ class SimplifiedItemDialog:
     def _refresh_comboboxes(self) -> None:
         """Refresh combobox values after dialog is shown."""
         try:
-            # Find and refresh category combobox
-            def find_and_refresh(widget):
-                for child in widget.winfo_children():
-                    if isinstance(child, tk.ttk.Combobox) and hasattr(child, 'configure'):
-                        # Check if this is the category combobox by checking if it has values
-                        if 'values' in child.configure() and len(child['values']) > 0:
-                            child.configure(values=self._get_category_list())
-                    find_and_refresh(child)
-            find_and_refresh(self.dialog)
+            # Refresh category combobox directly if we have a reference to it
+            if hasattr(self, 'category_combo'):
+                self.category_combo['values'] = self._get_category_list()
         except Exception:
             pass
 
@@ -1013,13 +1043,39 @@ class SimplifiedItemDialog:
             return []
 
     def _get_unit_list(self) -> list:
-        """Get list of existing units of measure for the combobox."""
+        """Get list of units of measure appropriate for the current item type."""
+        item_type = self.fields["item_type"].get() if "item_type" in self.fields else "discrete"
+        
+        # Default units as fallback
+        discrete_defaults = ["piece", "unit", "pack", "box", "bottle", "can", "bag", "carton", "dozen", "pair", "set", "roll", "bundle"]
+        measurable_defaults = ["kg", "g", "liter", "ml", "meter", "cm", "lb", "oz", "gallon", "quart", "pint", "yard", "foot", "inch"]
+        
+        # Try to get units from database using helper functions
         try:
             from modules import units_of_measure
-            units = units_of_measure.list_units()
-            return sorted([unit['name'] for unit in units])
+            if item_type == "measurable":
+                db_units = units_of_measure.get_measurable_units()
+            else:
+                db_units = units_of_measure.get_discrete_units()
+            
+            if db_units:
+                return sorted(db_units, key=str.lower)
         except:
-            return ["pieces", "liters", "kilograms", "meters", "grams", "milliliters"]
+            pass
+        
+        # Fallback to defaults
+        base_units = measurable_defaults if item_type == "measurable" else discrete_defaults
+        return sorted(base_units, key=str.lower)
+
+    def _on_category_focus(self, event=None) -> None:
+        """Handle category combobox focus - refresh category list."""
+        if hasattr(self, 'category_combo'):
+            self.category_combo['values'] = self._get_category_list()
+
+    def _on_unit_focus(self, event=None) -> None:
+        """Handle unit combobox focus - refresh unit list based on item type."""
+        if hasattr(self, 'unit_combo'):
+            self.unit_combo['values'] = self._get_unit_list()
 
     def _scan_barcode(self) -> None:
         """Placeholder for barcode scanning functionality."""
@@ -1066,43 +1122,96 @@ class SimplifiedItemDialog:
 
 
 class ManagePortionsDialog:
-    """Modal dialog to manage preset portions for a fractional item."""
+    """Modal dialog to manage preset portions for a measurable item."""
 
-    def __init__(self, parent: tk.Misc, item_id: int):
+    def __init__(self, parent: tk.Misc, item_id: int, unit_of_measure: str = None):
         self.parent = parent
         self.item_id = item_id
+        self.unit_of_measure = unit_of_measure
         self.top = tk.Toplevel(parent)
         self.top.title("Manage Portions")
         set_window_icon(self.top)
         self.top.transient(parent)
         self.top.grab_set()
         self.top.columnconfigure(0, weight=1)
+        self.top.rowconfigure(0, weight=1)
+        
+        # Get unit info for this item - use provided unit or fetch from database
+        from modules import portions
+        if unit_of_measure:
+            self.unit_info = self._get_unit_info_from_name(unit_of_measure)
+        else:
+            self.unit_info = portions.get_unit_info(item_id)
+        self.small_unit = self.unit_info.get("small_unit", "unit")
 
         # Treeview for portions
-        cols = ("portion_name", "portion_ml", "selling_price", "cost_price", "is_active")
+        cols = ("portion_name", "portion_amount", "selling_price", "cost_price", "is_active")
         self.tree = ttk.Treeview(self.top, columns=cols, show="headings", selectmode="browse")
         self.tree.heading("portion_name", text="Name")
-        self.tree.heading("portion_ml", text="ml")
+        self.tree.heading("portion_amount", text=f"Amount ({self.small_unit})")
         self.tree.heading("selling_price", text="Price")
         self.tree.heading("cost_price", text="Cost")
         self.tree.heading("is_active", text="Active")
         self.tree.column("portion_name", width=200)
-        self.tree.column("portion_ml", width=80, anchor=tk.CENTER)
+        self.tree.column("portion_amount", width=100, anchor=tk.CENTER)
         self.tree.column("selling_price", width=100, anchor=tk.E)
         self.tree.column("cost_price", width=100, anchor=tk.E)
         self.tree.column("is_active", width=60, anchor=tk.CENTER)
         self.tree.grid(row=0, column=0, sticky=tk.NSEW, padx=10, pady=(10, 0))
+        
+        # Scrollbar
+        scrollbar = ttk.Scrollbar(self.top, orient=tk.VERTICAL, command=self.tree.yview)
+        scrollbar.grid(row=0, column=1, sticky=tk.NS, pady=(10, 0))
+        self.tree.configure(yscrollcommand=scrollbar.set)
 
         # Buttons
         btn_frame = ttk.Frame(self.top)
-        btn_frame.grid(row=1, column=0, sticky=tk.EW, padx=10, pady=10)
+        btn_frame.grid(row=1, column=0, columnspan=2, sticky=tk.EW, padx=10, pady=10)
         ttk.Button(btn_frame, text="Add", command=self._add).pack(side=tk.LEFT, padx=4)
         ttk.Button(btn_frame, text="Edit", command=self._edit).pack(side=tk.LEFT, padx=4)
         ttk.Button(btn_frame, text="Delete", command=self._delete).pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_frame, text="Toggle Active", command=self._toggle_active).pack(side=tk.LEFT, padx=4)
         ttk.Button(btn_frame, text="Create Defaults", command=self._create_defaults).pack(side=tk.LEFT, padx=4)
         ttk.Button(btn_frame, text="Close", command=self.top.destroy).pack(side=tk.RIGHT)
 
+        # Set minimum size
+        self.top.update_idletasks()
+        self.top.minsize(600, 300)
+        
         self._refresh()
+
+    def _get_unit_info_from_name(self, unit_name: str) -> dict:
+        """Get unit info from a unit name string."""
+        unit = (unit_name or "").lower()
+        
+        # Volume units
+        if unit in ("liters", "litre", "liter", "litres", "l"):
+            return {"small_unit": "ml", "base_unit": "L", "multiplier": 1000}
+        # Weight units - metric
+        elif unit in ("kilograms", "kilogram", "kg", "kgs"):
+            return {"small_unit": "g", "base_unit": "kg", "multiplier": 1000}
+        elif unit in ("g", "gram", "grams"):
+            return {"small_unit": "g", "base_unit": "g", "multiplier": 1}
+        # Length units - metric
+        elif unit in ("meters", "meter", "metre", "metres", "m"):
+            return {"small_unit": "cm", "base_unit": "m", "multiplier": 100}
+        elif unit in ("cm", "centimeter", "centimeters", "centimetres"):
+            return {"small_unit": "cm", "base_unit": "cm", "multiplier": 1}
+        # Pounds
+        elif unit in ("lb", "lbs", "pound", "pounds"):
+            return {"small_unit": "oz", "base_unit": "lb", "multiplier": 16}
+        # Ounces
+        elif unit in ("oz", "ounce", "ounces"):
+            return {"small_unit": "oz", "base_unit": "oz", "multiplier": 1}
+        # Gallons
+        elif unit in ("gallon", "gallons", "gal"):
+            return {"small_unit": "fl oz", "base_unit": "gal", "multiplier": 128}
+        # Milliliters
+        elif unit in ("ml", "milliliter", "milliliters", "millilitres"):
+            return {"small_unit": "ml", "base_unit": "ml", "multiplier": 1}
+        else:
+            # Default for unknown units
+            return {"small_unit": unit, "base_unit": unit, "multiplier": 1}
 
     def _refresh(self) -> None:
         """Reload portions list."""
@@ -1111,7 +1220,28 @@ class ManagePortionsDialog:
         from modules import portions
         rows = portions.list_portions(self.item_id, active_only=False)
         for r in rows:
-            self.tree.insert("", tk.END, iid=str(r["portion_id"]), values=(r["portion_name"], r["portion_ml"], f"{r["selling_price"]:.2f}", f"{r["cost_price"]:.2f}", "Yes" if r["is_active"] else "No"))
+            amount = r.get("portion_amount", r.get("portion_ml", 0))
+            self.tree.insert("", tk.END, iid=str(r["portion_id"]), values=(
+                r["portion_name"], 
+                f"{amount:.0f}" if amount == int(amount) else f"{amount:.2f}",
+                f"{r['selling_price']:.2f}", 
+                f"{r['cost_price']:.2f}", 
+                "Yes" if r["is_active"] else "No"
+            ))
+    
+    def _toggle_active(self) -> None:
+        """Toggle active status of selected portion."""
+        sel = self.tree.selection()
+        if not sel:
+            messagebox.showinfo("Select Portion", "Please select a portion to toggle")
+            return
+        pid = int(sel[0])
+        from modules import portions
+        data = portions.get_portion(pid)
+        if data:
+            new_active = 0 if data["is_active"] else 1
+            portions.update_portion(pid, is_active=new_active)
+            self._refresh()
 
     def _add(self) -> None:
         self._edit(create=True)
@@ -1132,44 +1262,66 @@ class ManagePortionsDialog:
         top.grab_set()
 
         fields = {}
-        ttk.Label(top, text="Name:").grid(row=0, column=0, sticky=tk.W, padx=8, pady=6)
+        row = 0
+        
+        ttk.Label(top, text="Name:").grid(row=row, column=0, sticky=tk.W, padx=8, pady=6)
         fields["name"] = tk.StringVar(value=data["portion_name"] if data else "")
-        ttk.Entry(top, textvariable=fields["name"], width=40).grid(row=0, column=1, padx=8, pady=6)
+        ttk.Entry(top, textvariable=fields["name"], width=40).grid(row=row, column=1, padx=8, pady=6)
+        row += 1
 
-        ttk.Label(top, text="ml:").grid(row=1, column=0, sticky=tk.W, padx=8, pady=6)
-        fields["ml"] = tk.StringVar(value=str(data["portion_ml"]) if data else "0")
-        ttk.Entry(top, textvariable=fields["ml"], width=20).grid(row=1, column=1, padx=8, pady=6, sticky=tk.W)
+        ttk.Label(top, text=f"Amount ({self.small_unit}):").grid(row=row, column=0, sticky=tk.W, padx=8, pady=6)
+        amount_val = data.get("portion_amount", data.get("portion_ml", 0)) if data else 0
+        fields["amount"] = tk.StringVar(value=str(amount_val) if amount_val else "0")
+        ttk.Entry(top, textvariable=fields["amount"], width=20).grid(row=row, column=1, padx=8, pady=6, sticky=tk.W)
+        row += 1
 
-        ttk.Label(top, text="Price:").grid(row=2, column=0, sticky=tk.W, padx=8, pady=6)
+        ttk.Label(top, text="Price:").grid(row=row, column=0, sticky=tk.W, padx=8, pady=6)
         fields["price"] = tk.StringVar(value=f"{data['selling_price']:.2f}" if data else "0.00")
-        ttk.Entry(top, textvariable=fields["price"], width=20).grid(row=2, column=1, padx=8, pady=6, sticky=tk.W)
+        ttk.Entry(top, textvariable=fields["price"], width=20).grid(row=row, column=1, padx=8, pady=6, sticky=tk.W)
+        row += 1
 
-        ttk.Label(top, text="Cost:").grid(row=3, column=0, sticky=tk.W, padx=8, pady=6)
+        ttk.Label(top, text="Cost:").grid(row=row, column=0, sticky=tk.W, padx=8, pady=6)
         fields["cost"] = tk.StringVar(value=f"{data['cost_price']:.2f}" if data else "0.00")
-        ttk.Entry(top, textvariable=fields["cost"], width=20).grid(row=3, column=1, padx=8, pady=6, sticky=tk.W)
+        ttk.Entry(top, textvariable=fields["cost"], width=20).grid(row=row, column=1, padx=8, pady=6, sticky=tk.W)
+        row += 1
 
         active_var = tk.BooleanVar(value=(data["is_active"] if data else True))
-        ttk.Checkbutton(top, text="Active", variable=active_var).grid(row=4, column=1, sticky=tk.W, padx=8, pady=6)
+        ttk.Checkbutton(top, text="Active", variable=active_var).grid(row=row, column=1, sticky=tk.W, padx=8, pady=6)
+        row += 1
 
         def save():
             try:
                 name = fields["name"].get().strip()
-                ml = float(fields["ml"].get())
-                price = float(fields["price"].get())
-                cost = float(fields["cost"].get())
+                if not name:
+                    messagebox.showerror("Error", "Name is required")
+                    return
+                amount = float(fields["amount"].get() or 0)
+                if amount <= 0:
+                    messagebox.showerror("Error", f"Amount must be greater than 0 {self.small_unit}")
+                    return
+                price = float(fields["price"].get() or 0)
+                cost = float(fields["cost"].get() or 0)
                 active = 1 if active_var.get() else 0
                 from modules import portions
                 if create:
-                    portions.create_portion(self.item_id, name, ml, price, cost_price=cost)
+                    portions.create_portion(self.item_id, name, amount, price, cost_price=cost)
                 else:
-                    portions.update_portion(pid, portion_name=name, portion_ml=ml, selling_price=price, cost_price=cost, is_active=active)
+                    portions.update_portion(pid, portion_name=name, portion_amount=amount, selling_price=price, cost_price=cost, is_active=active)
                 top.destroy()
                 self._refresh()
+            except ValueError as e:
+                messagebox.showerror("Error", f"Invalid number format: {e}")
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to save portion: {e}")
 
-        ttk.Button(top, text="Save", command=save).grid(row=5, column=0, padx=8, pady=10)
-        ttk.Button(top, text="Cancel", command=top.destroy).grid(row=5, column=1, padx=8, pady=10)
+        btn_frame = ttk.Frame(top)
+        btn_frame.grid(row=row, column=0, columnspan=2, pady=10)
+        ttk.Button(btn_frame, text="Save", command=save, width=12).pack(side=tk.LEFT, padx=8)
+        ttk.Button(btn_frame, text="Cancel", command=top.destroy, width=12).pack(side=tk.LEFT, padx=4)
+        
+        # Center the dialog
+        top.update_idletasks()
+        top.geometry(f"+{self.top.winfo_x() + 50}+{self.top.winfo_y() + 50}")
 
     def _delete(self) -> None:
         sel = self.tree.selection()
@@ -1187,22 +1339,29 @@ class ManagePortionsDialog:
             messagebox.showerror("Error", f"Failed to delete portion: {e}")
 
     def _create_defaults(self) -> None:
-        # Try to estimate price_per_liter from item data (if available)
+        """Create default portions based on item's unit of measure."""
         try:
-            item = None
-            from modules import items
-            item = items.get_item(self.item_id)
-            if not item:
-                messagebox.showerror("Error", "Item not found")
+            # Confirm with user
+            unit_info = self.unit_info
+            base_unit = unit_info.get("base_unit", "unit")
+            small_unit = unit_info.get("small_unit", "unit")
+            if not messagebox.askyesno(
+                "Create Default Portions",
+                f"This will create default portion presets for this item based on its unit ({base_unit}).\n\n"
+                f"Portions will be created in {small_unit}.\n\n"
+                "Existing portions will NOT be modified.\n\nContinue?"
+            ):
                 return
-            # price_per_liter estimation if unit is liters
-            price_per_liter = 0
-            cost_per_liter = 0
-            if item.get("unit_of_measure") and ("liter" in item.get("unit_of_measure").lower() or item.get("unit_of_measure").lower() == "l"):
-                price_per_liter = item.get("selling_price", 0)
-                cost_per_liter = item.get("cost_price", 0)
+            
             from modules import portions
-            portions.create_default_portions(self.item_id, price_per_liter, cost_per_liter)
+            # Pass the unit_of_measure if we have it, so create_default_portions uses the correct unit
+            created = portions.create_default_portions(self.item_id, unit_of_measure=self.unit_of_measure)
+            
+            if created:
+                messagebox.showinfo("Success", f"Created {len(created)} default portions")
+            else:
+                messagebox.showinfo("Info", "No new portions created (defaults may already exist)")
+            
             self._refresh()
         except Exception as e:
             messagebox.showerror("Error", f"Failed to create default portions: {e}")
