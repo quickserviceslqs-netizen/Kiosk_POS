@@ -7,9 +7,10 @@ import json
 from typing import Optional
 
 from ui.checkout import CheckoutDialog
-from utils.security import get_currency_code
+from utils.i18n import get_currency_symbol
 from utils.images import load_thumbnail
 from database.init_db import get_connection
+from utils.theme import get_status_color
 
 
 class CartFrame(ttk.Frame):
@@ -19,7 +20,7 @@ class CartFrame(ttk.Frame):
         self.cart = self.cart_state.setdefault("items", [])
         self.suspended_carts = self.cart_state.setdefault("suspended", [])
         self.on_back = on_back
-        self.currency_symbol = get_currency_code()
+        self.currency_symbol = get_currency_symbol()
 
         # Loyalty points state
         self.loyalty_customer = None
@@ -104,12 +105,12 @@ class CartFrame(ttk.Frame):
 
         # Customer selection
         ttk.Label(loyalty_frame, text="Customer:").grid(row=0, column=0, sticky=tk.W, pady=2)
-        ttk.Label(loyalty_frame, textvariable=self.customer_var, foreground="blue").grid(row=0, column=1, sticky=tk.W, pady=2)
+        ttk.Label(loyalty_frame, textvariable=self.customer_var, foreground=get_status_color("blue")).grid(row=0, column=1, sticky=tk.W, pady=2)
         ttk.Button(loyalty_frame, text="Select", command=self._select_customer).grid(row=0, column=2, padx=(4, 0), pady=2)
 
         # Points display
         ttk.Label(loyalty_frame, text="Available Points:").grid(row=1, column=0, sticky=tk.W, pady=2)
-        ttk.Label(loyalty_frame, textvariable=self.points_var, foreground="green").grid(row=1, column=1, columnspan=2, sticky=tk.W, pady=2)
+        ttk.Label(loyalty_frame, textvariable=self.points_var, foreground=get_status_color("green")).grid(row=1, column=1, columnspan=2, sticky=tk.W, pady=2)
 
         # Points redemption
         ttk.Label(loyalty_frame, text="Redeem Points:").grid(row=2, column=0, sticky=tk.W, pady=2)
@@ -120,7 +121,7 @@ class CartFrame(ttk.Frame):
 
         # Points to be earned
         ttk.Label(loyalty_frame, text="Points to Earn:").grid(row=3, column=0, sticky=tk.W, pady=2)
-        ttk.Label(loyalty_frame, textvariable=self.earned_var, foreground="orange").grid(row=3, column=1, columnspan=2, sticky=tk.W, pady=2)
+        ttk.Label(loyalty_frame, textvariable=self.earned_var, foreground=get_status_color("warning")).grid(row=3, column=1, columnspan=2, sticky=tk.W, pady=2)
 
         # Totals section
         totals_frame = ttk.LabelFrame(self, text="Order Totals", padding=8)
@@ -154,7 +155,7 @@ class CartFrame(ttk.Frame):
         ttk.Label(payment_frame, textvariable=self.change_var).grid(row=2, column=1, sticky=tk.E, pady=2)
 
         # Checkout button
-        ttk.Button(self, text="Complete Order", command=self._checkout, style="Accent.TButton").grid(row=4, column=0, columnspan=2, sticky=tk.EW, pady=(12, 0))
+        ttk.Button(self, text="Complete Order", command=self._checkout, style="Primary.TButton").grid(row=4, column=0, columnspan=2, sticky=tk.EW, pady=(12, 0))
 
     def _select_customer(self):
         """Select a loyalty customer."""

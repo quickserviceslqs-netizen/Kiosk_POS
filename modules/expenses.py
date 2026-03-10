@@ -392,11 +392,55 @@ def get_expenses_by_category(start_date: str, end_date: str) -> list[dict]:
             SELECT 
                 category,
                 COUNT(*) as count,
-                SUM(amount) as total_amount
+                SUM(amount) as total_amount,
+                AVG(amount) as avg_amount,
+                MAX(amount) as max_amount
             FROM expenses
             WHERE date BETWEEN ? AND ?
             GROUP BY category
             ORDER BY total_amount DESC
+            """,
+            (start_date, end_date)
+        ).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+def get_expenses_by_payment_method(start_date: str, end_date: str) -> list[dict]:
+    """Get expenses grouped by payment method."""
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT
+                COALESCE(payment_method, 'Unspecified') as payment_method,
+                COUNT(*) as count,
+                SUM(amount) as total_amount,
+                AVG(amount) as avg_amount
+            FROM expenses
+            WHERE date BETWEEN ? AND ?
+            GROUP BY payment_method
+            ORDER BY total_amount DESC
+            """,
+            (start_date, end_date)
+        ).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+def get_expenses_monthly_trend(start_date: str, end_date: str) -> list[dict]:
+    """Get monthly expense totals for trend analysis."""
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT
+                SUBSTR(date, 1, 7) as month,
+                COUNT(*) as count,
+                SUM(amount) as total_amount,
+                AVG(amount) as avg_amount
+            FROM expenses
+            WHERE date BETWEEN ? AND ?
+            GROUP BY SUBSTR(date, 1, 7)
+            ORDER BY month ASC
             """,
             (start_date, end_date)
         ).fetchall()

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from modules import backup
 from utils import set_window_icon
+from utils.theme import get_status_color
 
 
 class BackupFrame(ttk.Frame):
@@ -62,7 +63,7 @@ class BackupFrame(ttk.Frame):
         self.tree.configure(yscroll=scroll.set)
 
         # Info label
-        self.info_label = ttk.Label(self, text="", foreground="gray")
+        self.info_label = ttk.Label(self, text="", foreground=get_status_color('gray'))
         self.info_label.grid(row=3, column=0, sticky=tk.W, pady=(8, 0))
 
         # Load backups
@@ -108,7 +109,7 @@ class BackupFrame(ttk.Frame):
         entry.focus()
 
         ttk.Label(dialog, text="Leave empty for auto-generated timestamp name", 
-             foreground="gray", font=("Segoe UI", 8)).pack(fill=tk.X)
+             foreground=get_status_color("text_light"), font=("Segoe UI", 8)).pack(fill=tk.X)
 
         def do_backup():
             try:
@@ -238,10 +239,10 @@ class BackupFrame(ttk.Frame):
             from utils.date_utils import format_date
             last_time = f"{format_date(datetime.fromisoformat(last_backup))} {datetime.fromisoformat(last_backup).strftime('%H:%M:%S')}"
             ttk.Label(frame4, text=f"Last auto-backup: {last_time}", 
-                     foreground="gray").pack()
+                     foreground=get_status_color("text_light")).pack()
         else:
             ttk.Label(frame4, text="No auto-backups created yet", 
-                     foreground="gray").pack()
+                     foreground=get_status_color("text_light")).pack()
 
         def save_settings():
             config["auto_backup_enabled"] = enabled_var.get()

@@ -34,9 +34,9 @@ from modules.stock_reconciliation import (
     calculate_stock_date_range,
 )
 from utils.i18n import get_currency_symbol
-from utils.app_config import get_or_create_config
+from utils.theme import get_theme_colors, get_status_color
 from utils import set_window_icon
-from utils.date_utils import format_date, parse_date_flexible
+from utils.date_utils import format_date, parse_date_flexible, get_tkcalendar_date_pattern, get_date_format
 from utils.security import get_username
 from modules import permissions
 
@@ -123,7 +123,7 @@ class StockReconciliationUI(ttk.Frame):
         self._current_view = view
         for key, btn in self.nav_buttons.items():
             if key == view:
-                btn.config(style="Accent.TButton")
+                btn.config(style="Primary.TButton")
             elif key not in ("save_draft", "complete", "reconcile"):
                 btn.config(style="TButton")
 
@@ -233,7 +233,7 @@ class StockReconciliationUI(ttk.Frame):
                    command=self._create_session).pack(side=tk.LEFT, padx=(0, 15))
         self.create_status_var = tk.StringVar()
         ttk.Label(action_frame, textvariable=self.create_status_var,
-                  foreground="blue").pack(side=tk.LEFT)
+                  foreground=get_status_color("blue")).pack(side=tk.LEFT)
 
         # Info box with scrollbar
         info_frame = ttk.LabelFrame(frame, text="How It Works", padding=10)
@@ -257,8 +257,10 @@ class StockReconciliationUI(ttk.Frame):
         text_container = ttk.Frame(info_frame)
         text_container.pack(fill=tk.X, expand=False)
 
+        theme_colors = get_theme_colors()
         info_widget = tk.Text(text_container, wrap=tk.WORD, font=("Segoe UI", 9),
                               height=6, relief=tk.FLAT, bg=info_frame.winfo_toplevel().cget("bg"),
+                              fg=theme_colors.get('text', '#1f2937'),
                               cursor="arrow", padx=4, pady=4)
         info_scrollbar = ttk.Scrollbar(text_container, orient=tk.VERTICAL,
                                        command=info_widget.yview)
@@ -296,8 +298,8 @@ class StockReconciliationUI(ttk.Frame):
         ref = self.recon_date_var.get()
         try:
             sd, ed = calculate_stock_date_range(pt, ref)
-            self.start_date_var.set(sd)
-            self.end_date_var.set(ed)
+            self.start_date_var.set(format_date(sd))
+            self.end_date_var.set(format_date(ed))
         except Exception:
             pass  # date might be partially typed
 
@@ -306,7 +308,7 @@ class StockReconciliationUI(ttk.Frame):
         dialog = tk.Toplevel(self)
         dialog.title("Select Date")
         dialog.geometry("300x300")
-        dialog.resizable(False, False)
+        dialog.resizable(True, True)
         dialog.transient(self.winfo_toplevel())
         dialog.grab_set()
         set_window_icon(dialog)
@@ -319,11 +321,12 @@ class StockReconciliationUI(ttk.Frame):
         if TKCALENDAR_AVAILABLE:
             cal = Calendar(dialog, selectmode="day",
                            year=cur.year, month=cur.month, day=cur.day,
-                           date_pattern="yyyy-mm-dd",
+                           date_pattern=get_tkcalendar_date_pattern(),
                            font=("Segoe UI", 10))
             cal.pack(pady=10, padx=10, fill=tk.BOTH, expand=True)
 
             def select():
+                # cal.get_date() returns in the configured date_pattern format
                 date_var.set(cal.get_date())
                 dialog.destroy()
 
@@ -333,7 +336,8 @@ class StockReconciliationUI(ttk.Frame):
             ttk.Button(btn_frame, text="Cancel", command=dialog.destroy).pack(side=tk.RIGHT, padx=(0, 5))
             cal.bind("<<CalendarSelected>>", lambda e: select())
         else:
-            ttk.Label(dialog, text="Enter date (YYYY-MM-DD):").pack(pady=10)
+            _fmt = get_date_format().replace('%Y','YYYY').replace('%m','MM').replace('%d','DD')
+            ttk.Label(dialog, text=f"Enter date ({_fmt}):").pack(pady=10)
             e = ttk.Entry(dialog)
             e.insert(0, date_var.get())
             e.pack(pady=5)
@@ -470,22 +474,35 @@ class StockReconciliationUI(ttk.Frame):
             self.sessions_tree.delete(i)
 
         try:
-            sessions = get_stock_recon_sessions(limit=50)
-            for s in sessions:
-                # Load full session to get entry count and variance
-                full = get_stock_recon_session(s.session_id)
-                item_count = len(full.entries) if full else 0
-                total_var = sum(e.variance for e in full.entries) if full else 0.0
+            from database.init_db import get_connection
+            import sqlite3 as _sqlite3
+            with get_connection() as conn:
+                conn.row_factory = _sqlite3.Row
+                rows = conn.execute("""
+                    SELECT s.session_id, s.reconciliation_date, s.period_type,
+                           s.start_date, s.end_date, s.status, s.completed_at,
+                           COUNT(e.entry_id) AS item_count,
+                           COALESCE(SUM(e.variance), 0) AS total_variance
+                    FROM stock_reconciliation_sessions s
+                    LEFT JOIN stock_reconciliation_entries e ON s.session_id = e.session_id
+                    GROUP BY s.session_id
+                    ORDER BY s.reconciliation_date DESC
+                    LIMIT 50
+                """).fetchall()
 
+            for r in rows:
+                sd = r["start_date"] or r["reconciliation_date"]
+                ed = r["end_date"] or r["reconciliation_date"]
+                range_label = f"{format_date(sd)} → {format_date(ed)}"
                 self.sessions_tree.insert("", tk.END, values=(
-                    s.session_id,
-                    s.reconciliation_date,
-                    s.period_type.title(),
-                    f"{s.start_date} → {s.end_date}" if s.start_date else s.reconciliation_date,
-                    s.status.title(),
-                    item_count,
-                    f"{total_var:+.1f}",
-                    s.completed_at or "—",
+                    r["session_id"],
+                    format_date(r["reconciliation_date"]),
+                    (r["period_type"] or "daily").title(),
+                    range_label,
+                    (r["status"] or "draft").title(),
+                    r["item_count"],
+                    f"{r['total_variance']:+.1f}",
+                    format_date(r["completed_at"].split()[0]) if r["completed_at"] else "—",
                 ))
         except Exception as e:
             logger.exception("Failed to load stock recon sessions")
@@ -581,7 +598,7 @@ class StockReconciliationUI(ttk.Frame):
                          f"Double-click the 'Actual Count' column to enter your physical stock counts.  "
                          f"({counted}/{total} counted)")
             ttk.Label(instr_frame, text=instr_text,
-                      font=("Segoe UI", 10), foreground="#1565C0",
+                      font=("Segoe UI", 10), foreground=get_status_color("info"),
                       padding=(8, 6)).pack(fill=tk.X)
 
         # Main table
@@ -622,7 +639,7 @@ class StockReconciliationUI(ttk.Frame):
 
         # Tip
         ttk.Label(frame, text="💡 Double-click the 'Actual Count' column to enter physical counts",
-                  font=("Segoe UI", 9), foreground="gray").pack(anchor=tk.W, pady=(5, 0))
+                  font=("Segoe UI", 9), foreground=get_status_color("text_light")).pack(anchor=tk.W, pady=(5, 0))
 
         # Summary bar
         self.summary_frame = ttk.LabelFrame(frame, text="Summary", padding=8)
@@ -665,9 +682,9 @@ class StockReconciliationUI(ttk.Frame):
             ), tags=(tag,))
 
         # Configure tag colours
-        self.recon_tree.tag_configure("ok", foreground="green")
-        self.recon_tree.tag_configure("short", foreground="red")
-        self.recon_tree.tag_configure("over", foreground="orange")
+        self.recon_tree.tag_configure("ok", foreground=get_status_color('success'))
+        self.recon_tree.tag_configure("short", foreground=get_status_color('danger'))
+        self.recon_tree.tag_configure("over", foreground=get_status_color('warning'))
 
     def _apply_filter(self) -> None:
         self._load_recon_data(
@@ -705,11 +722,15 @@ class StockReconciliationUI(ttk.Frame):
 
         entry = ttk.Entry(self.recon_tree, justify="right", font=("Segoe UI", 9))
 
-        # Get current value
+        # Get current value – strip display-only placeholders (">> enter", "—")
         current = self.recon_tree.set(item_iid, self.recon_tree["columns"][col_idx])
         clean = current.replace("—", "").replace(",", "").strip()
-        if clean:
+        # Only pre-populate if the value is a valid number (not a hint string)
+        try:
+            float(clean)
             entry.insert(0, clean)
+        except (ValueError, TypeError):
+            pass  # leave entry blank for uncounted rows
         entry.select_range(0, tk.END)
         entry.focus()
         entry.place(x=x, y=y, width=w, height=h)
@@ -788,9 +809,9 @@ class StockReconciliationUI(ttk.Frame):
                 try:
                     v = float(value.replace("+", ""))
                     if abs(v) < 0.01:
-                        val_label.config(foreground="green")
+                        val_label.config(foreground=get_status_color("success"))
                     else:
-                        val_label.config(foreground="red")
+                        val_label.config(foreground=get_status_color("danger"))
                 except ValueError:
                     pass
 
@@ -799,6 +820,11 @@ class StockReconciliationUI(ttk.Frame):
     # ------------------------------------------------------------------
     def _save_draft(self) -> None:
         if not self.current_session:
+            return
+        current_username = get_username()
+        if not permissions.has_permission(current_username, 'edit_reconciliation'):
+            messagebox.showerror("Permission Denied",
+                                 "You do not have permission to save reconciliation sessions")
             return
         try:
             self.current_session.status = "draft"
@@ -812,6 +838,12 @@ class StockReconciliationUI(ttk.Frame):
 
     def _complete_session(self) -> None:
         if not self.current_session:
+            return
+
+        current_username = get_username()
+        if not permissions.has_permission(current_username, 'approve_reconciliation'):
+            messagebox.showerror("Permission Denied",
+                                 "You do not have permission to complete reconciliation sessions")
             return
 
         # Check all items counted

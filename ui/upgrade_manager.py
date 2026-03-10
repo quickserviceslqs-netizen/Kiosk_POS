@@ -25,6 +25,19 @@ from utils import set_window_icon
 from utils.date_utils import format_date
 
 
+def _get_status_color(status: str) -> str:
+    """Get theme status color with safe fallback."""
+    try:
+        from utils.theme import get_status_color
+        return get_status_color(status)
+    except Exception:
+        fallbacks = {
+            'danger': '#ef4444', 'success': '#10b981', 'warning': '#f59e0b',
+            'info': '#3b82f6', 'text_light': '#9ca3af'
+        }
+        return fallbacks.get(status, '#000000')
+
+
 class StatusDialog(tk.Toplevel):
     """Status dialog for upgrade operations."""
 
@@ -43,9 +56,6 @@ class StatusDialog(tk.Toplevel):
         # Set the app's custom icon
         set_window_icon(self)
 
-        # Create custom green progress bar style
-        self._setup_progress_style()
-
         # Center the dialog
         self._center_dialog()
 
@@ -60,25 +70,6 @@ class StatusDialog(tk.Toplevel):
         self.lift()
         self.focus_force()
         self.update()
-
-    def _setup_progress_style(self):
-        """Setup custom green progress bar style."""
-        style = ttk.Style()
-        
-        # Create a custom style for green progress bar
-        style.configure("Green.Horizontal.TProgressbar",
-                       troughcolor='#f0f0f0',
-                       borderwidth=1,
-                       lightcolor='#4CAF50',
-                       darkcolor='#4CAF50',
-                       bordercolor='#4CAF50',
-                       background='#4CAF50')
-        
-        # This makes the progress bar fill green
-        style.map("Green.Horizontal.TProgressbar",
-                 background=[('active', '#4CAF50')],
-                 lightcolor=[('active', '#4CAF50')],
-                 darkcolor=[('active', '#4CAF50')])
 
     def _center_dialog(self):
         """Center the dialog on the parent window."""
@@ -215,9 +206,6 @@ class UpgradeManagerFrame(ttk.Frame):
         self.package_info: Optional[Dict[str, Any]] = None
         self.recent_packages: list = []
         
-        # Signature verification settings (used by _run_upgrade)
-        self.verify_sig_var = tk.BooleanVar(value=False)
-        
         # Load recent packages
         self._load_recent_packages()
         
@@ -232,21 +220,29 @@ class UpgradeManagerFrame(ttk.Frame):
     def _setup_styles(self):
         """Setup custom styles for the UI."""
         style = ttk.Style()
+        try:
+            from utils.theme import get_theme_colors
+            _tc = get_theme_colors()
+            _trough = _tc.get('background', '#f5f5f5')
+            _success = _tc.get('success', '#10b981')
+        except Exception:
+            _trough = '#f5f5f5'
+            _success = '#10b981'
         
         # Create a custom style for green progress bar
         style.configure("Green.Horizontal.TProgressbar",
-                       troughcolor='#f0f0f0',
+                       troughcolor=_trough,
                        borderwidth=1,
-                       lightcolor='#4CAF50',
-                       darkcolor='#4CAF50',
-                       bordercolor='#4CAF50',
-                       background='#4CAF50')
+                       lightcolor=_success,
+                       darkcolor=_success,
+                       bordercolor=_success,
+                       background=_success)
         
         # This makes the progress bar fill green
         style.map("Green.Horizontal.TProgressbar",
-                 background=[('active', '#4CAF50')],
-                 lightcolor=[('active', '#4CAF50')],
-                 darkcolor=[('active', '#4CAF50')])
+                 background=[('active', _success)],
+                 lightcolor=[('active', _success)],
+                 darkcolor=[('active', _success)])
 
     def _build_ui(self):
         # Main notebook for different tabs
@@ -276,7 +272,7 @@ class UpgradeManagerFrame(ttk.Frame):
         
         ttk.Label(title_frame, text="System Upgrade Manager", font=("Segoe UI", 14, "bold")).pack(side=tk.LEFT)
         ttk.Label(title_frame, text="Ctrl+O: Open | Ctrl+D: Dry Run | Ctrl+Enter: Apply", 
-                 font=("Segoe UI", 8), foreground="gray").pack(side=tk.RIGHT)
+                 font=("Segoe UI", 8), foreground=_get_status_color("text_light")).pack(side=tk.RIGHT)
 
         # Package selection frame with recent packages
         pkg_frame = ttk.LabelFrame(parent, text="Upgrade Package", padding=10)
@@ -296,7 +292,7 @@ class UpgradeManagerFrame(ttk.Frame):
         current_frame = ttk.Frame(pkg_frame)
         current_frame.pack(fill=tk.X)
         
-        self.pkg_label = ttk.Label(current_frame, text="No package selected", foreground="gray")
+        self.pkg_label = ttk.Label(current_frame, text="No package selected", foreground=_get_status_color("text_light"))
         self.pkg_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         btn_frame = ttk.Frame(current_frame)
@@ -321,7 +317,7 @@ class UpgradeManagerFrame(ttk.Frame):
                        ("Steps:", "steps"), ("Status:", "status")]
         for i, (label, key) in enumerate(info_fields):
             ttk.Label(info_grid, text=label, font=("Segoe UI", 9, "bold")).grid(row=i, column=0, sticky=tk.W, pady=2)
-            self.info_labels[key] = ttk.Label(info_grid, text="-", foreground="gray")
+            self.info_labels[key] = ttk.Label(info_grid, text="-", foreground=_get_status_color("text_light"))
             self.info_labels[key].grid(row=i, column=1, sticky=tk.W, padx=(8, 0), pady=2)
         
         info_grid.columnconfigure(1, weight=1)
@@ -353,7 +349,7 @@ class UpgradeManagerFrame(ttk.Frame):
         self.progress_label = ttk.Label(progress_inner, textvariable=self.progress_var, width=50, anchor=tk.W)
         self.progress_label.pack(side=tk.LEFT)
         
-        self.step_label = ttk.Label(progress_inner, text="", foreground="gray")
+        self.step_label = ttk.Label(progress_inner, text="", foreground=_get_status_color("text_light"))
         self.step_label.pack(side=tk.RIGHT)
 
         self.progress_bar = ttk.Progressbar(progress_frame, mode='determinate', maximum=100,
@@ -433,14 +429,42 @@ class UpgradeManagerFrame(ttk.Frame):
         self.load_history()
 
     def _build_settings_tab(self, parent):
-        """Build the settings tab."""
+        """Build the settings tab with a scrollable canvas so all sections are reachable."""
+        # ── Scrollable wrapper ────────────────────────────────────────────
+        canvas = tk.Canvas(parent, highlightthickness=0)
+        vsb = ttk.Scrollbar(parent, orient=tk.VERTICAL, command=canvas.yview)
+        canvas.configure(yscrollcommand=vsb.set)
+
+        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        inner = ttk.Frame(canvas)
+        inner_id = canvas.create_window((0, 0), window=inner, anchor="nw")
+
+        def _on_inner_configure(e):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def _on_canvas_configure(e):
+            canvas.itemconfig(inner_id, width=e.width)
+
+        inner.bind("<Configure>", _on_inner_configure)
+        canvas.bind("<Configure>", _on_canvas_configure)
+
+        def _on_mousewheel(e):
+            canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
+
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+
+        # Use inner instead of parent for all content below
+        parent = inner
+
         # Title
         title = ttk.Label(parent, text="Upgrade Settings", font=("Segoe UI", 14, "bold"))
-        title.pack(anchor=tk.W, pady=(0, 16))
+        title.pack(anchor=tk.W, pady=(0, 16), padx=10)
 
         # Backup settings (more prominent)
         backup_frame = ttk.LabelFrame(parent, text="Backup Settings", padding=10)
-        backup_frame.pack(fill=tk.X, pady=(0, 12))
+        backup_frame.pack(fill=tk.X, pady=(0, 12), padx=10)
 
         self.backup_db_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(backup_frame, text="Backup database before upgrade",
@@ -459,46 +483,116 @@ class UpgradeManagerFrame(ttk.Frame):
         ttk.Button(backup_btn_frame, text="🗑️ Cleanup Old Backups", 
               command=self._cleanup_backups).pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        # Security settings
-        security_frame = ttk.LabelFrame(parent, text="Security Settings", padding=10)
-        security_frame.pack(fill=tk.X, pady=(0, 12))
-
-        ttk.Label(security_frame, text="Master Signing Key:").grid(row=0, column=0, sticky=tk.W, pady=2)
-        self.master_key_entry = ttk.Entry(security_frame, show="*", width=40)
-        self.master_key_entry.grid(row=0, column=1, sticky=tk.EW, padx=(8, 0), pady=2)
-        
-        key_btn_frame = ttk.Frame(security_frame)
-        key_btn_frame.grid(row=1, column=0, columnspan=2, sticky=tk.W+tk.E, pady=(8, 0))
-        ttk.Button(key_btn_frame, text="🔑 Generate", command=self.generate_key).pack(side=tk.LEFT, padx=(0, 4), fill=tk.X, expand=True)
-        ttk.Button(key_btn_frame, text="💾 Save", command=self.save_key).pack(side=tk.LEFT, padx=(0, 4), fill=tk.X, expand=True)
-        ttk.Button(key_btn_frame, text="📂 Load", command=self._load_key).pack(side=tk.LEFT, fill=tk.X, expand=True)
-
-        security_frame.columnconfigure(1, weight=1)
-
-        # Advanced settings
-        advanced_frame = ttk.LabelFrame(parent, text="Advanced Settings", padding=10)
-        advanced_frame.pack(fill=tk.X, pady=(0, 12))
-
-        ttk.Label(advanced_frame, text="Operation Timeout:").grid(row=0, column=0, sticky=tk.W, pady=2)
-        timeout_inner = ttk.Frame(advanced_frame)
-        timeout_inner.grid(row=0, column=1, sticky=tk.W, padx=(8, 0), pady=2)
-        self.timeout_entry = ttk.Entry(timeout_inner, width=10)
-        self.timeout_entry.insert(0, "300")
-        self.timeout_entry.pack(side=tk.LEFT)
-        ttk.Label(timeout_inner, text="seconds").pack(side=tk.LEFT, padx=(4, 0))
-
-        advanced_frame.columnconfigure(1, weight=1)
-        
         # Maintenance section
         maint_frame = ttk.LabelFrame(parent, text="Maintenance", padding=10)
-        maint_frame.pack(fill=tk.X, pady=(0, 12))
-        
+        maint_frame.pack(fill=tk.X, pady=(0, 12), padx=10)
+
         maint_btn_frame = ttk.Frame(maint_frame)
         maint_btn_frame.pack(fill=tk.X)
-        ttk.Button(maint_btn_frame, text="🗑️ Clear Recent Packages", 
+        ttk.Button(maint_btn_frame, text="🗑️ Clear Recent Packages",
               command=self._clear_recent).pack(side=tk.LEFT, padx=(0, 8), fill=tk.X, expand=True)
-        ttk.Button(maint_btn_frame, text="📋 Clear Upgrade History", 
+        ttk.Button(maint_btn_frame, text="📋 Clear Upgrade History",
               command=self._clear_history).pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        # ── Automatic Update Check ────────────────────────────────────────
+        upd_frame = ttk.LabelFrame(parent, text="🔔 Automatic Update Check", padding=10)
+        upd_frame.pack(fill=tk.X, pady=(0, 12), padx=10)
+
+        ttk.Label(upd_frame,
+                  text="The app can silently check a URL on login and show a notification\n"
+                       "when a newer version is available for download.",
+                  font=("Segoe UI", 9), wraplength=520, justify=tk.LEFT
+                  ).grid(row=0, column=0, columnspan=3, sticky=tk.W, pady=(0, 8))
+
+        self._auto_check_var = tk.BooleanVar()
+        ttk.Checkbutton(upd_frame,
+                        text="Automatically check for updates on login",
+                        variable=self._auto_check_var).grid(
+            row=1, column=0, columnspan=3, sticky=tk.W, pady=(0, 6))
+
+        ttk.Label(upd_frame, text="Update manifest URL:").grid(row=2, column=0, sticky=tk.W, pady=2)
+        self._update_url_entry = ttk.Entry(upd_frame, width=44)
+        self._update_url_entry.grid(row=2, column=1, sticky=tk.EW, padx=(8, 4), pady=2)
+
+        ttk.Button(upd_frame, text="💾 Save",
+                   command=self._save_update_check_settings, width=8).grid(
+            row=2, column=2, sticky=tk.W, pady=2)
+
+        btn_row = ttk.Frame(upd_frame)
+        btn_row.grid(row=3, column=0, columnspan=3, sticky=tk.W, pady=(6, 0))
+        ttk.Button(btn_row, text="🔍 Check Now",
+                   command=self._manual_update_check).pack(side=tk.LEFT, padx=(0, 8))
+
+        self._update_status_var = tk.StringVar(value="")
+        ttk.Label(btn_row, textvariable=self._update_status_var,
+                  font=("Segoe UI", 9)).pack(side=tk.LEFT)
+
+        upd_frame.columnconfigure(1, weight=1)
+
+        # Load current values from DB
+        self._load_update_check_settings()
+
+    # ── Update-check helpers ──────────────────────────────────────────────
+
+    def _load_update_check_settings(self) -> None:
+        """Populate URL entry and auto-check checkbox from DB."""
+        try:
+            from modules.update_check import get_update_check_url, get_auto_check_enabled
+            self._update_url_entry.delete(0, tk.END)
+            self._update_url_entry.insert(0, get_update_check_url())
+            self._auto_check_var.set(get_auto_check_enabled())
+        except Exception:
+            pass
+
+    def _save_update_check_settings(self) -> None:
+        """Persist URL + auto-check flag to DB."""
+        try:
+            from modules.update_check import set_update_check_url, set_auto_check_enabled
+            url = self._update_url_entry.get().strip()
+            set_update_check_url(url)
+            set_auto_check_enabled(self._auto_check_var.get())
+            self._update_status_var.set("✅ Saved")
+            self.after(3000, lambda: self._update_status_var.set(""))
+            self._append_log(f"Update check URL saved: {url or '(disabled)'}")
+        except Exception as e:
+            self._update_status_var.set(f"❌ {e}")
+
+    def _manual_update_check(self) -> None:
+        """Trigger an immediate update check and report the result in the UI."""
+        from modules.update_check import check_for_updates, get_update_check_url
+        import main as _main
+
+        url = self._update_url_entry.get().strip() or get_update_check_url()
+        if not url:
+            self._update_status_var.set("⚠ No URL configured")
+            return
+
+        self._update_status_var.set("⏳ Checking…")
+        self._append_log(f"Checking for updates at: {url}")
+
+        def _on_result(info):
+            def _show():
+                if info:
+                    v = info.get("version", "?")
+                    self._update_status_var.set(f"⬆ Version {v} available!")
+                    self._append_log(f"⬆ Update available: v{v}")
+                    # If the shell is accessible, show the badge
+                    root = self.winfo_toplevel()
+                    shell = getattr(root, "shell", None)
+                    if shell and hasattr(shell, "show_update_notification"):
+                        shell.show_update_notification(info, lambda: _open_upgrade_mgr(root))
+                else:
+                    self._update_status_var.set("✅ Already up to date")
+                    self._append_log("✅ Already up to date")
+            self.after(0, _show)
+
+        def _open_upgrade_mgr(root):
+            try:
+                _main.show_upgrade_manager(root)
+            except Exception:
+                pass
+
+        check_for_updates(_main.APP_VERSION, url, _on_result)
 
     def choose_package(self):
         """Select an upgrade package file."""
@@ -512,7 +606,7 @@ class UpgradeManagerFrame(ttk.Frame):
     def _set_package(self, pkg_path: Path):
         """Set the current package and auto-validate."""
         self.pkg_path = pkg_path
-        self.pkg_label.config(text=f"📦 {self.pkg_path.name}", foreground="black")
+        self.pkg_label.config(text=f"📦 {self.pkg_path.name}", foreground="")
         self._append_log(f"Selected package: {self.pkg_path}")
 
         # Enable buttons
@@ -549,28 +643,28 @@ class UpgradeManagerFrame(ttk.Frame):
     def _update_package_info(self, manifest: Optional[Dict], valid: bool, error: str = None):
         """Update the package info panel."""
         if valid and manifest:
-            self.info_labels["version"].config(text=manifest.get("version", "Unknown"), foreground="black")
-            self.info_labels["description"].config(text=manifest.get("description", "No description")[:80], foreground="black")
+            self.info_labels["version"].config(text=manifest.get("version", "Unknown"), foreground="")
+            self.info_labels["description"].config(text=manifest.get("description", "No description")[:80], foreground="")
             
             steps = manifest.get("steps", [])
             step_types = [s.get("type", "?") for s in steps]
             step_summary = f"{len(steps)} steps: {', '.join(step_types)}"
-            self.info_labels["steps"].config(text=step_summary, foreground="black")
+            self.info_labels["steps"].config(text=step_summary, foreground="")
             
-            self.info_labels["status"].config(text="✓ Valid package", foreground="green")
+            self.info_labels["status"].config(text="✓ Valid package", foreground=_get_status_color("success"))
             self._append_log(f"✓ Package validated: v{manifest.get('version')}, {len(steps)} steps")
         else:
-            self.info_labels["version"].config(text="-", foreground="gray")
-            self.info_labels["description"].config(text="-", foreground="gray")
-            self.info_labels["steps"].config(text="-", foreground="gray")
-            self.info_labels["status"].config(text=f"✗ {error or 'Invalid'}", foreground="red")
+            self.info_labels["version"].config(text="-", foreground=_get_status_color("text_light"))
+            self.info_labels["description"].config(text="-", foreground=_get_status_color("text_light"))
+            self.info_labels["steps"].config(text="-", foreground=_get_status_color("text_light"))
+            self.info_labels["status"].config(text=f"✗ {error or 'Invalid'}", foreground=_get_status_color("danger"))
             self._append_log(f"✗ Validation failed: {error}")
 
     def _clear_package(self):
         """Clear the current package selection."""
         self.pkg_path = None
         self.package_info = None
-        self.pkg_label.config(text="No package selected", foreground="gray")
+        self.pkg_label.config(text="No package selected", foreground=_get_status_color("text_light"))
         
         # Disable buttons
         self.dry_run_btn.config(state=tk.DISABLED)
@@ -579,7 +673,7 @@ class UpgradeManagerFrame(ttk.Frame):
         
         # Clear info panel
         for label in self.info_labels.values():
-            label.config(text="-", foreground="gray")
+            label.config(text="-", foreground=_get_status_color("text_light"))
         
         self._append_log("Package selection cleared")
 
@@ -716,97 +810,21 @@ class UpgradeManagerFrame(ttk.Frame):
             self._append_log(f"Cleaned up {deleted} backup directories")
             messagebox.showinfo("Cleanup Complete", f"Deleted {deleted} backup directories.")
 
-    def _load_key(self):
-        """Load signing key from file."""
-        filename = filedialog.askopenfilename(
-            title="Load Signing Key",
-            filetypes=[("Key files", "*.key"), ("Text files", "*.txt"), ("All files", "*.*")]
-        )
-        if filename:
-            try:
-                with open(filename, 'r') as f:
-                    key = f.read().strip()
-                self.master_key_entry.delete(0, tk.END)
-                self.master_key_entry.insert(0, key)
-                messagebox.showinfo("Success", "Key loaded successfully")
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to load key:\n{str(e)}")
-
     def _clear_history(self):
-        """Clear upgrade history."""
-        if messagebox.askyesno("Clear History", 
+        """Clear upgrade history from the database."""
+        if messagebox.askyesno("Clear History",
                               "Clear all upgrade history?\n\nWarning: This will remove all records of applied upgrades."):
             try:
-                history_file = Path(__file__).parent.parent / "database" / "upgrade_history.json"
-                if history_file.exists():
-                    history_file.unlink()
+                from database.init_db import get_connection, get_default_db_path
+                conn = get_connection(get_default_db_path())
+                conn.execute("DELETE FROM upgrade_history")
+                conn.commit()
+                conn.close()
                 self.load_history()
                 self._append_log("Upgrade history cleared")
                 messagebox.showinfo("Success", "Upgrade history cleared")
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to clear history:\n{str(e)}")
-
-    def preview(self):
-        """Preview the upgrade package contents."""
-        if not self.pkg_path:
-            return
-
-        # Create status dialog
-        self.status_dialog = StatusDialog(self, "Package Preview", "Preview")
-
-        # Ensure dialog is fully visible before starting background work
-        self.status_dialog.update()
-        self.update()
-
-        def run_preview():
-            try:
-                self.status_dialog.update_status("Loading package contents...")
-                steps = upgrades.preview_package(str(self.pkg_path))
-
-                self.status_dialog.update_status(f"Found {len(steps)} steps")
-                self.status_dialog.add_log(f"📋 Package Preview ({len(steps)} steps):")
-                self.status_dialog.add_log("=" * 50)
-
-                for i, step in enumerate(steps, 1):
-                    stype = step.get("type", "unknown")
-                    desc = step.get("description", f"Step {i}")
-                    emoji = {
-                        "dependency_check": "❓",
-                        "sql": "🗄️",
-                        "python": "🐍",
-                        "copy": "📁",
-                        "command": "⚡"
-                    }.get(stype, "📄")
-                    self.status_dialog.add_log(f" {i}. {emoji} {stype.upper()}: {desc}")
-                    self.status_dialog.update_operation(f"Processing step {i}/{len(steps)}")
-                    time.sleep(0.1)  # Brief pause for visual feedback
-
-                self.status_dialog.add_log("=" * 50)
-                self.status_dialog.update_operation("Preview completed")
-                self.status_dialog.set_success(True, "Package preview completed successfully")
-
-                # Show success popup
-                messagebox.showinfo("Preview Success", "Package preview completed successfully!\n\nThe upgrade package is valid and contains all necessary components.")
-
-                # Also update main UI
-                self._append_log("✅ Package preview completed successfully")
-                self.progress_var.set("Preview completed")
-
-            except Exception as e:
-                error_msg = f"Preview failed: {str(e)}"
-                self.status_dialog.add_log(f"❌ {error_msg}")
-                self.status_dialog.set_success(False, error_msg)
-
-                # Show error popup
-                messagebox.showerror("Preview Failed", f"Package preview failed:\n\n{str(e)}")
-
-                # Also update main UI
-                self._append_log(f"❌ Preview failed: {str(e)}")
-                self.progress_var.set("Preview failed")
-
-        # Run in background thread
-        preview_thread = threading.Thread(target=run_preview, daemon=True)
-        preview_thread.start()
 
     def dry_run(self):
         """Perform a dry run of the upgrade."""
@@ -824,6 +842,21 @@ class UpgradeManagerFrame(ttk.Frame):
 
     def apply(self):
         """Apply the upgrade."""
+        # Warn loudly if the package contains command steps (arbitrary shell execution)
+        if self.package_info:
+            cmd_steps = [s for s in self.package_info.get("steps", []) if s.get("type") == "command"]
+            if cmd_steps:
+                cmds = "\n".join(f"  \u2022 {s.get('cmd', '?')}" for s in cmd_steps)
+                if not messagebox.askyesno(
+                    "\u26a0\ufe0f Security Warning \u2014 Shell Commands Detected",
+                    f"This package contains {len(cmd_steps)} shell command step(s) that will run "
+                    f"on your system:\n\n{cmds}\n\n"
+                    "Shell commands execute arbitrary code. Only proceed if you absolutely "
+                    "trust the source of this package.\n\nContinue with upgrade?",
+                    icon="warning"
+                ):
+                    return
+
         if messagebox.askyesno("Confirm Upgrade",
                               "Are you sure you want to apply this upgrade?\n\n"
                               "This will modify your system and database."):
@@ -862,20 +895,6 @@ class UpgradeManagerFrame(ttk.Frame):
         self.progress_bar.config(value=0)
         self.progress_var.set("Starting...")
 
-        # Get settings
-        # Note: Signature verification requires the package to have been pre-signed
-        # The signing key should be used to verify, not to sign at apply time
-        signing_key = None
-        signature = None  # Would need to be loaded from package or external file
-
-        if self.verify_sig_var.get() and hasattr(self, 'master_key_entry'):
-            key_text = self.master_key_entry.get().strip()
-            if key_text:
-                signing_key = key_text
-                # Signature should be embedded in package or provided separately
-                # For now, we skip signature verification if no signature is available
-                self._append_log("Note: Signature verification enabled but no signature file provided")
-
         # Run in background thread
         def run_upgrade():
             try:
@@ -885,8 +904,8 @@ class UpgradeManagerFrame(ttk.Frame):
                     backup_db=self.backup_db_var.get(),
                     progress_callback=self._update_progress,
                     cancellation_token=self.cancellation_token,
-                    signature=signature,
-                    signing_key=signing_key
+                    signature=None,
+                    signing_key=None
                 )
 
                 # Update UI on completion
@@ -954,6 +973,12 @@ class UpgradeManagerFrame(ttk.Frame):
                     self.status_dialog.set_success(True, success_msg)
                     messagebox.showinfo("Success", "Upgrade completed successfully!")
                     self.load_history()  # Refresh history
+                    # Prompt user to restart — newly copied/patched modules are live only after restart
+                    messagebox.showwarning(
+                        "Restart Required",
+                        "The upgrade has been applied.\n\n"
+                        "Please restart the application for all changes to take full effect."
+                    )
             else:
                 if result.get("dry_run", False):
                     self._append_log("❌ DRY_RUN FAILED")
@@ -1151,33 +1176,6 @@ Logs:
         self.current_operation = threading.Thread(target=run_rollback, daemon=True)
         self.current_operation.start()
 
-    def generate_key(self):
-        """Generate a new signing key."""
-        key = upgrades.UpgradeSigner.generate_key()
-        self.master_key_entry.delete(0, tk.END)
-        self.master_key_entry.insert(0, key)
-        messagebox.showinfo("Key Generated", "New signing key generated.\n\nSave this key securely!")
-
-    def save_key(self):
-        """Save the signing key to a file."""
-        key = self.master_key_entry.get().strip()
-        if not key:
-            messagebox.showwarning("No Key", "Please generate or enter a key first")
-            return
-
-        filename = filedialog.asksaveasfilename(
-            title="Save Signing Key",
-            defaultextension=".key",
-            filetypes=[("Key files", "*.key"), ("Text files", "*.txt"), ("All files", "*.*")]
-        )
-        if filename:
-            try:
-                with open(filename, 'w') as f:
-                    f.write(key)
-                messagebox.showinfo("Success", "Key saved successfully")
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to save key:\n{str(e)}")
-
     def _append_log(self, message: str):
         """Append a message to the log."""
         timestamp = time.strftime("%H:%M:%S")
@@ -1188,23 +1186,3 @@ Logs:
         """Set the operation status message."""
         self.progress_var.set(message)
         self.update_idletasks()
-
-# Legacy Toplevel version for backward compatibility
-class UpgradeManager(tk.Toplevel):
-    """Legacy Toplevel version for backward compatibility."""
-
-    def __init__(self, master=None):
-        super().__init__(master)
-        self.title("Upgrade Manager")
-        self.geometry("700x480")
-        self.resizable(True, True)
-        
-        # Set the app's custom icon
-        set_window_icon(self)
-        
-        self.pkg_path: Optional[Path] = None
-        self._build_ui()
-
-    def _build_ui(self):
-        frame = UpgradeManagerFrame(self)
-        frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)

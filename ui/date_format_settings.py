@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from database.init_db import get_setting, set_setting
 from datetime import datetime
+from utils.theme import get_status_color
 
 class DateFormatSettingsFrame(ttk.Frame):
     def __init__(self, parent):
@@ -29,7 +30,7 @@ class DateFormatSettingsFrame(ttk.Frame):
         self.format_combo.pack(pady=4)
 
         # Preview label
-        self.preview_label = ttk.Label(self, text="Preview: ", foreground="gray")
+        self.preview_label = ttk.Label(self, text="Preview: ", foreground=get_status_color("text_light"))
         self.preview_label.pack(pady=(10, 0))
 
         # Bind selection change to update preview

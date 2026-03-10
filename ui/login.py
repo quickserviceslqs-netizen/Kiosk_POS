@@ -7,6 +7,37 @@ from tkinter import ttk, messagebox
 from modules.users import validate_credentials
 
 
+def _get_login_colors():
+    """Get colors from the theme system for login screen."""
+    try:
+        from utils.theme import get_theme_colors
+        tc = get_theme_colors()
+        return {
+            'bg': tc.get('surface', '#f8fafc'),
+            'card_bg': tc.get('surface', '#FDFBF7'),
+            'text': tc.get('text', '#2F2A25'),
+            'border': tc.get('border', '#D9D2C7'),
+            'primary': tc.get('primary', '#0A7C86'),
+            'primary_dark': tc.get('primary_dark', '#0C90A0'),
+            'btn_bg': tc.get('sidebar_active', '#475569'),
+            'btn_fg': tc.get('text_white', '#FFFFFF'),
+            'btn_hover': tc.get('sidebar_hover', '#334155'),
+            'danger': tc.get('danger', '#B53B3B'),
+            'field_bg': tc.get('field_bg', '#FFFFFF'),
+            'field_text': tc.get('field_text', '#1f2937'),
+            'text_white': tc.get('text_white', '#FFFFFF'),
+            'text_secondary': tc.get('text_secondary', '#6b7280'),
+        }
+    except Exception:
+        return {
+            'bg': '#f8fafc', 'card_bg': '#FDFBF7', 'text': '#2F2A25',
+            'border': '#D9D2C7', 'primary': '#0A7C86', 'primary_dark': '#0C90A0',
+            'btn_bg': '#475569', 'btn_fg': '#FFFFFF', 'btn_hover': '#334155',
+            'danger': '#B53B3B', 'field_bg': '#FFFFFF', 'field_text': '#1f2937',
+            'text_white': '#FFFFFF', 'text_secondary': '#6b7280',
+        }
+
+
 class LoginFrame(ttk.Frame):
     def __init__(self, master: tk.Misc, on_success, **kwargs):
         super().__init__(master, padding=24, **kwargs)
@@ -14,40 +45,44 @@ class LoginFrame(ttk.Frame):
         self.username_var = tk.StringVar()
         self.password_var = tk.StringVar()
         self.status_var = tk.StringVar()
+        self.lc = _get_login_colors()
 
         self._init_styles()
 
         self._build_ui()
 
     def _init_styles(self) -> None:
+        c = self.lc
         style = ttk.Style(self)
-        style.configure("LoginRoot.TFrame", background="#EDE9E3")
+        style.configure("LoginRoot.TFrame", background=c['bg'])
         style.configure(
             "LoginCard.TFrame",
-            background="#FDFBF7",
-            bordercolor="#D9D2C7",
+            background=c['card_bg'],
+            bordercolor=c['border'],
             relief="solid",
             borderwidth=1,
         )
-        style.configure("LoginTitle.TLabel", background="#FDFBF7", foreground="#2F2A25", font=("Segoe UI", 18, "bold"))
-        style.configure("LoginLabel.TLabel", background="#FDFBF7", foreground="#2F2A25", font=("Segoe UI", 10, "semibold"))
+        style.configure("LoginTitle.TLabel", background=c['card_bg'], foreground=c['text'], font=("Segoe UI", 18, "bold"))
+        style.configure("LoginLabel.TLabel", background=c['card_bg'], foreground=c['text'], font=("Segoe UI", 10, "semibold"))
         style.configure(
             "LoginField.TEntry",
-            fieldbackground="#FFFFFF",
-            foreground="#2F2A25",
-            bordercolor="#D9D2C7",
-            lightcolor="#0A7C86",
-            darkcolor="#0A7C86",
+            fieldbackground=c['field_bg'],
+            foreground=c['field_text'],
+            insertcolor=c['field_text'],
+            bordercolor=c['border'],
+            lightcolor=c['field_bg'],
+            darkcolor=c['border'],
         )
         style.map(
             "LoginField.TEntry",
-            bordercolor=[("focus", "#0A7C86")],
-            lightcolor=[("focus", "#0A7C86")],
+            bordercolor=[("focus", c['primary'])],
+            lightcolor=[("focus", c['primary'])],
+            darkcolor=[("focus", c['primary'])],
         )
         style.configure(
             "LoginPrimary.TButton",
-            background="#0A7C86",
-            foreground="#FFFFFF",
+            background=c['primary'],
+            foreground=c['text_white'],
             font=("Segoe UI", 11, "medium"),
             padding=(12, 8),
             relief="raised",
@@ -57,21 +92,22 @@ class LoginFrame(ttk.Frame):
         style.map(
             "LoginPrimary.TButton",
             background=[
-                ("pressed", "#0C90A0"),
-                ("active", "#0C90A0"),
-                ("!disabled", "#0A7C86"),
+                ("pressed", c['primary_dark']),
+                ("active", c['primary_dark']),
+                ("!disabled", c['primary']),
             ],
             foreground=[
-                ("pressed", "#FFFFFF"),
-                ("active", "#FFFFFF"),
-                ("!disabled", "#FFFFFF"),
-                ("disabled", "#E0E0E0"),
+                ("pressed", c['text_white']),
+                ("active", c['text_white']),
+                ("!disabled", c['text_white']),
+                ("disabled", c.get('disabled_bg', '#e5e7eb')),
             ],
         )
-        style.configure("LoginError.TLabel", background="#FDFBF7", foreground="#B53B3B", font=("Segoe UI", 9))
+        style.configure("LoginError.TLabel", background=c['card_bg'], foreground=c['danger'], font=("Segoe UI", 9))
 
 
     def _build_ui(self) -> None:
+        c = self.lc
         # Base surface
         self.configure(style="LoginRoot.TFrame")
         self.columnconfigure(0, weight=1)
@@ -93,7 +129,7 @@ class LoginFrame(ttk.Frame):
                 logo_img = Image.open(logo_path)
                 logo_img = logo_img.resize((64, 64), Image.LANCZOS)
                 self.logo_photo = ImageTk.PhotoImage(logo_img)
-                logo_label = ttk.Label(card, image=self.logo_photo, background="#FDFBF7")
+                logo_label = ttk.Label(card, image=self.logo_photo, background=c['card_bg'])
                 logo_label.grid(row=0, column=0, columnspan=2, pady=(0, 8))
         except Exception:
             pass
@@ -124,10 +160,10 @@ class LoginFrame(ttk.Frame):
             card,
             text="Login",
             command=self.submit,
-            bg="#0A7C86",
-            fg="#FFFFFF",
-            activebackground="#0C90A0",
-            activeforeground="#FFFFFF",
+            bg=c['btn_bg'],
+            fg=c['btn_fg'],
+            activebackground=c['btn_hover'],
+            activeforeground=c['btn_fg'],
             relief=tk.RAISED,
             bd=1,
             font=("Segoe UI", 11, "bold"),
@@ -138,6 +174,42 @@ class LoginFrame(ttk.Frame):
 
         status_lbl = ttk.Label(card, textvariable=self.status_var, style="LoginError.TLabel")
         status_lbl.grid(row=7, column=0, columnspan=2, sticky=tk.W)
+
+        # ── Mode switch ──────────────────────────────────────────────────
+        import sys as _sys, subprocess as _sp
+        from pathlib import Path as _Path
+        _is_demo = '--demo' in _sys.argv
+        _app_script = str(_Path(__file__).parent.parent / 'main.py')
+
+        ttk.Separator(card, orient='horizontal').grid(
+            row=8, column=0, columnspan=2, sticky=tk.EW, pady=(18, 10)
+        )
+
+        if _is_demo:
+            _switch_label = '← Switch to Live Store'
+            _switch_args  = [_sys.executable, _app_script]          # no --demo
+        else:
+            _switch_label = '🧪 Try Demo Mode'
+            _switch_args  = [_sys.executable, _app_script, '--demo']
+
+        def _switch_mode():
+            _sp.Popen(_switch_args)
+            self.winfo_toplevel().after(400, lambda: self.winfo_toplevel().destroy())
+
+        switch_btn = tk.Button(
+            card,
+            text=_switch_label,
+            command=_switch_mode,
+            bg=c['card_bg'],
+            fg='#f59e0b' if not _is_demo else c['primary'],
+            activebackground=c['card_bg'],
+            activeforeground=c['primary_dark'],
+            relief=tk.FLAT,
+            bd=0,
+            font=('Segoe UI', 9, 'bold'),
+            cursor='hand2',
+        )
+        switch_btn.grid(row=9, column=0, columnspan=2, pady=(0, 4))
 
     def submit(self) -> None:
         username = self.username_var.get().strip()

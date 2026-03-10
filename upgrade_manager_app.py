@@ -6,7 +6,12 @@ from tkinter import ttk
 from ui.upgrade_manager import UpgradeManagerFrame
 from utils import set_window_icon
 
+
 def main():
+    # Ensure the database and schema (including upgrade_history table) exist
+    from database.init_db import initialize_database
+    initialize_database()
+
     root = tk.Tk()
     root.title("Kiosk POS - Upgrade Manager")
     root.geometry("1200x800")

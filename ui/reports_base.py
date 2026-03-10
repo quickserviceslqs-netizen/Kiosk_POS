@@ -216,7 +216,7 @@ class BaseReportFrame(ttk.Frame):
     `report_type` when invoking :meth:`generate_report`.
     """
 
-    def __init__(self, parent: tk.Misc, service=None, **kwargs):
+    def __init__(self, parent: tk.Misc, service=None, skip_default_ui: bool = False, **kwargs):
         super().__init__(parent, **kwargs)
         if service is None:
             from .reports_controller import ReportController
@@ -232,6 +232,11 @@ class BaseReportFrame(ttk.Frame):
         self.export_manager = ExportManager()
         self.current_report_data = None
         self._paging_state = None
+        self.content_frame = None
+
+        # Skip UI building if subclass will handle it
+        if skip_default_ui:
+            return
 
         # build basic UI containers
         self.configure(padding=WINDOW_PADDING)

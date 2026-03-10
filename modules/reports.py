@@ -102,7 +102,6 @@ def _get_sales_summary_uncached(start_date: str, end_date: str) -> dict:
             FROM sales
             WHERE date BETWEEN ? AND ?
             AND (voided IS NULL OR voided = 0)
-            AND (voided IS NULL OR voided = 0)
             """,
             (start_date, end_date)
         ).fetchone()
@@ -232,6 +231,7 @@ def _get_best_selling_items_uncached(start_date: str, end_date: str, limit: int 
             JOIN sales s ON si.sale_id = s.sale_id
             LEFT JOIN refunds_items ri ON si.sale_item_id = ri.sale_item_id
             WHERE s.date BETWEEN ? AND ?
+            AND (s.voided IS NULL OR s.voided = 0)
             GROUP BY i.item_id
             HAVING total_sold_raw > 0
             ORDER BY total_sold_raw DESC
@@ -278,6 +278,7 @@ def get_profit_analysis(start_date: str, end_date: str) -> dict:
             JOIN items i ON si.item_id = i.item_id
             JOIN sales s ON si.sale_id = s.sale_id
             WHERE s.date BETWEEN ? AND ?
+            AND (s.voided IS NULL OR s.voided = 0)
             """,
             (start_date, end_date)
         ).fetchone()
@@ -762,9 +763,9 @@ def get_sales_performance_trends(start_date: str, end_date: str, group_by: str =
                 COUNT(*) as transactions,
                 SUM(total) as total_sales,
                 AVG(total) as avg_sale,
-                SUM(payment) as subtotal,
-                SUM(total - payment) as total_vat,
-                SUM(total - payment) as total_discounts
+                SUM(COALESCE(subtotal, total)) as subtotal,
+                SUM(COALESCE(vat_amount, 0)) as total_vat,
+                SUM(COALESCE(discount_amount, 0)) as total_discounts
             FROM sales
             WHERE date BETWEEN ? AND ?
             AND (voided IS NULL OR voided = 0)
@@ -1312,9 +1313,9 @@ def get_sales_performance_trends(start_date: str, end_date: str, group_by: str =
                 COUNT(*) as transactions,
                 SUM(total) as total_sales,
                 AVG(total) as avg_sale,
-                SUM(payment) as subtotal,
-                SUM(total - payment) as total_vat,
-                SUM(total - payment) as total_discounts
+                SUM(COALESCE(subtotal, total)) as subtotal,
+                SUM(COALESCE(vat_amount, 0)) as total_vat,
+                SUM(COALESCE(discount_amount, 0)) as total_discounts
             FROM sales
             WHERE date BETWEEN ? AND ?
             AND (voided IS NULL OR voided = 0)
@@ -1661,6 +1662,102 @@ def get_reconciliation_details(start_date: str, end_date: str, status: str = 'al
     from ui.reports_base import ReportData
     from ui.reports_reconciliation import ReconciliationDetailsGenerator
     return ReconciliationDetailsGenerator(start_date, end_date, status).generate_data()
+
+
+# Purchase Order report generators
+@report_generator('po_summary')
+def get_po_summary(start_date: str, end_date: str) -> list:
+    """List all purchase orders created within the date range."""
+    try:
+        from modules.purchase_orders import ensure_po_tables
+        ensure_po_tables()
+    except Exception:
+        pass
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT
+                po.po_id,
+                po.po_number,
+                po.supplier,
+                po.status,
+                po.created_by,
+                DATE(po.created_at) as created_date,
+                po.total_amount,
+                po.notes,
+                COUNT(poi.poi_id) as item_count
+            FROM purchase_orders po
+            LEFT JOIN purchase_order_items poi ON po.po_id = poi.po_id
+            WHERE DATE(po.created_at) BETWEEN ? AND ?
+            GROUP BY po.po_id
+            ORDER BY po.created_at DESC
+            """,
+            (start_date, end_date)
+        ).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+@report_generator('po_by_supplier')
+def get_po_by_supplier(start_date: str, end_date: str) -> list:
+    """Aggregate PO spending grouped by supplier for the date range."""
+    try:
+        from modules.purchase_orders import ensure_po_tables
+        ensure_po_tables()
+    except Exception:
+        pass
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT
+                supplier,
+                COUNT(*) as po_count,
+                COALESCE(SUM(total_amount), 0) as total_spent,
+                COALESCE(AVG(total_amount), 0) as avg_order_value,
+                MAX(DATE(created_at)) as last_order_date,
+                SUM(CASE WHEN status = 'received' THEN 1 ELSE 0 END) as received_count,
+                SUM(CASE WHEN status = 'pending' OR status = 'sent' THEN 1 ELSE 0 END) as pending_count
+            FROM purchase_orders
+            WHERE DATE(created_at) BETWEEN ? AND ?
+            GROUP BY supplier
+            ORDER BY total_spent DESC
+            """,
+            (start_date, end_date)
+        ).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+@report_generator('po_items_detail')
+def get_po_items_detail(start_date: str, end_date: str) -> list:
+    """Detailed line items across all POs created in the date range."""
+    try:
+        from modules.purchase_orders import ensure_po_tables
+        ensure_po_tables()
+    except Exception:
+        pass
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT
+                po.po_number,
+                po.supplier,
+                po.status,
+                DATE(po.created_at) as created_date,
+                poi.item_name,
+                poi.quantity_ordered,
+                poi.quantity_received,
+                poi.unit_cost,
+                ROUND(poi.quantity_ordered * poi.unit_cost, 2) as line_total
+            FROM purchase_orders po
+            JOIN purchase_order_items poi ON po.po_id = poi.po_id
+            WHERE DATE(po.created_at) BETWEEN ? AND ?
+            ORDER BY po.created_at DESC, po.po_number, poi.item_name
+            """,
+            (start_date, end_date)
+        ).fetchall()
+    return [_row_to_dict(r) for r in rows]
 
 
 # Override registry entries with the final definitions

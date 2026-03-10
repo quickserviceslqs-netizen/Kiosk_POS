@@ -9,6 +9,7 @@ from modules import items
 from utils import set_window_icon
 from utils.validation import ValidationError, validate_numeric, validate_integer
 from utils.i18n import get_currency_symbol
+from utils.theme import get_status_color
 
 logger = logging.getLogger(__name__)
 
@@ -203,7 +204,7 @@ class SimplifiedItemDialog:
         row = 0
 
         # Required fields note
-        required_note = ttk.Label(scrollable_frame, text="* Required fields", font=("Segoe UI", 8), foreground="#666666")
+        required_note = ttk.Label(scrollable_frame, text="* Required fields", font=("Segoe UI", 8))
         required_note.grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=(5, 10), padx=10)
         row += 1
 
@@ -211,7 +212,12 @@ class SimplifiedItemDialog:
         ttk.Label(scrollable_frame, text="Item Name *", font=("Segoe UI", 10, "bold")).grid(row=row, column=0, sticky=tk.W, pady=(10, 5), padx=10)
         name_entry = ttk.Entry(scrollable_frame, textvariable=self.fields["name"], width=50)
         name_entry.grid(row=row, column=1, sticky=tk.EW, pady=(10, 5), padx=(0, 10))
-        self.error_labels["name"] = ttk.Label(scrollable_frame, text="", foreground="red", font=("Segoe UI", 8))
+        # Status colors for validation/feedback
+        self.clr_err = get_status_color("danger")
+        self.clr_ok = get_status_color("success")
+        self.clr_warn = get_status_color("warning")
+
+        self.error_labels["name"] = ttk.Label(scrollable_frame, text="", foreground=self.clr_err, font=("Segoe UI", 8))
         self.error_labels["name"].grid(row=row+1, column=1, sticky=tk.W, padx=(0, 10))
         def validate_name(*_):
             value = self.fields["name"].get().strip()
@@ -233,7 +239,7 @@ class SimplifiedItemDialog:
         # Populate values once - categories rarely change during item editing
         self.category_combo['values'] = self._get_category_list()
         self.category_combo.grid(row=row, column=1, sticky=tk.EW, pady=5, padx=(0, 10))
-        self.error_labels["category"] = ttk.Label(scrollable_frame, text="", foreground="red", font=("Segoe UI", 8))
+        self.error_labels["category"] = ttk.Label(scrollable_frame, text="", foreground=self.clr_err, font=("Segoe UI", 8))
         self.error_labels["category"].grid(row=row+1, column=1, sticky=tk.W, padx=(0, 10))
         def validate_category(*_):
             value = self.fields["category"].get().strip()
@@ -251,7 +257,7 @@ class SimplifiedItemDialog:
         barcode_frame.grid(row=row, column=1, sticky=tk.EW, pady=5, padx=(0, 10))
         ttk.Entry(barcode_frame, textvariable=self.fields["barcode"], width=35).pack(side=tk.LEFT, fill=tk.X, expand=True)
         ttk.Button(barcode_frame, text="Scan", width=10, command=self._scan_barcode).pack(side=tk.RIGHT, padx=(5, 0))
-        self.error_labels["barcode"] = ttk.Label(scrollable_frame, text="", foreground="red", font=("Segoe UI", 8))
+        self.error_labels["barcode"] = ttk.Label(scrollable_frame, text="", foreground=self.clr_err, font=("Segoe UI", 8))
         self.error_labels["barcode"].grid(row=row+1, column=1, sticky=tk.W, padx=(0, 10))
         def validate_barcode(*_):
             value = self.fields["barcode"].get().strip()
@@ -281,7 +287,7 @@ class SimplifiedItemDialog:
         # Units are updated by _on_item_type_change when item type changes
         self.unit_combo.grid(row=row, column=1, sticky=tk.EW, pady=5, padx=(0, 10))
         self.unit_combo.bind("<<ComboboxSelected>>", lambda e: self._on_unit_change())
-        self.error_labels["unit_of_measure"] = ttk.Label(scrollable_frame, text="", foreground="red", font=("Segoe UI", 8))
+        self.error_labels["unit_of_measure"] = ttk.Label(scrollable_frame, text="", foreground=self.clr_err, font=("Segoe UI", 8))
         self.error_labels["unit_of_measure"].grid(row=row+1, column=1, sticky=tk.W, padx=(0, 10))
 
         # Manage Portions (only enabled for measurable items when editing an existing item)
@@ -307,7 +313,7 @@ class SimplifiedItemDialog:
         # Package Size (shown for bulk_package and fractional types)
         self.fields["package_size_label"] = ttk.Label(scrollable_frame, text="Package Size", font=("Segoe UI", 9))
         self.fields["package_size_entry"] = ttk.Entry(scrollable_frame, textvariable=self.fields["package_size"], width=50)
-        self.error_labels["package_size"] = ttk.Label(scrollable_frame, text="", foreground="red", font=("Segoe UI", 8))
+        self.error_labels["package_size"] = ttk.Label(scrollable_frame, text="", foreground=self.clr_err, font=("Segoe UI", 8))
         def validate_package_size(*_):
             value = self.fields["package_size"].get().strip()
             if not value:
@@ -404,9 +410,9 @@ class SimplifiedItemDialog:
         ttk.Label(price_frame, text=f"{self.currency_symbol}", font=("Segoe UI", 9)).pack(side=tk.LEFT)
         base_price_entry = ttk.Entry(price_frame, textvariable=self.fields["base_price"], width=20)
         base_price_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self.fields["price_unit_label"] = ttk.Label(price_frame, text="(per piece)", font=("Segoe UI", 8), foreground="gray")
+        self.fields["price_unit_label"] = ttk.Label(price_frame, text="(per piece)", font=("Segoe UI", 8))
         self.fields["price_unit_label"].pack(side=tk.RIGHT, padx=(10, 0))
-        self.error_labels["base_price"] = ttk.Label(scrollable_frame, text="", foreground="red", font=("Segoe UI", 8))
+        self.error_labels["base_price"] = ttk.Label(scrollable_frame, text="", foreground=self.clr_err, font=("Segoe UI", 8))
         self.error_labels["base_price"].grid(row=row+1, column=1, sticky=tk.W, padx=(0, 10))
         self.pricing_widgets.append(self.error_labels["base_price"])
         def validate_base_price(*_):
@@ -436,9 +442,9 @@ class SimplifiedItemDialog:
         ttk.Label(cost_frame, text=f"{self.currency_symbol}", font=("Segoe UI", 9)).pack(side=tk.LEFT)
         cost_price_entry = ttk.Entry(cost_frame, textvariable=self.fields["cost_price"], width=20, state="normal" if self.is_admin else "readonly")
         cost_price_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self.fields["cost_unit_label"] = ttk.Label(cost_frame, text="(per unit)", font=("Segoe UI", 8), foreground="gray")
+        self.fields["cost_unit_label"] = ttk.Label(cost_frame, text="(per unit)", font=("Segoe UI", 8))
         self.fields["cost_unit_label"].pack(side=tk.RIGHT, padx=(10, 0))
-        self.error_labels["cost_price"] = ttk.Label(scrollable_frame, text="", foreground="red", font=("Segoe UI", 8))
+        self.error_labels["cost_price"] = ttk.Label(scrollable_frame, text="", foreground=self.clr_err, font=("Segoe UI", 8))
         self.error_labels["cost_price"].grid(row=row+1, column=1, sticky=tk.W, padx=(0, 10))
         self.pricing_widgets.append(self.error_labels["cost_price"])
         row += 2
@@ -446,7 +452,7 @@ class SimplifiedItemDialog:
         # Cost price guidance text
         cost_info = ttk.Label(scrollable_frame,
             text="💡 Tip: Actual costs are tracked per stock lot via Stock Receiving. This is an estimated cost for profit margin display.",
-            font=("Segoe UI", 8), foreground="#666666", wraplength=500)
+            font=("Segoe UI", 8), wraplength=500)
         cost_info.grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 10), padx=10)
         self.pricing_widgets.append(cost_info)
         row += 1
@@ -471,7 +477,7 @@ class SimplifiedItemDialog:
         profit_margin_label = ttk.Label(scrollable_frame, text="Profit Margin", font=("Segoe UI", 9))
         profit_margin_label.grid(row=row, column=0, sticky=tk.W, pady=5, padx=10)
         self.pricing_widgets.append(profit_margin_label)
-        self.fields["profit_margin"] = ttk.Label(scrollable_frame, text="--", font=("Segoe UI", 9, "bold"), foreground="green")
+        self.fields["profit_margin"] = ttk.Label(scrollable_frame, text="--", font=("Segoe UI", 9, "bold"), foreground=self.clr_ok)
         self.fields["profit_margin"].grid(row=row, column=1, sticky=tk.W, pady=5, padx=(0, 10))
         self.pricing_widgets.append(self.fields["profit_margin"])
         row += 1
@@ -483,14 +489,14 @@ class SimplifiedItemDialog:
                 cost = float(self.fields["cost_price"].get() or 0)
                 if sell > 0 and cost > 0:
                     margin = ((sell - cost) / sell) * 100
-                    color = "green" if margin >= 20 else ("orange" if margin >= 0 else "red")
+                    color = self.clr_ok if margin >= 20 else (self.clr_warn if margin >= 0 else self.clr_err)
                     self.fields["profit_margin"].config(text=f"{margin:.1f}%", foreground=color)
                 elif sell > 0:
-                    self.fields["profit_margin"].config(text="--", foreground="gray")
+                    self.fields["profit_margin"].config(text="--", foreground=get_status_color("text_light"))
                 else:
-                    self.fields["profit_margin"].config(text="--", foreground="gray")
+                    self.fields["profit_margin"].config(text="--", foreground=get_status_color("text_light"))
             except ValueError:
-                self.fields["profit_margin"].config(text="--", foreground="gray")
+                self.fields["profit_margin"].config(text="--", foreground=get_status_color("text_light"))
 
         self.trace_ids["base_price_profit"] = self.fields["base_price"].trace_add("write", update_profit_margin)
         self.trace_ids["cost_price_profit"] = self.fields["cost_price"].trace_add("write", update_profit_margin)
@@ -596,7 +602,7 @@ class SimplifiedItemDialog:
             qty_value.pack(side=tk.LEFT)
             self.fields["qty_display"] = qty_value
             
-            ttk.Label(qty_display_frame, text="  (Use Stock Receiving to add inventory)", font=("Segoe UI", 8), foreground="gray").pack(side=tk.LEFT, padx=(5, 0))
+            ttk.Label(qty_display_frame, text="  (Use Stock Receiving to add inventory)", font=("Segoe UI", 8)).pack(side=tk.LEFT, padx=(5, 0))
             row += 1
         else:
             # New item - show info message about Stock Receiving
@@ -607,20 +613,20 @@ class SimplifiedItemDialog:
             ttk.Label(info_frame, text="📦", font=("Segoe UI", 12)).pack(side=tk.LEFT, padx=(0, 5))
             info_text = ttk.Label(info_frame, 
                 text="Initial stock will be 0. After saving, use Stock Receiving to add inventory with proper cost tracking.",
-                font=("Segoe UI", 9), foreground="#666666", wraplength=450)
+                font=("Segoe UI", 9), wraplength=450)
             info_text.pack(side=tk.LEFT)
             row += 1
 
         # Hidden quantity field for internal use (always 0 for new items)
         self.fields["quantity"].set("0" if not self.existing else str(self.existing.get("quantity", 0)))
-        self.error_labels["quantity"] = ttk.Label(scrollable_frame, text="", foreground="red", font=("Segoe UI", 8))
+        self.error_labels["quantity"] = ttk.Label(scrollable_frame, text="", foreground=self.clr_err, font=("Segoe UI", 8))
         # Don't grid the error label, keep it hidden
         row += 1
 
         ttk.Label(scrollable_frame, text="Low Stock Alert Threshold", font=("Segoe UI", 9)).grid(row=row, column=0, sticky=tk.W, pady=5, padx=10)
         low_stock_entry = ttk.Entry(scrollable_frame, textvariable=self.fields["low_stock_threshold"], width=20)
         low_stock_entry.grid(row=row, column=1, sticky=tk.W, pady=5, padx=(0, 10))
-        self.error_labels["low_stock_threshold"] = ttk.Label(scrollable_frame, text="", foreground="red", font=("Segoe UI", 8))
+        self.error_labels["low_stock_threshold"] = ttk.Label(scrollable_frame, text="", foreground=self.clr_err, font=("Segoe UI", 8))
         self.error_labels["low_stock_threshold"].grid(row=row+1, column=1, sticky=tk.W, padx=(0, 10))
         def validate_low_stock(*_):
             value = self.fields["low_stock_threshold"].get().strip()
@@ -650,8 +656,8 @@ class SimplifiedItemDialog:
         vat_frame.grid(row=row, column=1, sticky=tk.W, pady=5, padx=(0, 10))
         vat_entry = ttk.Entry(vat_frame, textvariable=self.fields["vat_rate"], width=10)
         vat_entry.pack(side=tk.LEFT)
-        ttk.Label(vat_frame, text="(e.g., 16.0 for 16%)", font=("Segoe UI", 8), foreground="gray").pack(side=tk.LEFT, padx=(10, 0))
-        self.error_labels["vat_rate"] = ttk.Label(scrollable_frame, text="", foreground="red", font=("Segoe UI", 8))
+        ttk.Label(vat_frame, text="(e.g., 16.0 for 16%)", font=("Segoe UI", 8)).pack(side=tk.LEFT, padx=(10, 0))
+        self.error_labels["vat_rate"] = ttk.Label(scrollable_frame, text="", foreground=self.clr_err, font=("Segoe UI", 8))
         self.error_labels["vat_rate"].grid(row=row+1, column=1, sticky=tk.W, padx=(0, 10))
         def validate_vat_rate(*_):
             value = self.fields["vat_rate"].get().strip()

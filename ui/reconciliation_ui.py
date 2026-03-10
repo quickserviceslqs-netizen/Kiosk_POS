@@ -14,6 +14,7 @@ from tkinter import ttk, messagebox, scrolledtext
 import tkinter.font as tkFont
 from datetime import datetime
 from utils.date_utils import format_date
+from utils.theme import get_status_color
 from typing import Optional, Dict, Any, List
 import logging
 
@@ -77,7 +78,7 @@ class ReconciliationUI(ttk.Frame):
         # Status indicator
         self.status_var = tk.StringVar(value="No active session")
         status_label = ttk.Label(header, textvariable=self.status_var,
-                               foreground="gray")
+                               foreground=get_status_color('gray'))
         status_label.pack(side=tk.RIGHT)
 
         # Toolbar
@@ -236,7 +237,7 @@ class ReconciliationUI(ttk.Frame):
 
         # Instructions
         instr = ttk.Label(frame, text="Use this section to add payment methods and their actual counted amounts.\nThese will appear in the 'Manual / Counted Amounts' table for mapping to system balances.",
-                 font=("Segoe UI", 8), foreground="gray", justify=tk.LEFT)
+                 font=("Segoe UI", 8), foreground=get_status_color("text_light"), justify=tk.LEFT)
         instr.pack(anchor=tk.W, fill=tk.X, pady=(10,0))
         instr.configure(wraplength=500)
 
@@ -698,7 +699,7 @@ To get started:
 That's it!"""
 
         welcome_label = ttk.Label(welcome_frame, text=welcome_text,
-                                justify=tk.LEFT, foreground="gray")
+                                justify=tk.LEFT, foreground=get_status_color("text_light"))
         welcome_label.pack(fill=tk.BOTH)
         welcome_label.configure(wraplength=700)
 
@@ -794,11 +795,11 @@ That's it!"""
 
         # Color coding and reviewed checkbox as before
         if item.is_reconciled:
-            variance_label.configure(foreground="green")
-            status_label.configure(foreground="green")
+            variance_label.configure(foreground=get_status_color("success"))
+            status_label.configure(foreground=get_status_color("success"))
         else:
-            variance_label.configure(foreground="red")
-            status_label.configure(foreground="red")
+            variance_label.configure(foreground=get_status_color("danger"))
+            status_label.configure(foreground=get_status_color("danger"))
 
         reviewed_var = tk.BooleanVar(value=item.is_reviewed)
         reviewed_cb = ttk.Checkbutton(row_frame, variable=reviewed_var,
@@ -939,11 +940,11 @@ That's it!"""
 
         # Update colors
         if item.is_reconciled:
-            widgets['variance_label'].configure(foreground="green")
-            widgets['status_label'].configure(foreground="green")
+            widgets['variance_label'].configure(foreground=get_status_color("success"))
+            widgets['status_label'].configure(foreground=get_status_color("success"))
         else:
-            widgets['variance_label'].configure(foreground="red")
-            widgets['status_label'].configure(foreground="red")
+            widgets['variance_label'].configure(foreground=get_status_color("danger"))
+            widgets['status_label'].configure(foreground=get_status_color("danger"))
 
     def _update_summary(self) -> None:
         """Update the summary panel."""

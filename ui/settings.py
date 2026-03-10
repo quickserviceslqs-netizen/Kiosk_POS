@@ -33,13 +33,6 @@ class CurrencySettingsFrame(ttk.Frame):
 
         self.load_currency()
 
-    def _on_currency_selected(self, event=None):
-        """Auto-populate symbol when currency code is selected."""
-        code = self.currency_var.get().strip().upper()
-        if code:
-            default_symbol = get_default_currency_symbol_for_code(code)
-            self.symbol_var.set(default_symbol)
-
     def _filter_currency_list(self, event):
         typed = self.currency_combo.get().lower()
         filtered = [entry for entry in self.all_currencies if typed in entry.lower()]

@@ -428,13 +428,44 @@ def delete_item(item_id: int) -> None:
     """Delete an item from inventory.
 
     This permanently removes an item from the database. Use with caution.
+    Deletion is blocked if the item has been used in any sale in order to
+    preserve historical data integrity.
 
     Args:
         item_id: The ID of the item to delete
 
+    Raises:
+        ValueError: If the item does not exist or has been used in sales.
+
     Examples:
         delete_item(123)  # Permanently removes item with ID 123
     """
+    # Block deletion if item appears in any sale — historical data must be preserved
+    with get_connection() as conn:
+        ref = conn.execute(
+            "SELECT 1 FROM sales_items WHERE item_id = ? LIMIT 1", (item_id,)
+        ).fetchone()
+        if ref:
+            raise ValueError(
+                "Cannot delete an item that has been used in sales. "
+                "Historical records would be lost. Archive the item instead."
+            )
+
+    # Fetch before deleting so we can include it in the audit trail
+    item = get_item(item_id)
+    if item is None:
+        raise ValueError(f"Item {item_id} not found")
+
+    # Remove all variants belonging to this item first to avoid FK constraint errors
+    with get_connection() as conn:
+        conn.execute("DELETE FROM item_variants WHERE item_id = ?", (item_id,))
+
+    # Delete the item itself
+    with get_connection() as conn:
+        conn.execute("DELETE FROM items WHERE item_id = ?", (item_id,))
+
+    audit_logger.log_data_change("DELETE", "items", item_id, old_values=item)
+    reports.invalidate_cache()
 
 
 def set_is_catalog_only(item_id: int, flag: bool) -> None:
@@ -491,14 +522,19 @@ def low_stock(threshold: int = 5) -> List[dict]:
     with get_connection() as conn:
         conn.row_factory = sqlite3.Row
         cursor = conn.execute("SELECT * FROM items ORDER BY quantity ASC")
-        low_items: List[dict] = []
-        for row in cursor.fetchall():
-            item = _row_to_dict(row)
-            item_threshold = item.get("low_stock_threshold") or threshold
+        all_rows = [_row_to_dict(row) for row in cursor.fetchall()]
 
-            # If the item has variants, inspect them
-            try:
-                if variants.has_variants(item["item_id"]):
+    # Pre-fetch variant membership in a single query to avoid N+1 DB hits
+    all_item_ids = [r["item_id"] for r in all_rows]
+    has_variants_map = variants.batch_has_variants(all_item_ids) if all_item_ids else {}
+
+    low_items: List[dict] = []
+    for item in all_rows:
+        item_threshold = item.get("low_stock_threshold") or threshold
+
+        # If the item has variants, inspect them
+        try:
+            if has_variants_map.get(item["item_id"], False):
                     vars_list = variants.list_variants(item["item_id"])
                     variant_alerts = []
                     all_variants_low = True
@@ -540,7 +576,7 @@ def low_stock(threshold: int = 5) -> List[dict]:
                     # and do NOT emit parent-level alerts. This avoids duplicate/ambiguous alerts when
                     # variants are the actual stock carriers.
                     # (If desired in future, we can add a config flag to re-enable parent alerts.)
-                else:
+            else:
                     # No variants: existing behavior
                     if item.get("is_special_volume"):
                         unit_size = float(item.get("unit_size_ml") or 1)
@@ -554,26 +590,26 @@ def low_stock(threshold: int = 5) -> List[dict]:
                             item["actual_volume"] = item["quantity"]
                             item["display_unit"] = "units"
                             low_items.append(item)
+        except Exception:
+            # On any unexpected error when checking variants, fall back to item-level check
+            try:
+                if item.get("is_special_volume"):
+                    unit_size = float(item.get("unit_size_ml") or 1)
+                    actual_volume = item["quantity"] * unit_size
+                    if actual_volume <= item_threshold:
+                        item["actual_volume"] = actual_volume
+                        item["display_unit"] = ("L" if (item.get("unit_of_measure") or "").lower() in ("litre","liter","liters","litres","l") else ("kg" if (item.get("unit_of_measure") or "").lower() in ("kilogram","kilograms","kg","kgs") else ("m" if (item.get("unit_of_measure") or "").lower() in ("meter","meters","metre","metres","m") else "units")))
+                        low_items.append(item)
+                else:
+                    if item["quantity"] <= item_threshold:
+                        item["actual_volume"] = item["quantity"]
+                        item["display_unit"] = "units"
+                        low_items.append(item)
             except Exception:
-                # On any unexpected error when checking variants, fall back to item-level check
-                try:
-                    if item.get("is_special_volume"):
-                        unit_size = float(item.get("unit_size_ml") or 1)
-                        actual_volume = item["quantity"] * unit_size
-                        if actual_volume <= item_threshold:
-                            item["actual_volume"] = actual_volume
-                            item["display_unit"] = ("L" if (item.get("unit_of_measure") or "").lower() in ("litre","liter","liters","litres","l") else ("kg" if (item.get("unit_of_measure") or "").lower() in ("kilogram","kilograms","kg","kgs") else ("m" if (item.get("unit_of_measure") or "").lower() in ("meter","meters","metre","metres","m") else "units")))
-                            low_items.append(item)
-                    else:
-                        if item["quantity"] <= item_threshold:
-                            item["actual_volume"] = item["quantity"]
-                            item["display_unit"] = "units"
-                            low_items.append(item)
-                except Exception:
-                    # Give up and skip
-                    continue
+                # Give up and skip
+                continue
 
-        return low_items
+    return low_items
 
 
 def get_categories() -> List[str]:

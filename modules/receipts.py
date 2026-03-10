@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import datetime
-from database.init_db import get_connection
+from database.init_db import get_connection, get_setting
+from utils.date_utils import format_date
 
 
 def get_sale_with_items(sale_id: int) -> dict | None:
@@ -49,6 +50,17 @@ def get_sale_with_items(sale_id: int) -> dict | None:
         # Convert Row to dict
         sale_dict = dict(sale)
         
+        # Fetch split payment breakdown if the table exists
+        split_payments = []
+        try:
+            sp_rows = conn.execute(
+                "SELECT payment_method, amount FROM sale_payments WHERE sale_id = ? ORDER BY sale_payment_id",
+                (sale_id,)
+            ).fetchall()
+            split_payments = [{"method": r["payment_method"], "amount": r["amount"]} for r in sp_rows]
+        except Exception:
+            pass  # table may not exist on old databases
+
         return {
             "sale_id": sale_dict["sale_id"],
             "receipt_number": sale_dict.get("receipt_number"),
@@ -61,6 +73,7 @@ def get_sale_with_items(sale_id: int) -> dict | None:
             "payment_received": sale_dict.get("payment_received", 0),
             "change": sale_dict.get("change", 0),
             "payment_method": sale_dict.get("payment_method", "Cash"),
+            "split_payments": split_payments,
             "user_id": sale_dict.get("user_id"),
             "username": sale_dict.get("username"),
             "customer_id": sale_dict.get("customer_id"),
@@ -84,7 +97,7 @@ def format_receipt(sale_data: dict, currency_code: str = "KES", store_name: str 
     receipt.append("")
     
     receipt.append(f"Receipt #: {sale_data.get('receipt_number', sale_data['sale_id'])}")
-    receipt.append(f"Date: {sale_data['date']} {sale_data['time']}")
+    receipt.append(f"Date: {format_date(sale_data['date'])} {sale_data['time']}")
     
     # Add voided status if applicable
     if sale_data.get("voided"):
@@ -160,13 +173,20 @@ def format_receipt(sale_data: dict, currency_code: str = "KES", store_name: str 
     receipt.append("=" * 50)
     receipt.append(f"TOTAL: {' ' * 35} {currency_code} {sale_data['total']:.2f}")
     receipt.append("=" * 50)
-    receipt.append(f"Payment Method: {sale_data['payment_method']}")
+    split = sale_data.get("split_payments", [])
+    if split:
+        receipt.append("Payment Breakdown:")
+        for sp in split:
+            receipt.append(f"  {sp['method']:<18} {currency_code} {sp['amount']:.2f}")
+    else:
+        receipt.append(f"Payment Method: {sale_data['payment_method']}")
     receipt.append(f"Amount Paid: {currency_code} {sale_data['payment_received']:.2f}")
     if sale_data["change"] > 0:
         receipt.append(f"Change: {currency_code} {sale_data['change']:.2f}")
     
     receipt.append("")
-    receipt.append("Thank you for your purchase!".center(50))
+    footer_text = get_setting('receipt_footer') or "Thank you for your purchase!"
+    receipt.append(footer_text.center(50))
     receipt.append("=" * 50)
     
     return "\n".join(receipt)
@@ -241,8 +261,10 @@ def list_sales_with_search(
                     query += " AND (UPPER(s.receipt_number) LIKE UPPER(?) OR UPPER(u.username) LIKE UPPER(?))"
                     params.extend([f"%{search_term}%"] * 2)
         
-        query += " ORDER BY s.date DESC, s.time DESC LIMIT ?"
-        params.append(limit)
+        query += " ORDER BY s.date DESC, s.time DESC"
+        if limit is not None:
+            query += " LIMIT ?"
+            params.append(limit)
         
         rows = conn.execute(query, params).fetchall()
         
@@ -258,12 +280,13 @@ def list_sales_with_search(
 
 def get_receipt_by_id(sale_id: int) -> str | None:
     """Get formatted receipt text by sale ID."""
-    from utils.security import get_currency_code
+    from utils.i18n import get_currency_symbol
     sale_data = get_sale_with_items(sale_id)
     if not sale_data:
         return None
-    currency = get_currency_code()
-    return format_receipt(sale_data, currency_code=currency)
+    currency = get_currency_symbol()
+    store_name = get_setting('business_name') or "Kiosk POS"
+    return format_receipt(sale_data, currency_code=currency, store_name=store_name)
 
 
 def void_sale(sale_id: int, void_reason: str, voided_by_user_id: int) -> bool:

@@ -16,10 +16,27 @@ from utils.date_utils import format_date
 from utils.security import get_username
 
 
+def _get_dashboard_colors():
+    """Get colors from the theme system for the dashboard."""
+    try:
+        from utils.theme import get_theme_colors
+        return get_theme_colors()
+    except Exception:
+        return {
+            'primary': '#1976D2', 'text_secondary': 'gray', 'text': '#1E1E1E',
+            'chart_bar': '#1976D2', 'chart_bar_edge': '#0D47A1',
+            'chart_bar_alt': '#FF6B35', 'chart_bar_alt_edge': '#E55A2B',
+            'chart_text_muted': '#6b7280',
+            'chart_palette': '#FF6B35,#F7931E,#FFD23F,#06FFA5,#4ECDC4,#45B7D1,#96CEB4,#FECA57,#FF9FF3,#54A0FF',
+            'surface': '#ffffff'
+        }
+
+
 class DashboardFrame(ttk.Frame):
     def __init__(self, master: tk.Misc, on_home=None, **kwargs):
         super().__init__(master, padding=(8, 8, 8, 12), **kwargs)
         self.on_home = on_home
+        self.theme_colors = _get_dashboard_colors()
         
         # Check permission to view dashboard
         current_user = get_username()
@@ -61,15 +78,16 @@ class DashboardFrame(ttk.Frame):
         # Title section
         title_frame = ttk.Frame(header)
         title_frame.grid(row=0, column=0, sticky=tk.W)
+        tc = self.theme_colors
         ttk.Label(title_frame, text="📊 Dashboard", font=("Segoe UI", 18, "bold"),
-                 foreground="#1976D2").pack(side=tk.LEFT, padx=(0, 20))
+                 foreground=tc.get('primary', '#1976D2')).pack(side=tk.LEFT, padx=(0, 20))
         ttk.Label(title_frame, text="Real-time business insights",
-                 font=("Segoe UI", 10), foreground="gray").pack(side=tk.LEFT)
+                 font=("Segoe UI", 10), foreground=tc.get('text_secondary', 'gray')).pack(side=tk.LEFT)
 
         # Navigation
         if self.on_home:
             ttk.Button(header, text="← Home", command=self.on_home,
-                      style="Accent.TButton").grid(row=0, column=1, sticky=tk.E)
+                      style="Primary.TButton").grid(row=0, column=1, sticky=tk.E)
 
         # Summary cards in a grid layout
         cards_container = ttk.Frame(header)
@@ -156,11 +174,11 @@ class DashboardFrame(ttk.Frame):
         buttons_frame.columnconfigure(2, weight=1)
 
         ttk.Button(buttons_frame, text="📈 Show Trend Chart", command=self._show_trend_chart_window,
-                  style="Accent.TButton").grid(row=0, column=0, sticky=tk.EW, padx=(0, 5))
+                  style="Primary.TButton").grid(row=0, column=0, sticky=tk.EW, padx=(0, 5))
         ttk.Button(buttons_frame, text="🕒 Show Hourly Chart", command=self._show_hourly_chart_window,
-                  style="Accent.TButton").grid(row=0, column=1, sticky=tk.EW, padx=(5, 5))
+                  style="Primary.TButton").grid(row=0, column=1, sticky=tk.EW, padx=(5, 5))
         ttk.Button(buttons_frame, text="💰 Show Expenses Chart", command=self._show_expenses_chart_window,
-                  style="Accent.TButton").grid(row=0, column=2, sticky=tk.EW, padx=(5, 0))
+                  style="Primary.TButton").grid(row=0, column=2, sticky=tk.EW, padx=(5, 0))
 
         return section
 
@@ -203,7 +221,7 @@ class DashboardFrame(ttk.Frame):
         self.top_products_tree.grid(row=0, column=0, sticky=tk.NSEW)
 
         ttk.Button(products_card, text="📋 Show All Products", command=self._show_top_products_window,
-                  style="Accent.TButton").grid(row=2, column=0, pady=(0, 10), padx=10, sticky=tk.EW)
+                  style="Primary.TButton").grid(row=2, column=0, pady=(0, 10), padx=10, sticky=tk.EW)
 
         # Low Stock Alerts
         alerts_card = ttk.Frame(section, relief="raised", borderwidth=1)
@@ -236,7 +254,7 @@ class DashboardFrame(ttk.Frame):
         self.alerts_tree.grid(row=0, column=0, sticky=tk.NSEW)
 
         ttk.Button(alerts_card, text="⚠️ Show All Alerts", command=self._show_alerts_window,
-                  style="Accent.TButton").grid(row=2, column=0, pady=(0, 10), padx=10, sticky=tk.EW)
+                  style="Primary.TButton").grid(row=2, column=0, pady=(0, 10), padx=10, sticky=tk.EW)
 
         # Recent Transactions
         recent_card = ttk.Frame(section, relief="raised", borderwidth=1)
@@ -271,7 +289,7 @@ class DashboardFrame(ttk.Frame):
         self.recent_tree.grid(row=0, column=0, sticky=tk.NSEW)
 
         ttk.Button(recent_card, text="🕐 Show All Transactions", command=self._show_recent_transactions_window,
-                  style="Accent.TButton").grid(row=2, column=0, pady=(0, 10), padx=10, sticky=tk.EW)
+                  style="Primary.TButton").grid(row=2, column=0, pady=(0, 10), padx=10, sticky=tk.EW)
 
         return section
 
@@ -289,7 +307,7 @@ class DashboardFrame(ttk.Frame):
         header = ttk.Frame(card, style="CardHeader.TFrame")
         header.grid(row=0, column=0, sticky=tk.EW, padx=12, pady=(12, 8))
         ttk.Label(header, text=f"{icon} {title}", font=("Segoe UI", 10, "bold"),
-                 foreground="#1976D2").pack(side=tk.LEFT)
+                 foreground=self.theme_colors.get('primary', '#1976D2')).pack(side=tk.LEFT)
         ttk.Separator(header, orient="horizontal").pack(side=tk.BOTTOM, fill=tk.X, pady=(8, 0))
 
         # Content area
@@ -298,12 +316,12 @@ class DashboardFrame(ttk.Frame):
 
         # Revenue display
         revenue_label = ttk.Label(content, text=f"{currency} 0.00",
-                                 font=("Segoe UI", 20, "bold"), foreground="#2E7D32")
+                                 font=("Segoe UI", 20, "bold"), foreground=self.theme_colors.get('success', '#2E7D32'))
         revenue_label.pack(anchor=tk.W)
 
         # Transaction info
         trans_label = ttk.Label(content, text="0 transactions",
-                               font=("Segoe UI", 9), foreground="gray")
+                               font=("Segoe UI", 9), foreground=self.theme_colors.get('text_secondary', 'gray'))
         trans_label.pack(anchor=tk.W, pady=(4, 0))
 
         # Store references
@@ -384,14 +402,15 @@ class DashboardFrame(ttk.Frame):
                             qty_display,
                             f"{currency} {product['revenue']:.2f}"
                         ), tags=tuple(tags))
-                self.top_products_tree.tag_configure("even", background="#F8F9FA")
-                self.top_products_tree.tag_configure("odd", background="#FFFFFF")
-                self.top_products_tree.tag_configure("empty", foreground="gray", background="#F5F5F5")
+                _row_fg = self.theme_colors.get('text', '#1f2937')
+                self.top_products_tree.tag_configure("even", background=self.theme_colors.get('table_row_alt', '#F8F9FA'), foreground=_row_fg)
+                self.top_products_tree.tag_configure("odd", background=self.theme_colors.get('surface', '#FFFFFF'), foreground=_row_fg)
+                self.top_products_tree.tag_configure("empty", foreground=self.theme_colors.get('text_secondary', 'gray'), background=self.theme_colors.get('background', '#F5F5F5'))
             
             # Update low stock alerts
             if hasattr(self, 'alerts_tree'):
                 self.alerts_tree.delete(*self.alerts_tree.get_children())
-                low_stock_items = dashboard.get_low_stock_items(3)
+                low_stock_items = dashboard.get_low_stock_items(limit=3)
                 if not low_stock_items:
                     self.alerts_tree.insert("", tk.END, values=("None", "-", "-"), tags=("empty",))
                 else:
@@ -419,11 +438,14 @@ class DashboardFrame(ttk.Frame):
                             qty_display,
                             threshold_display
                         ), tags=tuple(tags))
-                self.alerts_tree.tag_configure("critical", foreground="red", background="#FFEBEE")
-                self.alerts_tree.tag_configure("warning", foreground="orange", background="#FFF3E0")
-                self.alerts_tree.tag_configure("empty", foreground="gray", background="#F5F5F5")
-                self.alerts_tree.tag_configure("even", background="#F8F9FA")
-                self.alerts_tree.tag_configure("odd", background="#FFFFFF")
+                _row_fg = self.theme_colors.get('text', '#1f2937')
+                _err_bg = self.theme_colors.get('danger_bg', '#FFEBEE')
+                _warn_bg = self.theme_colors.get('warning_bg', '#FFF3E0')
+                self.alerts_tree.tag_configure("critical", foreground=self.theme_colors.get('danger', 'red'), background=_err_bg)
+                self.alerts_tree.tag_configure("warning", foreground=self.theme_colors.get('warning', 'orange'), background=_warn_bg)
+                self.alerts_tree.tag_configure("empty", foreground=self.theme_colors.get('text_secondary', 'gray'), background=self.theme_colors.get('background', '#F5F5F5'))
+                self.alerts_tree.tag_configure("even", background=self.theme_colors.get('table_row_alt', '#F8F9FA'), foreground=_row_fg)
+                self.alerts_tree.tag_configure("odd", background=self.theme_colors.get('surface', '#FFFFFF'), foreground=_row_fg)
             
             # Update recent sales
             if hasattr(self, 'recent_tree'):
@@ -453,10 +475,12 @@ class DashboardFrame(ttk.Frame):
                             f"{currency} {abs(txn['amount']):.2f}"
                         ), tags=tuple(tags))
                 
-                self.recent_tree.tag_configure("refund", foreground="#D32F2F", background="#FFEBEE")
-                self.recent_tree.tag_configure("even", background="#F8F9FA")
-                self.recent_tree.tag_configure("odd", background="#FFFFFF")
-                self.recent_tree.tag_configure("empty", foreground="gray", background="#F5F5F5")
+                _row_fg = self.theme_colors.get('text', '#1f2937')
+                _err_bg = self.theme_colors.get('danger_bg', '#FFEBEE')
+                self.recent_tree.tag_configure("refund", foreground=self.theme_colors.get('danger', '#D32F2F'), background=_err_bg)
+                self.recent_tree.tag_configure("even", background=self.theme_colors.get('table_row_alt', '#F8F9FA'), foreground=_row_fg)
+                self.recent_tree.tag_configure("odd", background=self.theme_colors.get('surface', '#FFFFFF'), foreground=_row_fg)
+                self.recent_tree.tag_configure("empty", foreground=self.theme_colors.get('text_secondary', 'gray'), background=self.theme_colors.get('background', '#F5F5F5'))
             
             # Ensure treeview columns are sized to current layout
             self._adjust_tree_columns()
@@ -480,9 +504,9 @@ class DashboardFrame(ttk.Frame):
         data = dashboard.get_sales_trend_data(7)
         if not data:
             self.trend_ax.clear()
-            self.trend_ax.set_facecolor('#ffffff')
+            self.trend_ax.set_facecolor(self.theme_colors.get('surface', '#ffffff'))
             self.trend_ax.text(0.5, 0.5, "No sales data yet\n📊", ha='center', va='center', 
-                             fontsize=14, color='#666666', fontweight='medium')
+                             fontsize=14, color=self.theme_colors.get('chart_text_muted', '#6b7280'), fontweight='medium')
             self.trend_ax.set_xlim(0, 1)
             self.trend_ax.set_ylim(0, 1)
             self.trend_ax.axis('off')
@@ -494,7 +518,7 @@ class DashboardFrame(ttk.Frame):
         revenues = [d["revenue"] for d in data]
         
         self.trend_ax.clear()
-        bars = self.trend_ax.bar(dates, revenues, color='#1976D2', edgecolor='#0D47A1', width=0.6, alpha=0.8)
+        bars = self.trend_ax.bar(dates, revenues, color=self.theme_colors.get('chart_bar', '#1976D2'), edgecolor=self.theme_colors.get('chart_bar_edge', '#0D47A1'), width=0.6, alpha=0.8)
         self.trend_ax.set_title("7-Day Sales Trend", fontsize=10, fontweight='bold', pad=10)
         self.trend_ax.set_ylabel("Revenue", fontsize=8, fontweight='medium')
         self.trend_ax.tick_params(axis='both', which='major', labelsize=7)
@@ -510,7 +534,7 @@ class DashboardFrame(ttk.Frame):
             if height > 0:
                 self.trend_ax.text(bar.get_x() + bar.get_width()/2., height + max(revenues) * 0.02,
                                  f'{currency} {revenue:.2f}', ha='center', va='bottom', 
-                                 fontsize=6, fontweight='bold', color='#0D47A1')
+                                 fontsize=6, fontweight='bold', color=self.theme_colors.get('chart_bar_edge', '#0D47A1'))
         
         # Use tight layout for better spacing
         self.trend_figure.tight_layout(rect=[0.08, 0.15, 0.95, 0.9])
@@ -524,9 +548,9 @@ class DashboardFrame(ttk.Frame):
         data = dashboard.get_hourly_sales_data(today)
         if not data:
             self.hourly_ax.clear()
-            self.hourly_ax.set_facecolor('#ffffff')
+            self.hourly_ax.set_facecolor(self.theme_colors.get('surface', '#ffffff'))
             self.hourly_ax.text(0.5, 0.5, "No sales data yet\n🕐", ha='center', va='center', 
-                              fontsize=14, color='#666666', fontweight='medium')
+                              fontsize=14, color=self.theme_colors.get('chart_text_muted', '#6b7280'), fontweight='medium')
             self.hourly_ax.set_xlim(0, 1)
             self.hourly_ax.set_ylim(0, 1)
             self.hourly_ax.axis('off')
@@ -538,7 +562,7 @@ class DashboardFrame(ttk.Frame):
         revenues = [d["revenue"] for d in data]
         
         self.hourly_ax.clear()
-        bars = self.hourly_ax.bar(hours, revenues, color='#FF6B35', edgecolor='#E55A2B', width=0.6, alpha=0.8)
+        bars = self.hourly_ax.bar(hours, revenues, color=self.theme_colors.get('chart_bar_alt', '#FF6B35'), edgecolor=self.theme_colors.get('chart_bar_alt_edge', '#E55A2B'), width=0.6, alpha=0.8)
         self.hourly_ax.set_title("Today's Hourly Sales", fontsize=10, fontweight='bold', pad=10)
         self.hourly_ax.set_ylabel("Revenue", fontsize=8, fontweight='medium')
         self.hourly_ax.tick_params(axis='both', which='major', labelsize=7)
@@ -554,7 +578,7 @@ class DashboardFrame(ttk.Frame):
             if height > 0:
                 self.hourly_ax.text(bar.get_x() + bar.get_width()/2., height + max(revenues) * 0.02,
                                   f'{currency} {revenue:.2f}', ha='center', va='bottom', 
-                                  fontsize=6, fontweight='bold', color='#E55A2B')
+                                  fontsize=6, fontweight='bold', color=self.theme_colors.get('chart_bar_alt_edge', '#E55A2B'))
         
         # Use tight layout for better spacing
         self.hourly_figure.tight_layout(rect=[0.08, 0.15, 0.95, 0.9])
@@ -643,9 +667,9 @@ class DashboardFrame(ttk.Frame):
         trend_frame = ttk.LabelFrame(main_frame, text="📈 7-Day Sales Trend", padding=10)
         trend_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
 
-        trend_figure = plt.Figure(figsize=(12, 6), dpi=100, facecolor='#ffffff')
+        trend_figure = plt.Figure(figsize=(12, 6), dpi=100, facecolor=self.theme_colors.get('surface', '#ffffff'))
         trend_ax = trend_figure.add_subplot(111)
-        trend_ax.set_facecolor('#ffffff')
+        trend_ax.set_facecolor(self.theme_colors.get('surface', '#ffffff'))
         trend_canvas = FigureCanvasTkAgg(trend_figure, master=trend_frame)
         trend_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
@@ -656,7 +680,7 @@ class DashboardFrame(ttk.Frame):
             dates = [format_date(datetime.strptime(d["date"], "%Y-%m-%d")) for d in data]
             revenues = [d["revenue"] for d in data]
             
-            bars = trend_ax.bar(dates, revenues, color='#1976D2', edgecolor='#0D47A1', width=0.6, alpha=0.8)
+            bars = trend_ax.bar(dates, revenues, color=self.theme_colors.get('chart_bar', '#1976D2'), edgecolor=self.theme_colors.get('chart_bar_edge', '#0D47A1'), width=0.6, alpha=0.8)
             trend_ax.set_title("7-Day Sales Trend", fontsize=14, fontweight='bold', pad=15)
             trend_ax.set_ylabel("Revenue", fontsize=12, fontweight='medium')
             trend_ax.tick_params(axis='both', which='major', labelsize=10)
@@ -668,13 +692,13 @@ class DashboardFrame(ttk.Frame):
                 if height > 0:
                     trend_ax.text(bar.get_x() + bar.get_width()/2., height + max(revenues) * 0.02,
                                  f'{currency} {revenue:.2f}', ha='center', va='bottom', 
-                                 fontsize=9, fontweight='bold', color='#0D47A1')
+                                 fontsize=9, fontweight='bold', color=self.theme_colors.get('chart_bar_edge', '#0D47A1'))
             
             trend_figure.tight_layout(rect=[0.08, 0.15, 0.95, 0.9])
             trend_canvas.draw()
         else:
             trend_ax.text(0.5, 0.5, "No sales data yet\n📊", ha='center', va='center', 
-                         fontsize=16, color='#666666', fontweight='medium')
+                         fontsize=16, color=self.theme_colors.get('chart_text_muted', '#6b7280'), fontweight='medium')
             trend_ax.set_xlim(0, 1)
             trend_ax.set_ylim(0, 1)
             trend_ax.axis('off')
@@ -685,9 +709,9 @@ class DashboardFrame(ttk.Frame):
         hourly_frame = ttk.LabelFrame(main_frame, text="🕒 Today's Hourly Sales", padding=10)
         hourly_frame.pack(fill=tk.BOTH, expand=True)
 
-        hourly_figure = plt.Figure(figsize=(12, 6), dpi=100, facecolor='#ffffff')
+        hourly_figure = plt.Figure(figsize=(12, 6), dpi=100, facecolor=self.theme_colors.get('surface', '#ffffff'))
         hourly_ax = hourly_figure.add_subplot(111)
-        hourly_ax.set_facecolor('#ffffff')
+        hourly_ax.set_facecolor(self.theme_colors.get('surface', '#ffffff'))
         hourly_canvas = FigureCanvasTkAgg(hourly_figure, master=hourly_frame)
         hourly_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
@@ -698,7 +722,7 @@ class DashboardFrame(ttk.Frame):
             hours = [f"{int(d['hour']):02d}:00" for d in data]
             revenues = [d["revenue"] for d in data]
             
-            bars = hourly_ax.bar(hours, revenues, color='#FF6B35', edgecolor='#E55A2B', width=0.6, alpha=0.8)
+            bars = hourly_ax.bar(hours, revenues, color=self.theme_colors.get('chart_bar_alt', '#FF6B35'), edgecolor=self.theme_colors.get('chart_bar_alt_edge', '#E55A2B'), width=0.6, alpha=0.8)
             hourly_ax.set_title("Today's Hourly Sales", fontsize=14, fontweight='bold', pad=15)
             hourly_ax.set_ylabel("Revenue", fontsize=12, fontweight='medium')
             hourly_ax.tick_params(axis='both', which='major', labelsize=10)
@@ -710,13 +734,13 @@ class DashboardFrame(ttk.Frame):
                 if height > 0:
                     hourly_ax.text(bar.get_x() + bar.get_width()/2., height + max(revenues) * 0.02,
                                   f'{currency} {revenue:.2f}', ha='center', va='bottom', 
-                                  fontsize=9, fontweight='bold', color='#E55A2B')
+                                  fontsize=9, fontweight='bold', color=self.theme_colors.get('chart_bar_alt_edge', '#E55A2B'))
             
             hourly_figure.tight_layout(rect=[0.08, 0.15, 0.95, 0.9])
             hourly_canvas.draw()
         else:
             hourly_ax.text(0.5, 0.5, "No sales data yet\n🕐", ha='center', va='center', 
-                          fontsize=16, color='#666666', fontweight='medium')
+                          fontsize=16, color=self.theme_colors.get('chart_text_muted', '#6b7280'), fontweight='medium')
             hourly_ax.set_xlim(0, 1)
             hourly_ax.set_ylim(0, 1)
             hourly_ax.axis('off')
@@ -744,9 +768,9 @@ class DashboardFrame(ttk.Frame):
         trend_frame = ttk.LabelFrame(main_frame, text="📈 7-Day Sales Trend", padding=10)
         trend_frame.pack(fill=tk.BOTH, expand=True)
 
-        trend_figure = plt.Figure(figsize=(10, 6), dpi=100, facecolor='#ffffff')
+        trend_figure = plt.Figure(figsize=(10, 6), dpi=100, facecolor=self.theme_colors.get('surface', '#ffffff'))
         trend_ax = trend_figure.add_subplot(111)
-        trend_ax.set_facecolor('#ffffff')
+        trend_ax.set_facecolor(self.theme_colors.get('surface', '#ffffff'))
         trend_canvas = FigureCanvasTkAgg(trend_figure, master=trend_frame)
         trend_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
@@ -757,7 +781,7 @@ class DashboardFrame(ttk.Frame):
             dates = [format_date(datetime.strptime(d["date"], "%Y-%m-%d")) for d in data]
             revenues = [d["revenue"] for d in data]
             
-            bars = trend_ax.bar(dates, revenues, color='#1976D2', edgecolor='#0D47A1', width=0.6, alpha=0.8)
+            bars = trend_ax.bar(dates, revenues, color=self.theme_colors.get('chart_bar', '#1976D2'), edgecolor=self.theme_colors.get('chart_bar_edge', '#0D47A1'), width=0.6, alpha=0.8)
             trend_ax.set_title("7-Day Sales Trend", fontsize=14, fontweight='bold', pad=15)
             trend_ax.set_ylabel("Revenue", fontsize=12, fontweight='medium')
             trend_ax.tick_params(axis='both', which='major', labelsize=10)
@@ -769,13 +793,13 @@ class DashboardFrame(ttk.Frame):
                 if height > 0:
                     trend_ax.text(bar.get_x() + bar.get_width()/2., height + max(revenues) * 0.02,
                                  f'{currency} {revenue:.2f}', ha='center', va='bottom', 
-                                 fontsize=9, fontweight='bold', color='#0D47A1')
+                                 fontsize=9, fontweight='bold', color=self.theme_colors.get('chart_bar_edge', '#0D47A1'))
             
             trend_figure.tight_layout(rect=[0.08, 0.15, 0.95, 0.9])
             trend_canvas.draw()
         else:
             trend_ax.text(0.5, 0.5, "No sales data yet\n📊", ha='center', va='center', 
-                         fontsize=16, color='#666666', fontweight='medium')
+                         fontsize=16, color=self.theme_colors.get('chart_text_muted', '#6b7280'), fontweight='medium')
             trend_ax.set_xlim(0, 1)
             trend_ax.set_ylim(0, 1)
             trend_ax.axis('off')
@@ -803,9 +827,9 @@ class DashboardFrame(ttk.Frame):
         hourly_frame = ttk.LabelFrame(main_frame, text="🕒 Today's Hourly Sales", padding=10)
         hourly_frame.pack(fill=tk.BOTH, expand=True)
 
-        hourly_figure = plt.Figure(figsize=(10, 6), dpi=100, facecolor='#ffffff')
+        hourly_figure = plt.Figure(figsize=(10, 6), dpi=100, facecolor=self.theme_colors.get('surface', '#ffffff'))
         hourly_ax = hourly_figure.add_subplot(111)
-        hourly_ax.set_facecolor('#ffffff')
+        hourly_ax.set_facecolor(self.theme_colors.get('surface', '#ffffff'))
         hourly_canvas = FigureCanvasTkAgg(hourly_figure, master=hourly_frame)
         hourly_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
@@ -817,7 +841,7 @@ class DashboardFrame(ttk.Frame):
             hours = [f"{int(d['hour']):02d}:00" for d in data]
             revenues = [d["revenue"] for d in data]
             
-            bars = hourly_ax.bar(hours, revenues, color='#FF6B35', edgecolor='#E55A2B', width=0.6, alpha=0.8)
+            bars = hourly_ax.bar(hours, revenues, color=self.theme_colors.get('chart_bar_alt', '#FF6B35'), edgecolor=self.theme_colors.get('chart_bar_alt_edge', '#E55A2B'), width=0.6, alpha=0.8)
             hourly_ax.set_title("Today's Hourly Sales", fontsize=14, fontweight='bold', pad=15)
             hourly_ax.set_ylabel("Revenue", fontsize=12, fontweight='medium')
             hourly_ax.tick_params(axis='both', which='major', labelsize=10)
@@ -829,13 +853,13 @@ class DashboardFrame(ttk.Frame):
                 if height > 0:
                     hourly_ax.text(bar.get_x() + bar.get_width()/2., height + max(revenues) * 0.02,
                                   f'{currency} {revenue:.2f}', ha='center', va='bottom', 
-                                  fontsize=9, fontweight='bold', color='#E55A2B')
+                                  fontsize=9, fontweight='bold', color=self.theme_colors.get('chart_bar_alt_edge', '#E55A2B'))
             
             hourly_figure.tight_layout(rect=[0.08, 0.15, 0.95, 0.9])
             hourly_canvas.draw()
         else:
             hourly_ax.text(0.5, 0.5, "No sales data yet\n🕐", ha='center', va='center', 
-                          fontsize=16, color='#666666', fontweight='medium')
+                          fontsize=16, color=self.theme_colors.get('chart_text_muted', '#6b7280'), fontweight='medium')
             hourly_ax.set_xlim(0, 1)
             hourly_ax.set_ylim(0, 1)
             hourly_ax.axis('off')
@@ -863,9 +887,9 @@ class DashboardFrame(ttk.Frame):
         expenses_frame = ttk.LabelFrame(main_frame, text="💰 Expenses by Category (Last 30 Days)", padding=10)
         expenses_frame.pack(fill=tk.BOTH, expand=True)
 
-        expenses_figure = plt.Figure(figsize=(10, 8), dpi=100, facecolor='#ffffff')
+        expenses_figure = plt.Figure(figsize=(10, 8), dpi=100, facecolor=self.theme_colors.get('surface', '#ffffff'))
         expenses_ax = expenses_figure.add_subplot(111)
-        expenses_ax.set_facecolor('#ffffff')
+        expenses_ax.set_facecolor(self.theme_colors.get('surface', '#ffffff'))
         expenses_canvas = FigureCanvasTkAgg(expenses_figure, master=expenses_frame)
         expenses_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
@@ -879,8 +903,7 @@ class DashboardFrame(ttk.Frame):
             amounts = [d['total_amount'] for d in filtered_data]
             
             # Create a colorful pie chart
-            colors = ['#FF6B35', '#F7931E', '#FFD23F', '#06FFA5', '#4ECDC4', 
-                     '#45B7D1', '#96CEB4', '#FECA57', '#FF9FF3', '#54A0FF']
+            colors = self.theme_colors.get('chart_palette', '#FF6B35,#F7931E,#FFD23F,#06FFA5,#4ECDC4,#45B7D1,#96CEB4,#FECA57,#FF9FF3,#54A0FF').split(',')
             
             # Explode the largest slice slightly
             explode = [0.1 if amt == max(amounts) else 0 for amt in amounts]
@@ -907,7 +930,7 @@ class DashboardFrame(ttk.Frame):
             expenses_canvas.draw()
         else:
             expenses_ax.text(0.5, 0.5, "No expense data yet\n💰", ha='center', va='center', 
-                           fontsize=16, color='#666666', fontweight='medium')
+                           fontsize=16, color=self.theme_colors.get('chart_text_muted', '#6b7280'), fontweight='medium')
             expenses_ax.set_xlim(0, 1)
             expenses_ax.set_ylim(0, 1)
             expenses_ax.axis('off')
@@ -961,8 +984,9 @@ class DashboardFrame(ttk.Frame):
             tags = "even" if i % 2 == 0 else "odd"
             tree.item(tree.get_children()[-1], tags=(tags,))
 
-        tree.tag_configure("even", background="#F8F9FA")
-        tree.tag_configure("odd", background="#FFFFFF")
+        _row_fg = self.theme_colors.get('text', '#1f2937')
+        tree.tag_configure("even", background=self.theme_colors.get('table_row_alt', '#F8F9FA'), foreground=_row_fg)
+        tree.tag_configure("odd", background=self.theme_colors.get('surface', '#FFFFFF'), foreground=_row_fg)
 
     def _show_alerts_window(self):
         """Open a window with full low stock alerts."""
@@ -999,7 +1023,7 @@ class DashboardFrame(ttk.Frame):
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
         # Populate data
-        low_stock_items = dashboard.get_low_stock_items(50)
+        low_stock_items = dashboard.get_low_stock_items(limit=50)
         for i, item in enumerate(low_stock_items):
             actual = item.get("actual_volume", item["quantity"])
             threshold_val = item.get("threshold", 10)
@@ -1024,10 +1048,11 @@ class DashboardFrame(ttk.Frame):
                 threshold_display
             ), tags=tuple(tags))
 
-        tree.tag_configure("critical", foreground="red", background="#FFEBEE")
-        tree.tag_configure("warning", foreground="orange", background="#FFF3E0")
-        tree.tag_configure("even", background="#F8F9FA")
-        tree.tag_configure("odd", background="#FFFFFF")
+        _row_fg = self.theme_colors.get('text', '#1f2937')
+        tree.tag_configure("critical", foreground=self.theme_colors.get('danger', 'red'), background=self.theme_colors.get('danger_bg', '#FFEBEE'))
+        tree.tag_configure("warning", foreground=self.theme_colors.get('warning', 'orange'), background=self.theme_colors.get('warning_bg', '#FFF3E0'))
+        tree.tag_configure("even", background=self.theme_colors.get('table_row_alt', '#F8F9FA'), foreground=_row_fg)
+        tree.tag_configure("odd", background=self.theme_colors.get('surface', '#FFFFFF'), foreground=_row_fg)
 
     def _show_recent_transactions_window(self):
         """Open a window with full recent transactions."""
@@ -1088,6 +1113,7 @@ class DashboardFrame(ttk.Frame):
                 f"{currency} {abs(txn['amount']):.2f}"
             ), tags=tuple(tags))
 
-        tree.tag_configure("refund", foreground="#D32F2F", background="#FFEBEE")
-        tree.tag_configure("even", background="#F8F9FA")
-        tree.tag_configure("odd", background="#FFFFFF")
+        _row_fg = self.theme_colors.get('text', '#1f2937')
+        tree.tag_configure("refund", foreground=self.theme_colors.get('danger', '#D32F2F'), background=self.theme_colors.get('danger_bg', '#FFEBEE'))
+        tree.tag_configure("even", background=self.theme_colors.get('table_row_alt', '#F8F9FA'), foreground=_row_fg)
+        tree.tag_configure("odd", background=self.theme_colors.get('surface', '#FFFFFF'), foreground=_row_fg)

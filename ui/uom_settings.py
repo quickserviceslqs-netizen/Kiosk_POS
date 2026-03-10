@@ -6,6 +6,7 @@ from tkinter import ttk, messagebox, simpledialog
 
 from modules import units_of_measure as uom
 from utils import set_window_icon
+from utils.theme import get_status_color
 
 
 class UomSettingsFrame(ttk.Frame):
@@ -195,7 +196,7 @@ class UomSettingsFrame(ttk.Frame):
             form_frame,
             text="Note: Conversion factor = how many base units in this unit.\nE.g., 1 kg = 1000 g, so kg has factor 1000 with base 'gram'.",
             font=("Segoe UI", 9),
-            foreground="gray"
+            foreground=get_status_color("text_light")
         )
         help_text.grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=(15, 5), padx=8)
 

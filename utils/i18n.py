@@ -243,10 +243,28 @@ def get_currency_code() -> str:
 
 def get_default_currency_symbol_for_code(code: str) -> str:
     """Get the default currency symbol for a given currency code."""
+    # Fast lookup table — covers the currencies offered in the setup wizard
+    _SYMBOL_MAP: dict = {
+        'USD': '$',   'CAD': 'CA$', 'AUD': 'A$',  'NZD': 'NZ$',
+        'EUR': '\u20ac',  # €
+        'GBP': '\u00a3',  # £
+        'JPY': '\u00a5',  # ¥
+        'CNY': '\u00a5',  # ¥
+        'KES': 'KSh', 'ZAR': 'R',   'NGN': '\u20a6',  # ₦
+        'GHS': 'GH\u20b5',  # GH₵
+        'INR': '\u20b9',  # ₹
+        'BRL': 'R$',  'MXN': 'MX$', 'SGD': 'S$',  'HKD': 'HK$',
+        'CHF': 'Fr',  'SEK': 'kr',  'NOK': 'kr',  'DKK': 'kr',
+        'AED': 'AED', 'SAR': '\u0631.\u0633',
+    }
+    upper = code.strip().upper()
+    if upper in _SYMBOL_MAP:
+        return _SYMBOL_MAP[upper]
+    # Fall back to scanning DEFAULT_TRANSLATIONS locale table
     for lang, translations in DEFAULT_TRANSLATIONS.items():
-        if translations.get("currency_code") == code.upper():
+        if translations.get("currency_code") == upper:
             return translations.get("currency_symbol", "$")
-    return "$"  # fallback
+    return "$"  # final fallback
 
 
 def format_currency(amount: float) -> str:

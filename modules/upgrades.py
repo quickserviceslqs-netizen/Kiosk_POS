@@ -230,23 +230,45 @@ def _compare_versions(v1: str, v2: str) -> int:
     return 0
 
 
-def _is_upgrade_already_applied(upgrade_id: str) -> bool:
-    """Check if an upgrade has already been applied successfully and not rolled back."""
-    history_file = Path(get_default_db_path()).parent / "upgrade_history.json"
-    if not history_file.exists():
-        return False
-
+def _ensure_history_table() -> None:
+    """Create upgrade_history table if it doesn't exist (defensive, idempotent)."""
     try:
-        with open(history_file, 'r') as f:
-            history = json.load(f)
+        conn = get_connection(get_default_db_path())
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS upgrade_history (
+                history_id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                upgrade_id          TEXT    NOT NULL,
+                version             TEXT    NOT NULL,
+                applied_at          TEXT    NOT NULL,
+                success             INTEGER NOT NULL DEFAULT 0,
+                description         TEXT,
+                logs                TEXT,
+                backup_path         TEXT,
+                rollback_operations TEXT,
+                created_at          TEXT    DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_upgrade_history_upgrade_id ON upgrade_history(upgrade_id)"
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.warning(f"Could not ensure upgrade_history table: {e}")
 
-        # Check if there's a successful application that hasn't been rolled back
-        successful_applications = [h for h in history if (h.get("id") == upgrade_id or h.get("version") == upgrade_id) and h.get("success", False)]
-        failed_applications = [h for h in history if (h.get("id") == upgrade_id or h.get("version") == upgrade_id) and not h.get("success", True)]
-        
-        # Allow re-application if the number of failed applications equals or exceeds successful ones
-        # (meaning it was rolled back)
-        return len(successful_applications) > len(failed_applications)
+
+def _is_upgrade_already_applied(upgrade_id: str) -> bool:
+    """Check whether this upgrade has a successful application in the DB (not rolled back)."""
+    _ensure_history_table()
+    try:
+        import sqlite3 as _sq
+        conn = get_connection(get_default_db_path())
+        row = conn.execute(
+            "SELECT COUNT(*) FROM upgrade_history WHERE upgrade_id=? AND success=1",
+            (upgrade_id,)
+        ).fetchone()
+        conn.close()
+        return bool(row and row[0] > 0)
     except Exception:
         return False
 
@@ -596,9 +618,11 @@ def _execute_python_step(step: Dict[str, Any], tmpdir: Path, rollback_operations
     pf = tmpdir / step.get("file")
 
     try:
-        # Run in subprocess for isolation
+        # Run in subprocess for isolation; include both package dir and app install dir
         env = os.environ.copy()
-        env["PYTHONPATH"] = str(tmpdir)  # Allow imports from package
+        app_dir = str(Path.cwd())
+        existing = env.get("PYTHONPATH", "")
+        env["PYTHONPATH"] = os.pathsep.join(p for p in [str(tmpdir), app_dir, existing] if p)
 
         res = subprocess.run([sys.executable, str(pf)],
                            cwd=str(tmpdir),
@@ -742,36 +766,92 @@ def _perform_rollback(rollback_operations: List[RollbackOperation], summary: Dic
 
 
 def _save_upgrade_history(history: UpgradeHistory) -> None:
-    """Save upgrade history to persistent storage."""
-    history_file = Path(get_default_db_path()).parent / "upgrade_history.json"
-
+    """Persist an upgrade history record into the SQLite database."""
     try:
-        if history_file.exists():
-            with open(history_file, 'r') as f:
-                existing_history = json.load(f)
-        else:
-            existing_history = []
-
-        existing_history.append(history.to_dict())
-
-        with open(history_file, 'w') as f:
-            json.dump(existing_history, f, indent=2)
-
+        conn = get_connection(get_default_db_path())
+        conn.execute(
+            """
+            INSERT INTO upgrade_history
+                (upgrade_id, version, applied_at, success, description, logs, backup_path, rollback_operations)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                history.id,
+                history.version,
+                history.applied_at.isoformat(),
+                1 if history.success else 0,
+                history.manifest.get("description", ""),
+                json.dumps(history.logs),
+                json.dumps(history.backup_paths),
+                json.dumps(history.rollback_operations),
+            )
+        )
+        conn.commit()
+        conn.close()
     except Exception as e:
         logger.error(f"Failed to save upgrade history: {e}")
 
 
-def get_upgrade_history() -> List[UpgradeHistory]:
-    """Retrieve upgrade history."""
-    history_file = Path(get_default_db_path()).parent / "upgrade_history.json"
-
-    if not history_file.exists():
-        return []
-
+def _mark_upgrade_rolled_back(upgrade_id: str) -> None:
+    """Mark the most recent successful application of an upgrade as rolled back in the DB."""
     try:
-        with open(history_file, 'r') as f:
-            data = json.load(f)
-        return [UpgradeHistory.from_dict(item) for item in data]
+        conn = get_connection(get_default_db_path())
+        conn.execute(
+            """
+            UPDATE upgrade_history SET success=0
+            WHERE history_id = (
+                SELECT history_id FROM upgrade_history
+                WHERE upgrade_id=? AND success=1
+                ORDER BY history_id DESC LIMIT 1
+            )
+            """,
+            (upgrade_id,)
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.error(f"Failed to mark upgrade as rolled back: {e}")
+
+
+def get_upgrade_history() -> List[UpgradeHistory]:
+    """Retrieve all upgrade history records from the database."""
+    _ensure_history_table()
+    try:
+        conn = get_connection(get_default_db_path())
+        rows = conn.execute(
+            """
+            SELECT upgrade_id, version, applied_at, success, description,
+                   logs, backup_path, rollback_operations
+            FROM upgrade_history ORDER BY history_id ASC
+            """
+        ).fetchall()
+        conn.close()
+        result = []
+        for row in rows:
+            uid, ver, applied_at, success, desc, logs_j, bp_j, rollback_j = row
+            try:
+                logs = json.loads(logs_j) if logs_j else []
+            except Exception:
+                logs = []
+            try:
+                backup_paths = json.loads(bp_j) if bp_j else []
+            except Exception:
+                backup_paths = []
+            try:
+                rollback_ops = json.loads(rollback_j) if rollback_j else []
+            except Exception:
+                rollback_ops = []
+            result.append(UpgradeHistory(
+                id=uid,
+                version=ver,
+                applied_at=datetime.fromisoformat(applied_at),
+                success=bool(success),
+                manifest={"description": desc or ""},
+                logs=logs,
+                backup_paths=backup_paths,
+                rollback_operations=rollback_ops,
+            ))
+        return result
     except Exception as e:
         logger.error(f"Failed to load upgrade history: {e}")
         return []
@@ -828,9 +908,8 @@ def rollback_upgrade(upgrade_id: str, progress_callback: Callable[[str, float], 
         if progress_callback:
             progress_callback("Updating upgrade history...", 95)
 
-        # Mark as rolled back in history
-        target_upgrade.success = False
-        _save_upgrade_history(target_upgrade)
+        # Mark the successful record as rolled back in the DB
+        _mark_upgrade_rolled_back(upgrade_id)
 
         if progress_callback:
             progress_callback("Rollback completed successfully", 100)

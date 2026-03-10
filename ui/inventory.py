@@ -1,6 +1,8 @@
 from __future__ import annotations
-from utils.security import get_currency_code
+from utils.i18n import get_currency_symbol
 from utils import set_window_icon
+from utils.theme import get_status_color
+from modules import permissions
 """Inventory management UI."""
 
 import tkinter as tk
@@ -16,6 +18,19 @@ from modules import vat_rates
 from modules import units_of_measure as uom
 from utils.images import validate_image_path, load_thumbnail
 from utils.csv_io import export_inventory_csv, import_inventory_csv
+
+
+def _get_tc():
+    """Get theme colors with safe fallback."""
+    try:
+        from utils.theme import get_theme_colors
+        return get_theme_colors()
+    except Exception:
+        return {'surface': '#FFFFFF', 'table_row_alt': '#F9F9F9', 'background': '#f5f5f5',
+                'text': '#1f2937', 'text_secondary': '#6b7280', 'border': '#e5e7eb',
+                'danger': '#ef4444', 'warning': '#f59e0b', 'primary': '#2563eb',
+                'field_bg': '#FFFFFF', 'field_text': '#1f2937'}
+
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +52,12 @@ class ToolTip:
         self.tooltip = tk.Toplevel(self.widget)
         self.tooltip.wm_overrideredirect(True)
         self.tooltip.wm_geometry(f"+{x}+{y}")
-        label = tk.Label(self.tooltip, text=self.text, background="yellow", relief="solid", borderwidth=1)
+        try:
+            from utils.theme import get_theme_colors
+            _tooltip_bg = get_theme_colors().get('tooltip_bg', '#fef3c7')
+        except Exception:
+            _tooltip_bg = '#fef3c7'
+        label = tk.Label(self.tooltip, text=self.text, background=_tooltip_bg, relief="solid", borderwidth=1)
         label.pack()
 
     def hide(self, event):
@@ -78,10 +98,8 @@ class InventoryFrame(ttk.Frame):
         self._build_ui()
 
     def _build_ui(self) -> None:
-        style = ttk.Style()
-        style.configure("Red.TButton", foreground="red")
-        style.configure("Action.TButton", padding=(8, 4))
-        style.configure("Primary.TButton", padding=(10, 6))
+        # Action.TButton and Primary.TButton styles are configured in theme.py
+        # No need to re-configure them here
         
         current_row = 0
 
@@ -98,7 +116,7 @@ class InventoryFrame(ttk.Frame):
         right_header = ttk.Frame(header_frame)
         right_header.grid(row=0, column=2, sticky=tk.E)
         ttk.Label(right_header, textvariable=self.count_var, font=("Segoe UI", 10)).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Label(right_header, textvariable=self.loading_var, foreground="blue").pack(side=tk.LEFT)
+        ttk.Label(right_header, textvariable=self.loading_var, foreground=get_status_color('info')).pack(side=tk.LEFT)
         
         current_row += 1
 
@@ -233,7 +251,7 @@ class InventoryFrame(ttk.Frame):
         self.preview = preview
         self.preview_label = ttk.Label(preview, text="(No image)", anchor=tk.CENTER)
         self.preview_label.pack()
-        self.low_stock_label = ttk.Label(preview, foreground="red")
+        self.low_stock_label = ttk.Label(preview, foreground=get_status_color('danger'))
         self.low_stock_label.pack(pady=(8, 0))
 
         # Bind tree selection events
@@ -309,9 +327,11 @@ class InventoryFrame(ttk.Frame):
         tree.column("barcode", width=180, minwidth=80, anchor=tk.W, stretch=False)
 
         # Configure tag colors
-        tree.tag_configure("low", foreground="red")
-        tree.tag_configure("even", background="#F9F9F9")
-        tree.tag_configure("odd", background="#FFFFFF")
+        _tc = _get_tc()
+        _row_fg = _tc.get('text', '#1f2937')
+        tree.tag_configure("low", foreground=_tc.get('danger', 'red'))
+        tree.tag_configure("even", background=_tc.get('table_row_alt', '#F9F9F9'), foreground=_row_fg)
+        tree.tag_configure("odd", background=_tc.get('surface', '#FFFFFF'), foreground=_row_fg)
 
         parent_frame.rowconfigure(0, weight=1)
         parent_frame.columnconfigure(0, weight=1)
@@ -395,8 +415,7 @@ class InventoryFrame(ttk.Frame):
         rows = filtered_rows
         
         self.count_var.set(f"Items: {len(rows)}")
-        from utils.security import get_currency_code
-        global_currency = get_currency_code()
+        global_currency = get_currency_symbol()
 
         for i, row in enumerate(rows):
             tags = []
@@ -630,9 +649,11 @@ class InventoryFrame(ttk.Frame):
             )
         
         # Configure tag colors
-        tree.tag_configure("low", foreground="red")
-        tree.tag_configure("even", background="#F9F9F9")
-        tree.tag_configure("odd", background="#FFFFFF")
+        _tc = _get_tc()
+        _row_fg = _tc.get('text', '#1f2937')
+        tree.tag_configure("low", foreground=_tc.get('danger', 'red'))
+        tree.tag_configure("even", background=_tc.get('table_row_alt', '#F9F9F9'), foreground=_row_fg)
+        tree.tag_configure("odd", background=_tc.get('surface', '#FFFFFF'), foreground=_row_fg)
         
         # Apply saved column visibility (if any)
         try:
@@ -680,7 +701,12 @@ class InventoryFrame(ttk.Frame):
             tree.delete(row)
         
         rows = items.list_items(search=self.search_var.get().strip() if self.search_var.get().strip() else None)
-        
+
+        # Pre-fetch variant membership for all items in one query to avoid N+1 DB hits
+        from modules import variants as variants_module
+        _all_row_ids = [r["item_id"] for r in rows]
+        _has_variants_map = variants_module.batch_has_variants(_all_row_ids) if _all_row_ids else {}
+
         # Apply filters
         filtered_rows = []
         for row in rows:
@@ -707,10 +733,8 @@ class InventoryFrame(ttk.Frame):
                     continue
             
             # Filter based on tab
-            from modules import variants as variants_module
             has_variants_flag = bool(row.get("has_variants", 0))
-            has_actual_variants = variants_module.has_variants(row["item_id"])
-            has_variants = has_variants_flag or has_actual_variants
+            has_variants = has_variants_flag or _has_variants_map.get(row["item_id"], False)
             
             if show_parents_only and not has_variants:
                 continue  # Parents tab: only show items with variants
@@ -722,8 +746,7 @@ class InventoryFrame(ttk.Frame):
         
         rows = filtered_rows
         
-        from utils.security import get_currency_code
-        global_currency = get_currency_code()
+        global_currency = get_currency_symbol()
 
         for i, row in enumerate(rows):
             tags = []
@@ -957,9 +980,11 @@ class InventoryFrame(ttk.Frame):
             )
         
         # Configure tag colors
-        tree.tag_configure("low", foreground="red")
-        tree.tag_configure("even", background="#F9F9F9")
-        tree.tag_configure("odd", background="#FFFFFF")
+        _tc = _get_tc()
+        _row_fg = _tc.get('text', '#1f2937')
+        tree.tag_configure("low", foreground=_tc.get('danger', 'red'))
+        tree.tag_configure("even", background=_tc.get('table_row_alt', '#F9F9F9'), foreground=_row_fg)
+        tree.tag_configure("odd", background=_tc.get('surface', '#FFFFFF'), foreground=_row_fg)
 
     def _update_ui_after_refresh(self) -> None:
         """Update UI elements after refreshing tabs."""
@@ -990,38 +1015,13 @@ class InventoryFrame(ttk.Frame):
         if hasattr(self, 'preview_label') and self.preview_label:
             self._update_preview()
         self._update_low_stock_label()
-        # Determine which tab is active
-        current_tab = self.notebook.index(self.notebook.select())
-        if current_tab == 0:  # Items tab
-            tree = self.items_tree
-        else:  # Parents tab
-            tree = self.parents_tree
-        
-        sel = tree.selection()
-        if not sel:
-            return None
-        sid = sel[0]
-        # Handle new iid formats: numeric, parent-<id>, variant-<itemid>-<variantid>
-        try:
-            return int(sid)
-        except Exception:
-            try:
-                if isinstance(sid, str) and sid.startswith("parent-"):
-                    return int(sid.split("-")[1])
-                if isinstance(sid, str) and sid.startswith("variant-"):
-                    # variant-<itemid>-<variantid>
-                    parts = sid.split("-")
-                    return int(parts[1])
-            except Exception:
-                return None
-        return None
 
-    def _check_admin(self) -> bool:
-        """Check if current user is admin."""
+    def _check_admin(self, permission_key: str = 'edit_inventory') -> bool:
+        """Check if current user has the required inventory permission."""
         root = self.winfo_toplevel()
         user = getattr(root, "current_user", None)
-        if not user or user.get("role") != "admin":
-            messagebox.showerror("Access Denied", "Only administrators can modify inventory items.")
+        if not permissions.has_permission(user, permission_key):
+            messagebox.showerror("Access Denied", "You do not have permission to perform this action.")
             return False
         return True
 
@@ -1056,24 +1056,24 @@ class InventoryFrame(ttk.Frame):
                 return None
 
     def _add_item_checked(self) -> None:
-        """Admin-only: Add new item."""
-        if self._check_admin():
+        """Permission-gated: Add new item."""
+        if self._check_admin('add_inventory'):
             self._add_item_dialog()
 
     def _edit_selected_checked(self) -> None:
-        """Admin-only: Edit selected item."""
-        if self._check_admin():
+        """Permission-gated: Edit selected item."""
+        if self._check_admin('edit_inventory'):
             self._edit_selected()
 
     def _delete_selected_checked(self) -> None:
-        """Admin-only: Delete selected item."""
-        if self._check_admin():
+        """Permission-gated: Delete selected item."""
+        if self._check_admin('delete_inventory'):
             if messagebox.askyesno("Confirm Delete", "Are you sure you want to delete the selected item?"):
                 self._delete_selected()
 
     def _import_csv_checked(self) -> None:
-        """Admin-only: Import from CSV."""
-        if self._check_admin():
+        """Permission-gated: Import from CSV."""
+        if self._check_admin('add_inventory'):
             self._import_csv()
 
     def _delete_selected(self) -> None:
@@ -1081,9 +1081,11 @@ class InventoryFrame(ttk.Frame):
         if not item_id:
             messagebox.showinfo("Delete", "Select an item to delete")
             return
-        if not messagebox.askyesno("Confirm", "Delete selected item?"):
+        try:
+            items.delete_item(item_id)
+        except ValueError as exc:
+            messagebox.showerror("Cannot Delete", str(exc))
             return
-        items.delete_item(item_id)
         self.refresh()
 
     def _edit_selected(self) -> None:
@@ -1133,10 +1135,10 @@ class InventoryFrame(ttk.Frame):
         """Open simplified item dialog for creating/editing items."""
         from ui.simplified_item_dialog import SimplifiedItemDialog
 
-        # Determine user role for price editing permissions
+        # Determine cost price editing permission
         root = self.winfo_toplevel()
         user = getattr(root, "current_user", None)
-        is_admin = user and user.get("role") == "admin"
+        is_admin = user and permissions.has_permission(user, 'manage_settings')
 
         # Create and show the simplified dialog
         dialog = SimplifiedItemDialog(self, existing=existing, is_admin=is_admin)
@@ -1216,6 +1218,12 @@ class InventoryFrame(ttk.Frame):
                 messagebox.showerror("Category Error", f"Could not add category: {exc}")
 
         def do_rename():
+            # Check permissions
+            root = self.winfo_toplevel()
+            current_user = getattr(root, 'current_user', {})
+            if not permissions.has_permission(current_user, 'edit_inventory'):
+                messagebox.showerror("Permission Denied", "You do not have permission to rename categories")
+                return
             current = selected()
             if not current:
                 messagebox.showinfo("Rename", "Select a category to rename")
@@ -1382,9 +1390,9 @@ class InventoryFrame(ttk.Frame):
             # Fallback: set headings visible via column widths
             for col in self.columns:
                 if col in ordered:
-                    self.tree.column(col, stretch=True)
+                    self.items_tree.column(col, stretch=True)
                 else:
-                    self.tree.column(col, stretch=False, width=0, minwidth=0)
+                    self.items_tree.column(col, stretch=False, width=0, minwidth=0)
 
         # Show a hint when only one column is visible to help users recover
         try:
@@ -1598,8 +1606,8 @@ class InventoryFrame(ttk.Frame):
             messagebox.showerror("Download Error", str(exc))
 
     def _manage_variants_checked(self) -> None:
-        """Admin-only: Manage variants for selected item."""
-        if self._check_admin():
+        """Permission-gated: Manage variants for selected item."""
+        if self._check_admin('edit_inventory'):
             self._manage_variants()
 
     def _manage_variants(self) -> None:
@@ -1720,7 +1728,7 @@ class InventoryFrame(ttk.Frame):
                 
                 # Show parent item's unit
                 unit_label = ttk.Label(var_dialog, text=f"Unit of Measure: {item.get('unit_of_measure', 'pieces')}", 
-                                       font=("Segoe UI", 9, "italic"), foreground="gray")
+                                       font=("Segoe UI", 9, "italic"), foreground=get_status_color("text_light"))
                 unit_label.grid(row=0, column=0, columnspan=2, pady=(8, 4), padx=6)
                 
                 fields = {
@@ -1811,7 +1819,7 @@ class InventoryFrame(ttk.Frame):
             
             # Show parent item's unit
             unit_label = ttk.Label(var_dialog, text=f"Unit of Measure: {item.get('unit_of_measure', 'pieces')}", 
-                                   font=("Segoe UI", 9, "italic"), foreground="gray")
+                                   font=("Segoe UI", 9, "italic"), foreground=get_status_color("text_light"))
             unit_label.grid(row=0, column=0, columnspan=2, pady=(8, 4), padx=6)
             
             fields = {

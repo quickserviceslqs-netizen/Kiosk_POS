@@ -5,6 +5,18 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 
 from modules import notifications
+from utils.theme import get_status_color
+
+
+def _get_tc():
+    """Get theme colors with safe fallback."""
+    try:
+        from utils.theme import get_theme_colors
+        return get_theme_colors()
+    except Exception:
+        return {'surface': '#FFFFFF', 'background': '#f5f5f5',
+                'text': '#1f2937', 'text_secondary': '#6b7280',
+                'field_bg': '#FFFFFF', 'field_text': '#1f2937'}
 
 
 class EmailSettingsFrame(ttk.Frame):
@@ -27,7 +39,8 @@ class EmailSettingsFrame(ttk.Frame):
             ttk.Button(top, text="🏠 Home", command=self.on_home).pack(side=tk.RIGHT, padx=4)
 
         # Scrollable content area
-        canvas = tk.Canvas(self, highlightthickness=0, bg="white")
+        _tc = _get_tc()
+        canvas = tk.Canvas(self, highlightthickness=0, bg=_tc.get('surface', 'white'))
         canvas.grid(row=1, column=0, sticky=tk.NSEW)
         
         scrollbar = ttk.Scrollbar(self, orient=tk.VERTICAL, command=canvas.yview)
@@ -93,7 +106,8 @@ class EmailSettingsFrame(ttk.Frame):
         self.from_email_var = tk.StringVar(value=self.config["from_email"])
         ttk.Entry(email_frame, textvariable=self.from_email_var, width=35).grid(row=0, column=1, sticky=tk.EW, pady=4, padx=(8, 0))
         
-        ttk.Label(email_frame, text="To Emails:\n(comma-separated)", font=("Segoe UI", 9), foreground="#333").grid(row=1, column=0, sticky=tk.W, pady=4)
+        _tc = _get_tc()
+        ttk.Label(email_frame, text="To Emails:\n(comma-separated)", font=("Segoe UI", 9), foreground=_tc.get('text_secondary', '#333')).grid(row=1, column=0, sticky=tk.W, pady=4)
         self.to_emails_var = tk.StringVar(value=", ".join(self.config["to_emails"]))
         ttk.Entry(email_frame, textvariable=self.to_emails_var, width=35).grid(row=1, column=1, sticky=tk.EW, pady=4, padx=(8, 0))
         
@@ -118,8 +132,8 @@ class EmailSettingsFrame(ttk.Frame):
             variable=self.low_stock_var
         ).grid(row=1, column=0, sticky=tk.W, pady=4)
         
-        ttk.Label(prefs_frame, text="Each item has its own low stock threshold set during creation.", foreground="gray", font=("Segoe UI", 8)).grid(row=2, column=0, columnspan=2, sticky=tk.W, pady=(8, 0))
-        ttk.Label(prefs_frame, text="Emails only send when items have alerts to report.", foreground="orange", font=("Segoe UI", 8)).grid(row=3, column=0, columnspan=2, sticky=tk.W, pady=(2, 0))
+        ttk.Label(prefs_frame, text="Each item has its own low stock threshold set during creation.", foreground=get_status_color("text_light"), font=("Segoe UI", 8)).grid(row=2, column=0, columnspan=2, sticky=tk.W, pady=(8, 0))
+        ttk.Label(prefs_frame, text="Emails only send when items have alerts to report.", foreground=get_status_color("warning"), font=("Segoe UI", 8)).grid(row=3, column=0, columnspan=2, sticky=tk.W, pady=(2, 0))
         
         # Store threshold var for backward compatibility (not displayed)
         self.threshold_var = tk.IntVar(value=self.config["low_stock_threshold"])

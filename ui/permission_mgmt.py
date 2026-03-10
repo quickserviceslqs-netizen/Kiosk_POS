@@ -10,6 +10,20 @@ from modules import users, permissions
 from utils.audit import audit_logger
 
 
+def _get_perm_colors():
+    """Get theme colors for permission status backgrounds."""
+    try:
+        from utils.theme import get_theme_colors
+        tc = get_theme_colors()
+        return {
+            'danger_bg': tc.get('danger_bg', '#fee2e2'),
+            'success_bg': tc.get('success_bg', '#d1fae5'),
+            'warning_bg': tc.get('warning_bg', '#fef3c7'),
+        }
+    except Exception:
+        return {'danger_bg': '#fee2e2', 'success_bg': '#d1fae5', 'warning_bg': '#fef3c7'}
+
+
 class PermissionManagementFrame(ttk.Frame):
     """UI for managing user permissions."""
 
@@ -39,7 +53,7 @@ class PermissionManagementFrame(ttk.Frame):
         # Subtitle with guidance
         subtitle_label = ttk.Label(main_frame,
                                  text="Manage user permissions explicitly. No permissions are granted automatically - admins must approve all access.",
-                                 font=("Segoe UI", 9), foreground="#666")
+                                 font=("Segoe UI", 9))
         subtitle_label.pack(pady=(0, 20))
 
         # Create paned window for split layout
@@ -95,7 +109,7 @@ class PermissionManagementFrame(ttk.Frame):
         self.permission_frame.pack(fill=tk.BOTH, expand=True)
 
         # Canvas and scrollbar for permissions
-        canvas = tk.Canvas(self.permission_frame, height=300)  # Fixed height to leave room for buttons
+        canvas = tk.Canvas(self.permission_frame, height=300, highlightthickness=0)
         scrollbar = ttk.Scrollbar(self.permission_frame, orient="vertical", command=canvas.yview)
         scrollable_frame = ttk.Frame(canvas)
 
@@ -266,29 +280,30 @@ class PermissionManagementFrame(ttk.Frame):
 
                 # Permission checkboxes
                 for perm_key, description in group_perms:
+                    _pc = _get_perm_colors()
                     # Determine permission status based on effective permissions and revocations
                     if perm_key in revoked_perms:
                         status = "Revoked (User)"
-                        bg_color = "#f8d7da"  # Light red
+                        bg_color = _pc['danger_bg']
                         checkbox_state = False
                     elif perm_key in effective_perms:
                         if perm_key in user_specific_perms:
                             status = "Granted (User)"
-                            bg_color = "#e8f5e8"  # Light green
+                            bg_color = _pc['success_bg']
                         elif self.selected_user.get('role') == 'admin':
                             status = "Granted (Admin)"
-                            bg_color = "#e8f5e8"  # Light green
+                            bg_color = _pc['success_bg']
                         else:
                             status = "Granted (Role)"
-                            bg_color = "#e8f5e8"  # Light green
+                            bg_color = _pc['success_bg']
                         checkbox_state = True
                     elif perm_key in role_perms:
                         status = "Suggested (Role)"
-                        bg_color = "#fff3cd"  # Light yellow
+                        bg_color = _pc['warning_bg']
                         checkbox_state = False  # Don't auto-check role suggestions
                     else:
                         status = "Not Granted"
-                        bg_color = "#f8d7da"  # Light red
+                        bg_color = _pc['danger_bg']
                         checkbox_state = False
 
                     # Create checkbox variable

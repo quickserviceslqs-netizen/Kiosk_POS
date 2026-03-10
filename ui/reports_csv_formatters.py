@@ -5,6 +5,19 @@ from utils.date_utils import format_date
 from .reports_base import CSVReportFormatter
 
 
+def _fmt_date(val) -> str:
+    """Format a date or datetime value from DB using the system date format."""
+    if not val:
+        return ''
+    try:
+        s = str(val)
+        parts = s.split(' ', 1)
+        formatted = format_date(parts[0])
+        return f"{formatted} {parts[1]}" if len(parts) > 1 else formatted
+    except Exception:
+        return str(val)
+
+
 class SalesCSVFormatter(CSVReportFormatter):
     """CSV formatter for sales reports."""
 
@@ -23,7 +36,7 @@ class SalesCSVFormatter(CSVReportFormatter):
                 item.get('quantity', 0),
                 item.get('price', 0),
                 item.get('total', 0),
-                item.get('timestamp', '')
+                _fmt_date(item.get('timestamp', ''))
             ])
 
         return rows
@@ -132,7 +145,7 @@ class VoidedSalesCSVFormatter(CSVReportFormatter):
                 item.get('quantity', 0),
                 item.get('total', 0),
                 item.get('void_reason', 'N/A'),
-                item.get('timestamp', '')
+                _fmt_date(item.get('timestamp', ''))
             ])
 
         return rows
@@ -175,6 +188,63 @@ class ReconciliationCSVFormatter(CSVReportFormatter):
                     session.total_variance or 0
                 ])
 
+        return rows
+
+
+class POSummaryCSVFormatter(CSVReportFormatter):
+    """CSV formatter for Purchase Order Summary."""
+
+    def get_csv_rows(self) -> List[List[Any]]:
+        rows = [['PO Number', 'Supplier', 'Status', 'Created Date', 'Created By', 'Items', 'Total Amount', 'Notes']]
+        for po in self.report_data.data:
+            rows.append([
+                po.get('po_number', ''),
+                po.get('supplier', ''),
+                po.get('status', ''),
+                _fmt_date(po.get('created_date', '')),
+                po.get('created_by', ''),
+                po.get('item_count', 0),
+                po.get('total_amount', 0),
+                po.get('notes', ''),
+            ])
+        return rows
+
+
+class POBySupplierCSVFormatter(CSVReportFormatter):
+    """CSV formatter for PO spending by supplier."""
+
+    def get_csv_rows(self) -> List[List[Any]]:
+        rows = [['Supplier', 'PO Count', 'Total Spent', 'Avg Order Value', 'Last Order Date', 'Received', 'Pending']]
+        for row in self.report_data.data:
+            rows.append([
+                row.get('supplier', ''),
+                row.get('po_count', 0),
+                row.get('total_spent', 0),
+                row.get('avg_order_value', 0),
+                _fmt_date(row.get('last_order_date', '')),
+                row.get('received_count', 0),
+                row.get('pending_count', 0),
+            ])
+        return rows
+
+
+class POItemsDetailCSVFormatter(CSVReportFormatter):
+    """CSV formatter for detailed PO line items."""
+
+    def get_csv_rows(self) -> List[List[Any]]:
+        rows = [['PO Number', 'Supplier', 'Status', 'Created Date', 'Item Name', 'Qty Ordered', 'Qty Received', 'Unit Cost', 'Line Total']]
+        for item in self.report_data.data:
+            rows.append([
+                item.get('po_number', ''),
+                item.get('supplier', ''),
+                item.get('status', ''),
+                _fmt_date(item.get('created_date', '')),
+                item.get('item_name', ''),
+                item.get('quantity_ordered', 0),
+                item.get('quantity_received', 0),
+                item.get('unit_cost', 0),
+                item.get('line_total', 0),
+            ])
         return rows
 
 

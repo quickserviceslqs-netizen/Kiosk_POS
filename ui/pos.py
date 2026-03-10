@@ -12,22 +12,16 @@ from ui.checkout import CheckoutDialog
 from utils.cart_pubsub import subscribe_cart_changed, unsubscribe_cart_changed, notify_cart_changed
 from utils.i18n import get_currency_symbol
 from utils.images import load_thumbnail
-<<<<<<< HEAD
 from utils.security import (
     get_cart_vat_enabled,
     get_cart_discount_enabled,
     get_cart_suspend_enabled,
-    subscribe_payment_methods,
-    unsubscribe_payment_methods,
     subscribe_cart_settings,
     unsubscribe_cart_settings,
     get_username,
     get_vat_rate,
     get_max_discount_percent,
 )
-=======
-from utils.security import get_cart_vat_enabled, get_cart_discount_enabled, get_cart_suspend_enabled, subscribe_payment_methods, unsubscribe_payment_methods, subscribe_cart_settings, unsubscribe_cart_settings, get_username, get_vat_rate, get_max_discount_percent
->>>>>>> 4be079b (update)
 
 
 class PosFrame(ttk.Frame):
@@ -36,10 +30,8 @@ class PosFrame(ttk.Frame):
         self.search_var = tk.StringVar()
         self.barcode_var = tk.StringVar()
         self.payment_var = tk.StringVar(value="0")
-        self.vat_rate = 0.16  # 16% VAT
         self.vat_var = tk.StringVar(value="0.00")
         self.discount_var = tk.StringVar(value="0")
-        self.payment_method_var = tk.StringVar(value="Cash")
         self.cart_state = cart_state or {"items": [], "suspended": []}
         self.cart = self.cart_state.setdefault("items", [])
         self.suspended_carts = self.cart_state.setdefault("suspended", [])
@@ -65,10 +57,6 @@ class PosFrame(ttk.Frame):
         # (Previous code accidentally reset them to None which prevented the cart
         # features from being displayed even when enabled.)
 
-        # Subscribe to payment method changes to update combobox live
-        subscribe_payment_methods(self._on_payment_methods_changed)
-        self.bind("<Destroy>", lambda _e: unsubscribe_payment_methods(self._on_payment_methods_changed))
-
         # Subscribe to cart settings changes to update UI live
         subscribe_cart_settings(self._on_cart_settings_changed)
         self.bind("<Destroy>", lambda _e: unsubscribe_cart_settings(self._on_cart_settings_changed))
@@ -76,16 +64,6 @@ class PosFrame(ttk.Frame):
         # Subscribe to cart change notifications to refresh view when cart is mutated elsewhere
         subscribe_cart_changed(self._refresh_cart)
         self.bind("<Destroy>", lambda _e: unsubscribe_cart_changed(self._refresh_cart))
-
-    def _on_payment_methods_changed(self) -> None:
-        try:
-            methods = get_payment_methods()
-            current = self.payment_method_var.get()
-            self.payment_combo['values'] = methods
-            if current not in methods:
-                self.payment_method_var.set(methods[0] if methods else "")
-        except Exception:
-            pass
 
     def _on_cart_settings_changed(self) -> None:
         """Refresh cart UI when cart settings change.
@@ -162,7 +140,7 @@ class PosFrame(ttk.Frame):
         self.item_preview.grid(row=0, column=2, sticky=tk.N, padx=(8, 0))
         self.item_preview_label = ttk.Label(self.item_preview, text="(No image)", anchor=tk.CENTER)
         self.item_preview_label.pack()
-        self.item_preview_meta = ttk.Label(self.item_preview, text="", foreground="gray")
+        self.item_preview_meta = ttk.Label(self.item_preview, text="")
         self.item_preview_meta.pack(pady=(6, 0))
 
         # Right: Cart section
@@ -215,11 +193,6 @@ class PosFrame(ttk.Frame):
         self.discount_label = ttk.Label(totals, text="Discount (%):")
         self.discount_entry = ttk.Entry(totals, textvariable=self.discount_var, width=8)
         self.discount_entry.bind("<KeyRelease>", lambda _e: self._refresh_cart())
-
-        # Payment method (always shown)
-        self.payment_label = ttk.Label(totals, text="Payment Method:")
-        from utils.security import get_payment_methods
-        self.payment_combo = ttk.Combobox(totals, textvariable=self.payment_method_var, values=get_payment_methods(), width=10, state="readonly")
 
         # Total (always shown)
         self.total_label = ttk.Label(totals, text="Total:")
@@ -305,11 +278,6 @@ class PosFrame(ttk.Frame):
             except Exception:
                 pass
 
-        # Payment method (always shown)
-        self.payment_label.grid(row=row_idx, column=0, sticky=tk.W, pady=(2, 0))
-        self.payment_combo.grid(row=row_idx, column=1, sticky=tk.W, padx=(8, 0))
-        row_idx += 1
-
         # Total (always shown)
         self.total_label.grid(row=row_idx, column=0, sticky=tk.W, pady=(4, 0))
         self.total_display.grid(row=row_idx, column=1, sticky=tk.W, padx=(8, 0))
@@ -376,10 +344,18 @@ class PosFrame(ttk.Frame):
 
     # Items search/add
     def _refresh_items(self) -> None:
+        self.currency_symbol = get_currency_symbol()  # Always use current setting
         search = self.search_var.get().strip()
         for row in self.items_list.get_children():
             self.items_list.delete(row)
         rows = items.list_items(search=search if search else None)
+        from modules import variants
+        all_item_ids = [row["item_id"] for row in rows]
+        try:
+            _has_variants_map = variants.batch_has_variants(all_item_ids) if all_item_ids else {}
+        except Exception:
+            _has_variants_map = {}
+
         for row in rows:
             unit = (row.get("unit_of_measure") or "").lower()
             is_special = row.get("is_special_volume", 0)
@@ -387,9 +363,8 @@ class PosFrame(ttk.Frame):
             cost = row["cost_price"] if isinstance(row["cost_price"], (int, float)) else 0.0
             price = row["selling_price"] if isinstance(row["selling_price"], (int, float)) else 0.0
             
-            # Check if item has variants
-            from modules import variants
-            has_variants_flag = variants.has_variants(row["item_id"])
+            # Use pre-fetched batch map; fall back to individual query if map lookup misses
+            has_variants_flag = _has_variants_map.get(row["item_id"], variants.has_variants(row["item_id"]))
             
             # Use configured conversion factor and abbreviation for display
             try:
@@ -903,6 +878,7 @@ class PosFrame(ttk.Frame):
         notify_cart_changed()
 
     def _refresh_cart(self) -> None:
+        self.currency_symbol = get_currency_symbol()  # Always use current setting
         # Update UI layout based on current settings
         self._update_ui_layout()
 
@@ -1203,12 +1179,13 @@ class PosFrame(ttk.Frame):
 
     def _update_change(self) -> None:
         try:
-            total = float(self.total_var.get())
+            raw_total = self.total_var.get().replace(self.currency_symbol, '').strip()
+            total = float(raw_total)
             payment = float(self.payment_var.get() or 0)
         except ValueError:
             self.change_var.set("-")
             return
-        self.change_var.set(f"{payment - total:.2f}")
+        self.change_var.set(f"{max(0.0, payment - total):.2f}")
 
     def _suspend_cart(self) -> None:
         if not self.cart:
@@ -1284,7 +1261,7 @@ class PosFrame(ttk.Frame):
             vat_amount=vat_amt,
             total=total,
             discount=discount_amt,
-            payment_method=self.payment_method_var.get(),
+            payment_method="",
         )
 
         if dialog.result:

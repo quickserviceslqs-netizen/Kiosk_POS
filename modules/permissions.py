@@ -96,6 +96,10 @@ PERMISSIONS = {
     "view_audit_logs": "View audit logs",
     "export_audit_logs": "Export audit logs",
     "change_own_password": "Change own password",
+
+    # Purchase Order permissions
+    "create_purchase_orders": "Create and manage purchase orders (LPO/PO)",
+    "view_purchase_orders": "View purchase order history",
 }
 
 
@@ -203,6 +207,10 @@ DEFAULT_ROLE_PERMISSIONS = {
         "backup_database",
         "view_audit_logs",
         "view_system_info",
+
+        # Purchase Orders
+        "create_purchase_orders",
+        "view_purchase_orders",
     }
 }
 

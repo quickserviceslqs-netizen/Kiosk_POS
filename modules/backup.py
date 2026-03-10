@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import shutil
+import sqlite3 as _sqlite3
 import json
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -67,8 +68,15 @@ def create_backup(custom_name: Optional[str] = None) -> Path:
     
     backup_path = backup_dir / backup_name
     
-    # Copy database file
-    shutil.copy2(DB_PATH, backup_path)
+    # Use the SQLite online backup API — safe for WAL mode.
+    # shutil.copy2 would miss transactions still in the .wal sidecar file.
+    src = _sqlite3.connect(str(DB_PATH))
+    dst = _sqlite3.connect(str(backup_path))
+    try:
+        src.backup(dst)
+    finally:
+        dst.close()
+        src.close()
     
     return backup_path
 
@@ -94,10 +102,25 @@ def restore_backup(backup_path: Path | str) -> None:
         backup_dir = get_backup_dir()
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         safety_backup = backup_dir / f"SAFETY_pre_restore_{timestamp}.db"
-        shutil.copy2(DB_PATH, safety_backup)
+        src = _sqlite3.connect(str(DB_PATH))
+        dst = _sqlite3.connect(str(safety_backup))
+        try:
+            src.backup(dst)
+        finally:
+            dst.close()
+            src.close()
     
     # Restore the backup
     shutil.copy2(backup_path, DB_PATH)
+
+    # Remove stale WAL/SHM sidecar files so SQLite doesn't replay them
+    # against the freshly-restored database and corrupt it.
+    for sidecar in (Path(str(DB_PATH) + '-wal'), Path(str(DB_PATH) + '-shm')):
+        if sidecar.exists():
+            try:
+                sidecar.unlink()
+            except OSError:
+                pass  # best-effort; app restart will handle it
 
 
 def list_backups() -> list[dict]:

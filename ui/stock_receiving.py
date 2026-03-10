@@ -13,6 +13,28 @@ from tkinter import ttk, messagebox
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 import logging
+
+
+def _get_tc():
+    """Get theme colors with safe fallback."""
+    try:
+        from utils.theme import get_theme_colors, get_status_color
+        return get_theme_colors()
+    except Exception:
+        return {'surface': '#FFFFFF', 'table_row_alt': '#f8f9fa', 'background': '#f5f5f5',
+                'text': '#1f2937', 'text_secondary': '#6b7280',
+                'warning': '#f59e0b', 'danger': '#ef4444',
+                'field_bg': '#FFFFFF', 'field_text': '#1f2937'}
+
+
+def _get_status_color(status: str) -> str:
+    """Get theme status color with safe fallback."""
+    try:
+        from utils.theme import get_status_color
+        return get_status_color(status)
+    except Exception:
+        fallbacks = {'blue': '#0ea5e9', 'green': '#10b981', 'red': '#ef4444', 'orange': '#f59e0b'}
+        return fallbacks.get(status, '#000000')
 import os
 
 try:
@@ -56,9 +78,11 @@ from modules.stock_receiving import (
     get_item_stock_summary, calculate_reorder_suggestions,
     check_and_migrate_legacy_inventory
 )
-from utils.security import get_currency_code
+from utils.security import get_username
+from utils.i18n import get_currency_symbol
 from utils import set_window_icon
 from utils.date_utils import format_date, get_date_format, parse_date_flexible
+from modules import permissions
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +103,7 @@ class StockReceivingFrame(ttk.Frame):
     def __init__(self, master: tk.Misc, user_id: Optional[int] = None, **kwargs):
         super().__init__(master, padding=16, **kwargs)
         self.user_id = user_id
-        self.currency = get_currency_code()
+        self.currency = get_currency_symbol()
         self.selected_item_id = None
         self._item_list_visible = True  # Track item list visibility state
         self._build_ui()
@@ -277,7 +301,7 @@ class StockReceivingFrame(ttk.Frame):
             top_btn_frame,
             text="📥 Receive Stock (Ctrl+S)",
             command=self._receive_stock,
-            style="Accent.TButton",
+            style="Primary.TButton",
             state="disabled"  # disabled until an item is selected
         )
         self.receive_btn.pack(side=tk.LEFT, padx=(0, 8))
@@ -287,7 +311,6 @@ class StockReceivingFrame(ttk.Frame):
         self.receive_help_label = ttk.Label(
             top_btn_frame,
             textvariable=self.receive_help_var,
-            foreground="#666666",
             font=("Segoe UI", 9, "italic")
         )
         self.receive_help_label.pack(side=tk.LEFT, padx=(5, 0))
@@ -304,7 +327,7 @@ class StockReceivingFrame(ttk.Frame):
             top_btn_frame,
             text="➕ Receive More of Same",
             command=self._receive_more_same,
-            style="Accent.TButton"
+            style="Primary.TButton"
         )
         # Initially hidden - will show after successful receipt
         self._last_received_item_id = None
@@ -328,7 +351,7 @@ class StockReceivingFrame(ttk.Frame):
         self.quantity_error_label = ttk.Label(
             form_frame, 
             textvariable=self.quantity_error_var, 
-            foreground="red", 
+            foreground=_get_status_color('danger'), 
             font=("Segoe UI", 8)
         )
         self.quantity_error_label.grid(row=row, column=2, sticky=tk.W, padx=(10, 0))
@@ -348,7 +371,7 @@ class StockReceivingFrame(ttk.Frame):
         self.cost_error_label = ttk.Label(
             form_frame, 
             textvariable=self.cost_error_var, 
-            foreground="red", 
+            foreground=_get_status_color('danger'), 
             font=("Segoe UI", 8)
         )
         self.cost_error_label.grid(row=row, column=2, sticky=tk.W, padx=(10, 0))
@@ -359,7 +382,7 @@ class StockReceivingFrame(ttk.Frame):
         ttk.Label(form_frame, text="Total Cost:").grid(row=row, column=0, sticky=tk.W, pady=4)
         self.total_cost_var = tk.StringVar(value="--")
         ttk.Label(form_frame, textvariable=self.total_cost_var, font=("Segoe UI", 10, "bold"), 
-                 foreground="#0066cc").grid(row=row, column=1, sticky=tk.W, pady=4)
+                 foreground=_get_tc().get('info', '#0066cc')).grid(row=row, column=1, sticky=tk.W, pady=4)
         row += 1
         
         # Supplier
@@ -382,12 +405,19 @@ class StockReceivingFrame(ttk.Frame):
         ttk.Label(form_frame, text="Purchase Date:").grid(row=row, column=0, sticky=tk.W, pady=4)
         self.purchase_date_var = tk.StringVar(value=format_date(datetime.now()))
         if HAS_TKCALENDAR:
+            _tc = _get_tc()
+            _accent = _tc.get('accent', _tc.get('primary', '#3b82f6'))
+            _tw = _tc.get('text_white', '#ffffff')
             self.purchase_date_entry = TopDateEntry(
                 form_frame, 
                 textvariable=self.purchase_date_var,
                 width=12,
-                background='darkblue',
-                foreground='white',
+                background=_accent,
+                foreground=_tw,
+                headersbackground=_accent,
+                headersforeground=_tw,
+                selectbackground=_accent,
+                selectforeground=_tw,
                 borderwidth=2,
                 date_pattern='yyyy-mm-dd'
             )
@@ -410,12 +440,19 @@ class StockReceivingFrame(ttk.Frame):
         ttk.Label(form_frame, text="Expiry Date:").grid(row=row, column=0, sticky=tk.W, pady=4)
         self.expiry_date_var = tk.StringVar()
         if HAS_TKCALENDAR:
+            _tc = _get_tc()
+            _accent = _tc.get('accent', _tc.get('primary', '#3b82f6'))
+            _tw = _tc.get('text_white', '#ffffff')
             self.expiry_date_entry = TopDateEntry(
                 form_frame, 
                 textvariable=self.expiry_date_var,
                 width=12,
-                background='darkblue',
-                foreground='white',
+                background=_accent,
+                foreground=_tw,
+                headersbackground=_accent,
+                headersforeground=_tw,
+                selectbackground=_accent,
+                selectforeground=_tw,
                 borderwidth=2,
                 date_pattern='yyyy-mm-dd'
             )
@@ -440,7 +477,7 @@ class StockReceivingFrame(ttk.Frame):
         ttk.Label(
             form_frame, 
             textvariable=self.notes_indicator_var,
-            foreground="#0066cc",
+            foreground=_get_tc().get('info', '#0066cc'),
             font=("Segoe UI", 8)
         ).grid(row=row, column=2, sticky=tk.W, padx=(110, 0), pady=4)
         
@@ -740,7 +777,7 @@ class StockReceivingFrame(ttk.Frame):
             btn_frame,
             text="✅ Record Adjustment (Ctrl+S)",
             command=self._record_adjustment,
-            style="Accent.TButton"
+            style="Primary.TButton"
         ).pack(side=tk.LEFT, padx=(0, 8))
         
         ttk.Button(
@@ -882,6 +919,12 @@ class StockReceivingFrame(ttk.Frame):
     
     def _record_adjustment(self):
         """Record a stock adjustment."""
+        current_user = get_username()
+        if not permissions.has_permission(current_user, 'adjust_stock'):
+            messagebox.showerror("Permission Denied",
+                                 "You do not have permission to adjust stock.")
+            return
+
         # Validation
         item_name = self.adj_item_var.get()
         reason = self.adj_reason_var.get()
@@ -1043,12 +1086,13 @@ class StockReceivingFrame(ttk.Frame):
                     notes.split(" - ", 1)[1] if " - " in notes else notes
                 ), tags=tags)
             
-            # Configure tags for color coding
-            self.adjustments_tree.tag_configure("spoiled", background="#fff3cd", foreground="#856404")
-            self.adjustments_tree.tag_configure("expired", background="#e2e3e5", foreground="#383d41")
-            self.adjustments_tree.tag_configure("damaged", background="#f8d7da", foreground="#721c24")
-            self.adjustments_tree.tag_configure("theft", background="#f5c6cb", foreground="#721c24")
-            self.adjustments_tree.tag_configure("waste", background="#ffeaa7", foreground="#666")
+            # Configure tags for color coding using theme colors
+            _tc = _get_tc()
+            self.adjustments_tree.tag_configure("spoiled", background=_tc.get('warning_bg', '#fff3cd'), foreground=_tc.get('warning', '#856404'))
+            self.adjustments_tree.tag_configure("expired", background=_tc.get('neutral_bg', '#e2e3e5'), foreground=_tc.get('text_secondary', '#383d41'))
+            self.adjustments_tree.tag_configure("damaged", background=_tc.get('danger_bg', '#f8d7da'), foreground=_tc.get('danger', '#721c24'))
+            self.adjustments_tree.tag_configure("theft", background=_tc.get('danger_bg', '#f5c6cb'), foreground=_tc.get('danger', '#721c24'))
+            self.adjustments_tree.tag_configure("waste", background=_tc.get('warning_bg', '#ffeaa7'), foreground=_tc.get('text_secondary', '#666'))
             
         except Exception as e:
             logger.error(f"Failed to load adjustment history: {e}")
@@ -1182,7 +1226,8 @@ class StockReceivingFrame(ttk.Frame):
                     ), tags=("lowstock",))
             
             # Highlight low stock items
-            self.items_tree.tag_configure("lowstock", background="#fff3cd", foreground="#856404")
+            _tc = _get_tc()
+            self.items_tree.tag_configure("lowstock", background=_tc.get('warning_bg', '#fff3cd'), foreground=_tc.get('warning', '#856404'))
             
             # Show count
             count = len(self.items_tree.get_children())
@@ -1272,8 +1317,9 @@ class StockReceivingFrame(ttk.Frame):
                 ), tags=tags)
             
             # Configure tags
-            self.lots_tree.tag_configure("lowstock", background="#fff3cd")
-            self.lots_tree.tag_configure("expiring", background="#f8d7da")
+            _tc = _get_tc()
+            self.lots_tree.tag_configure("lowstock", background=_tc.get('warning_bg', '#fff3cd'))
+            self.lots_tree.tag_configure("expiring", background=_tc.get('danger_bg', '#f8d7da'))
             
             # Update summary
             summary = get_item_stock_summary(self.selected_item_id)
@@ -1359,9 +1405,10 @@ class StockReceivingFrame(ttk.Frame):
                 ), tags=tags)
             
             # Configure tags
-            self.movements_tree.tag_configure("sale", foreground="#dc3545")
-            self.movements_tree.tag_configure("purchase", foreground="#28a745")
-            self.movements_tree.tag_configure("waste", foreground="#fd7e14")
+            _tc = _get_tc()
+            self.movements_tree.tag_configure("sale", foreground=_tc.get('danger', '#dc3545'))
+            self.movements_tree.tag_configure("purchase", foreground=_tc.get('success', '#28a745'))
+            self.movements_tree.tag_configure("waste", foreground=_tc.get('warning', '#fd7e14'))
             
         except Exception as e:
             logger.error(f"Failed to load movements: {e}")
@@ -1433,6 +1480,12 @@ class StockReceivingFrame(ttk.Frame):
     
     def _receive_stock(self):
         """Receive stock for the selected item."""
+        current_user = get_username()
+        if not permissions.has_permission(current_user, 'receive_stock'):
+            messagebox.showerror("Permission Denied",
+                                 "You do not have permission to receive stock.")
+            return
+
         if not self.selected_item_id:
             messagebox.showwarning("Warning", "Please select an item first.")
             try:
@@ -1563,7 +1616,7 @@ class StockReceivingFrame(ttk.Frame):
             self.notes_indicator_var.set("")
         except Exception:
             pass
-        self.total_cost_var.set("Total: -")
+        self.total_cost_var.set("--")
     
     def _receive_more_same(self):
         """Quick action to receive more stock of the last received item."""
@@ -1627,15 +1680,12 @@ class StockReceivingFrame(ttk.Frame):
         """Open a modal dialog for editing notes in a larger editor."""
         try:
             dlg = tk.Toplevel(self)
+            dlg.withdraw()
             dlg.title("Add/Edit Notes")
             dlg.geometry("650x450")
             dlg.resizable(True, True)
-            dlg.transient(self.winfo_toplevel())
-            dlg.grab_set()
-            
-            # Set window attributes to ensure control buttons are visible
-            dlg.attributes('-toolwindow', False)  # Ensure it's not a tool window
-            dlg.overrideredirect(False)  # Ensure title bar is visible
+            dlg.attributes('-toolwindow', False)
+            dlg.overrideredirect(False)
             
             # Set custom icon
             try:
@@ -1667,8 +1717,7 @@ class StockReceivingFrame(ttk.Frame):
             
             # Instructions
             instr_label = ttk.Label(main_frame, 
-                                  text="Add any notes about this stock receipt (optional):",
-                                  foreground="#666666")
+                                  text="Add any notes about this stock receipt (optional):")
             instr_label.grid(row=1, column=0, sticky=tk.W, pady=(0, 10))
             
             # Text editor frame
@@ -1691,7 +1740,7 @@ class StockReceivingFrame(ttk.Frame):
             # Character counter
             counter_var = tk.StringVar()
             counter_label = ttk.Label(main_frame, textvariable=counter_var, 
-                                    foreground="#666666", font=("", 9))
+                                    font=("", 9))
             counter_label.grid(row=3, column=0, sticky=tk.E, pady=(0, 8))
             
             # Update counter function
@@ -1743,7 +1792,7 @@ class StockReceivingFrame(ttk.Frame):
 
             # Buttons - packed into btn_frame
             save_btn = ttk.Button(btn_frame, text="Save Notes", command=_save_and_close, 
-                                style="Accent.TButton")
+                                style="Primary.TButton")
             save_btn.pack(side=tk.RIGHT)
             
             clear_btn = ttk.Button(btn_frame, text="Clear", command=_clear_text)
@@ -1765,6 +1814,10 @@ class StockReceivingFrame(ttk.Frame):
             x = parent.winfo_rootx() + (parent.winfo_width() - dlg.winfo_reqwidth()) // 2
             y = parent.winfo_rooty() + (parent.winfo_height() - dlg.winfo_reqheight()) // 2
             dlg.geometry(f"+{max(0, x)}+{max(0, y)}")
+            dlg.deiconify()
+            dlg.lift()
+            dlg.focus_force()
+            dlg.grab_set()
             
             # Focus on editor
             editor.focus_set()
@@ -1778,8 +1831,17 @@ class StockReceivingFrame(ttk.Frame):
     
     def _on_costing_method_change(self, event):
         """Handle costing method change."""
+        current_user = get_username()
+        if not permissions.has_permission(current_user, 'manage_settings'):
+            messagebox.showerror("Permission Denied",
+                                 "You do not have permission to change inventory settings.")
+            # Revert to current method
+            current = get_costing_method()
+            self.costing_method_var.set(current.value)
+            return
+
         new_method = self.costing_method_var.get()
-        
+
         if messagebox.askyesno(
             "Change Costing Method",
             f"Change inventory costing method to {new_method}?\n\n"

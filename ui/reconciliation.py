@@ -16,6 +16,8 @@ from modules import reconciliation
 from modules.reconciliation import ReconciliationSession, ReconciliationEntry
 from utils import set_window_icon
 from utils.i18n import get_currency_symbol
+from utils.theme import get_status_color
+from utils.date_utils import format_date, parse_date_flexible
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +68,7 @@ class ReconciliationDialog:
         date_frame.pack(side=tk.LEFT, padx=(0, 10))
 
         ttk.Label(date_frame, text="Date:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=2)
-        self.date_var = tk.StringVar(value=datetime.now().strftime("%Y-%m-%d"))
+        self.date_var = tk.StringVar(value=format_date(datetime.now()))
         date_entry = ttk.Entry(date_frame, textvariable=self.date_var, width=12)
         date_entry.grid(row=0, column=1, sticky=tk.W, padx=5, pady=2)
 
@@ -249,9 +251,11 @@ class ReconciliationDialog:
             self.tree.delete(item)
 
         # Add entries to tree
+        clr_ok = get_status_color("success")
+        clr_err = get_status_color("danger")
         for entry in self.current_session.entries:
             status = "✓" if abs(entry.variance) < 0.01 else "⚠"
-            variance_color = "red" if entry.variance != 0 else "green"
+            variance_color = clr_err if entry.variance != 0 else clr_ok
 
             item_id = self.tree.insert("", tk.END, values=(
                 entry.payment_method,
@@ -630,7 +634,7 @@ class EditEntryDialog:
         # Make this dialog transient and modal to the parent reconciliation dialog
         self.dialog.transient(parent)
         self.dialog.grab_set()
-        self.dialog.resizable(False, False)
+        self.dialog.resizable(True, True)
         self.dialog.minsize(420, 140)
 
         frame = ttk.Frame(self.dialog, padding=10)
@@ -803,11 +807,11 @@ class ReconciliationHistoryDialog:
         filter_frame.pack(fill=tk.X, pady=(0, 10))
 
         ttk.Label(filter_frame, text="Start Date:").pack(side=tk.LEFT, padx=(0, 5))
-        self.start_date_var = tk.StringVar(value=(datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d"))
+        self.start_date_var = tk.StringVar(value=format_date(datetime.now() - timedelta(days=30)))
         ttk.Entry(filter_frame, textvariable=self.start_date_var, width=12).pack(side=tk.LEFT, padx=(0, 10))
 
         ttk.Label(filter_frame, text="End Date:").pack(side=tk.LEFT, padx=(0, 5))
-        self.end_date_var = tk.StringVar(value=datetime.now().strftime("%Y-%m-%d"))
+        self.end_date_var = tk.StringVar(value=format_date(datetime.now()))
         ttk.Entry(filter_frame, textvariable=self.end_date_var, width=12).pack(side=tk.LEFT, padx=(0, 10))
 
         ttk.Label(filter_frame, text="Status:").pack(side=tk.LEFT, padx=(0, 5))
@@ -854,8 +858,17 @@ class ReconciliationHistoryDialog:
     def _load_history(self) -> None:
         """Load reconciliation history."""
         try:
-            start_date = self.start_date_var.get() or None
-            end_date = self.end_date_var.get() or None
+            # Convert user-format display dates back to ISO for DB query
+            def _to_iso(val):
+                if not val:
+                    return None
+                try:
+                    return parse_date_flexible(val).strftime("%Y-%m-%d")
+                except Exception:
+                    return val
+
+            start_date = _to_iso(self.start_date_var.get() or None)
+            end_date = _to_iso(self.end_date_var.get() or None)
             status = self.status_var.get() or None
 
             sessions = reconciliation.get_reconciliation_sessions(
@@ -871,13 +884,15 @@ class ReconciliationHistoryDialog:
             currency_symbol = get_currency_symbol()
 
             # Add sessions to tree
+            clr_ok = get_status_color("success")
+            clr_err = get_status_color("danger")
             for session in sessions:
                 status_display = session['status'].title()
-                variance_color = "red" if session['total_variance'] != 0 else "green"
+                variance_color = clr_err if session['total_variance'] != 0 else clr_ok
 
                 item_id = self.tree.insert("", tk.END, values=(
-                    session['reconciliation_date'],
-                    f"{session['period_type'].title()} ({session['start_date']} - {session['end_date']})",
+                    format_date(session['reconciliation_date']),
+                    f"{session['period_type'].title()} ({format_date(session['start_date'])} - {format_date(session['end_date'])})",
                     f"{currency_symbol}{session['total_system_sales']:.2f}",
                     f"{currency_symbol}{session['total_actual_cash']:.2f}",
                     f"{currency_symbol}{session['total_variance']:.2f}",

@@ -27,6 +27,7 @@ try:
 except ImportError:
     TKCALENDAR_AVAILABLE = False
 
+from utils.theme import get_status_color
 from modules.reconciliation_core import (
     ReconciliationSession, ReconciliationItem, ReconciliationEntry,
     VarianceExplanation,  # Added for variance explanations
@@ -41,11 +42,12 @@ from modules.reconciliation_core import (
     delete_reconciliation_session,  # Added for deleting sessions
     get_reconciliation_explanations  # Added for getting explanations from DB
 )
-from utils.i18n import get_currency_symbol
+from utils.theme import get_theme_colors, apply_theme_to_root, get_status_color
 from utils.app_config import get_or_create_config
 from utils import set_window_icon
 from utils.date_utils import format_date, parse_date_flexible, get_tkcalendar_date_pattern
 from utils.security import get_username
+from utils.i18n import get_currency_symbol
 from modules import permissions
 
 logger = logging.getLogger(__name__)
@@ -138,7 +140,7 @@ class ComprehensiveReconciliationUI(ttk.Frame):
         # Update button styles
         for key, btn in self.nav_buttons.items():
             if key == view:
-                btn.config(style="Accent.TButton")
+                btn.config(style="Primary.TButton")
             elif key in ["save_draft", "complete", "reconcile"]:
                 # These buttons don't get accent style, just enable/disable
                 pass
@@ -293,7 +295,7 @@ class ComprehensiveReconciliationUI(ttk.Frame):
         # Status
         self.create_status_var = tk.StringVar(value="")
         ttk.Label(frame, textvariable=self.create_status_var,
-                 foreground="blue").pack(pady=(10, 0))
+                 foreground=get_status_color('blue')).pack(pady=(10, 0))
 
         return frame
 
@@ -317,8 +319,8 @@ class ComprehensiveReconciliationUI(ttk.Frame):
         # Initialize date range to last 30 days
         today = datetime.now().date()
         last_30_days = today - timedelta(days=30)
-        self.from_date_var = tk.StringVar(value=last_30_days.strftime("%Y-%m-%d"))
-        self.to_date_var = tk.StringVar(value=today.strftime("%Y-%m-%d"))
+        self.from_date_var = tk.StringVar(value=format_date(last_30_days))
+        self.to_date_var = tk.StringVar(value=format_date(today))
 
         # Sessions list
         list_frame = ttk.LabelFrame(frame, text="All Sessions", padding=10)
@@ -456,36 +458,36 @@ class ComprehensiveReconciliationUI(ttk.Frame):
         row1_frame.pack(fill=tk.X, pady=(0, 5))
 
         ttk.Label(row1_frame, text="Total Sessions:", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Label(row1_frame, textvariable=self.total_sessions_var, foreground="blue").pack(side=tk.LEFT, padx=(0, 15))
+        ttk.Label(row1_frame, textvariable=self.total_sessions_var, foreground=get_status_color('info')).pack(side=tk.LEFT, padx=(0, 15))
 
         ttk.Label(row1_frame, text="Reviewed:", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Label(row1_frame, textvariable=self.reviewed_sessions_var, foreground="green").pack(side=tk.LEFT, padx=(0, 15))
+        ttk.Label(row1_frame, textvariable=self.reviewed_sessions_var, foreground=get_status_color('success')).pack(side=tk.LEFT, padx=(0, 15))
 
         ttk.Label(row1_frame, text="Draft:", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Label(row1_frame, textvariable=self.draft_sessions_var, foreground="orange").pack(side=tk.LEFT)
+        ttk.Label(row1_frame, textvariable=self.draft_sessions_var, foreground=get_status_color('warning')).pack(side=tk.LEFT)
 
         # Row 2: Status breakdown
         row2_frame = ttk.Frame(summary_frame)
         row2_frame.pack(fill=tk.X, pady=(5, 5))
 
         ttk.Label(row2_frame, text="Completed:", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Label(row2_frame, textvariable=self.completed_sessions_var, foreground="blue").pack(side=tk.LEFT, padx=(0, 15))
+        ttk.Label(row2_frame, textvariable=self.completed_sessions_var, foreground=get_status_color('info')).pack(side=tk.LEFT, padx=(0, 15))
 
         ttk.Label(row2_frame, text="Approved:", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Label(row2_frame, textvariable=self.approved_sessions_var, foreground="purple").pack(side=tk.LEFT, padx=(0, 15))
+        ttk.Label(row2_frame, textvariable=self.approved_sessions_var, foreground=get_status_color('accent')).pack(side=tk.LEFT, padx=(0, 15))
 
         ttk.Label(row2_frame, text="Rejected:", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Label(row2_frame, textvariable=self.rejected_sessions_var, foreground="red").pack(side=tk.LEFT)
+        ttk.Label(row2_frame, textvariable=self.rejected_sessions_var, foreground=get_status_color('danger')).pack(side=tk.LEFT)
 
         # Row 3: Financial totals
         row3_frame = ttk.Frame(summary_frame)
         row3_frame.pack(fill=tk.X, pady=(10, 0))
 
         ttk.Label(row3_frame, text="Total System Sales:", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Label(row3_frame, textvariable=self.total_system_sales_var, foreground="navy").pack(side=tk.LEFT, padx=(0, 15))
+        ttk.Label(row3_frame, textvariable=self.total_system_sales_var, foreground=get_status_color('info')).pack(side=tk.LEFT, padx=(0, 15))
 
         ttk.Label(row3_frame, text="Total Variance:", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Label(row3_frame, textvariable=self.total_variance_var, foreground="red").pack(side=tk.LEFT, padx=(0, 15))
+        ttk.Label(row3_frame, textvariable=self.total_variance_var, foreground=get_status_color('danger')).pack(side=tk.LEFT, padx=(0, 15))
 
         ttk.Label(row3_frame, text="Total Explained:", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(0, 5))
     def _on_search_change(self, event=None) -> None:
@@ -578,7 +580,7 @@ class ComprehensiveReconciliationUI(ttk.Frame):
         # If session isn't completed, disable mark and show explanation
         if not is_completed:
             mark_btn.config(state="disabled")
-            ttk.Label(left_buttons, text="Only completed sessions can be reviewed", foreground="red").pack(side=tk.LEFT, padx=(10, 0))
+            ttk.Label(left_buttons, text="Only completed sessions can be reviewed", foreground=get_status_color('danger')).pack(side=tk.LEFT, padx=(10, 0))
 
         # Set initial states based on reviewed flag
         if is_reviewed:
@@ -648,11 +650,11 @@ class ComprehensiveReconciliationUI(ttk.Frame):
 
         # Color code status
         if session.status.lower() == 'completed':
-            status_label.config(foreground="green")
+            status_label.config(foreground=get_status_color('success'))
         elif session.status.lower() == 'draft':
-            status_label.config(foreground="orange")
+            status_label.config(foreground=get_status_color('warning'))
         elif session.status.lower() == 'rejected':
-            status_label.config(foreground="red")
+            status_label.config(foreground=get_status_color('danger'))
 
         ttk.Label(info_frame, text="Total System:", font=("Segoe UI", 10, "bold")).grid(row=1, column=2, sticky=tk.W, padx=(0, 10), pady=(10, 0))
         ttk.Label(info_frame, text=f"{self.currency_symbol}{sum(entry.system_amount for entry in session.entries):.2f}").grid(row=1, column=3, sticky=tk.W, padx=(0, 20), pady=(10, 0))
@@ -664,18 +666,18 @@ class ComprehensiveReconciliationUI(ttk.Frame):
 
         # Color code variance
         if abs(variance_total) < 0.01:
-            variance_label.config(foreground="green")
+            variance_label.config(foreground=get_status_color('success'))
         else:
-            variance_label.config(foreground="red")
+            variance_label.config(foreground=get_status_color('danger'))
 
         # Row 2 - Reviewed
         ttk.Label(info_frame, text="Reviewed:", font=("Segoe UI", 10, "bold")).grid(row=2, column=0, sticky=tk.W, padx=(0, 10), pady=(10, 0))
         reviewed_label = ttk.Label(info_frame, text="Yes" if is_reviewed else "No")
         reviewed_label.grid(row=2, column=1, sticky=tk.W, padx=(0, 20), pady=(10, 0))
         if is_reviewed:
-            reviewed_label.config(foreground="green")
+            reviewed_label.config(foreground=get_status_color('success'))
         else:
-            reviewed_label.config(foreground="red")
+            reviewed_label.config(foreground=get_status_color('danger'))
 
         # Store references for updating after marking reviewed
         dialog.reviewed_label = reviewed_label
@@ -691,7 +693,7 @@ class ComprehensiveReconciliationUI(ttk.Frame):
         
         explained_label = ttk.Label(info_frame, text=f"{self.currency_symbol}{explained_total:.2f}")
         explained_label.grid(row=2, column=1, sticky=tk.W, padx=(0, 20), pady=(10, 0))
-        explained_label.config(foreground="blue")  # Blue for explained amounts
+        explained_label.config(foreground=get_status_color('info'))  # Theme-aware color for explained amounts
 
         # Entries breakdown section
         entries_frame = ttk.LabelFrame(scrollable_frame, text="Payment Method Breakdown", padding=15)
@@ -868,7 +870,7 @@ class ComprehensiveReconciliationUI(ttk.Frame):
                 dialog.mark_button.config(text="✅ Reviewed", state="disabled")
                 dialog.approve_button.config(state="normal")
                 dialog.reject_button.config(state="normal")
-                dialog.reviewed_label.config(text="Yes", foreground="green")
+                dialog.reviewed_label.config(text="Yes", foreground=get_status_color("success"))
             except Exception as e:
                 # Log a warning but do NOT close the dialog; keep it open for next steps
                 logger.warning(f"Failed to update dialog UI after marking reviewed: {e}")
@@ -973,9 +975,9 @@ class ComprehensiveReconciliationUI(ttk.Frame):
             # Update dialog UI: keep Reviewed as Yes but mark status as Rejected, and disable approve/reject
             try:
                 if hasattr(dialog, 'reviewed_label'):
-                    dialog.reviewed_label.config(text="Yes", foreground="green")
+                    dialog.reviewed_label.config(text="Yes", foreground=get_status_color("success"))
                 if hasattr(dialog, 'status_label'):
-                    dialog.status_label.config(text="Rejected", foreground="red")
+                    dialog.status_label.config(text="Rejected", foreground=get_status_color("danger"))
                 if hasattr(dialog, 'approve_button'):
                     dialog.approve_button.config(state="disabled")
                 if hasattr(dialog, 'reject_button'):
@@ -1010,9 +1012,9 @@ class ComprehensiveReconciliationUI(ttk.Frame):
                             # Update dialog UI: keep Reviewed as Yes but mark status as Rejected, and disable approve/reject
                             try:
                                 if hasattr(dialog, 'reviewed_label'):
-                                    dialog.reviewed_label.config(text="Yes", foreground="green")
+                                    dialog.reviewed_label.config(text="Yes", foreground=get_status_color('success'))
                                 if hasattr(dialog, 'status_label'):
-                                    dialog.status_label.config(text="Rejected", foreground="red")
+                                    dialog.status_label.config(text="Rejected", foreground=get_status_color('danger'))
                                 if hasattr(dialog, 'approve_button'):
                                     dialog.approve_button.config(state="disabled")
                                 if hasattr(dialog, 'reject_button'):
@@ -1262,7 +1264,7 @@ class ComprehensiveReconciliationUI(ttk.Frame):
                 variance_amt = f"{total_variance:.2f}" if total_variance else "0.00"
 
                 self.advanced_sessions_tree.insert("", tk.END, values=(
-                    session_id, reconciliation_date, period_type, display_status, system_amt, variance_amt
+                    session_id, format_date(reconciliation_date), period_type, display_status, system_amt, variance_amt
                 ))
 
         except Exception as e:
@@ -1305,10 +1307,18 @@ class ComprehensiveReconciliationUI(ttk.Frame):
         table_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
 
         # --- Formula banner ---
+        try:
+            from utils.theme import get_theme_colors
+            _tc = get_theme_colors()
+            _formula_bg = _tc.get('primary_light', '#EBF5FB')
+            _formula_fg = _tc.get('primary', '#2471A3')
+        except Exception:
+            _formula_bg = '#EBF5FB'
+            _formula_fg = '#2471A3'
         formula_lbl = tk.Label(
             table_frame,
             text="Formula:  Actual Sales = Closing Balance − Opening Balance + Cash Out   |   Variance = Actual Sales − POS Sales",
-            font=("Segoe UI", 9), bg="#EBF5FB", fg="#2471A3", anchor="w", padx=6, pady=3
+            font=("Segoe UI", 9), bg=_formula_bg, fg=_formula_fg, anchor="w", padx=6, pady=3
         )
         formula_lbl.pack(fill=tk.X, pady=(0, 8))
 
@@ -1374,7 +1384,7 @@ class ComprehensiveReconciliationUI(ttk.Frame):
 
         ttk.Label(controls_frame,
                   text="💡 Double-click Opening Balance or Closing Balance to edit  |  Cash Out is read-only (from expenses)  |  Right-click for variance explanations",
-                  font=("Segoe UI", 9), foreground="gray").pack(side=tk.LEFT)
+                  font=("Segoe UI", 9), foreground=get_status_color('gray')).pack(side=tk.LEFT)
 
         ttk.Button(controls_frame, text="🔄 Refresh Data",
                   command=self._refresh_session_data).pack(side=tk.RIGHT)
@@ -1425,7 +1435,7 @@ class ComprehensiveReconciliationUI(ttk.Frame):
         dialog.title("Select Date")
         # Hide initially to prevent resize animation
         dialog.withdraw()
-        dialog.resizable(False, False)
+        dialog.resizable(True, True)
         # Use provided parent_dialog for transient if available to keep modality correct
         dialog.transient(parent_dialog if parent_dialog is not None else self.winfo_toplevel())
         dialog.grab_set()
@@ -1475,7 +1485,7 @@ class ComprehensiveReconciliationUI(ttk.Frame):
             buttons_frame.pack(fill=tk.X, pady=(0, 10), padx=10)
 
             ttk.Button(buttons_frame, text="Select Date",
-                      command=on_date_select, style="Accent.TButton").pack(side=tk.RIGHT, padx=(10, 0))
+                      command=on_date_select, style="Primary.TButton").pack(side=tk.RIGHT, padx=(10, 0))
             ttk.Button(buttons_frame, text="Today",
                       command=lambda: cal.selection_set(datetime.now().date()), style="TButton").pack(side=tk.RIGHT)
             ttk.Button(buttons_frame, text="Cancel",
@@ -1506,7 +1516,7 @@ class ComprehensiveReconciliationUI(ttk.Frame):
             buttons_frame = ttk.Frame(fallback_container)
             buttons_frame.pack(fill=tk.X, pady=(0, 10), padx=10)
 
-            ttk.Button(buttons_frame, text="OK", command=on_ok, style="Accent.TButton").pack(side=tk.RIGHT, padx=(10, 0))
+            ttk.Button(buttons_frame, text="OK", command=on_ok, style="Primary.TButton").pack(side=tk.RIGHT, padx=(10, 0))
             ttk.Button(buttons_frame, text="Cancel", command=dialog.destroy, style="TButton").pack(side=tk.RIGHT)
 
             date_entry.focus()
@@ -1775,7 +1785,7 @@ class ComprehensiveReconciliationUI(ttk.Frame):
                 reviewed_text = "Yes" if reviewed else "No"
 
                 self.sessions_tree.insert("", tk.END, values=(
-                    session_id, reconciliation_date, period_type.title(), display_status,
+                    session_id, format_date(reconciliation_date), period_type.title(), display_status,
                     system_amt, variance_amt, explained_amt, reviewed_text
                 ))
 
@@ -1930,8 +1940,8 @@ class ComprehensiveReconciliationUI(ttk.Frame):
         today = datetime.now().date()
         start_date = today - timedelta(days=days)
 
-        self.from_date_var.set(start_date.strftime("%Y-%m-%d"))
-        self.to_date_var.set(today.strftime("%Y-%m-%d"))
+        self.from_date_var.set(format_date(start_date))
+        self.to_date_var.set(format_date(today))
         self._load_sessions_list()
 
     def _show_custom_date_dialog(self) -> None:
@@ -1941,7 +1951,7 @@ class ComprehensiveReconciliationUI(ttk.Frame):
         dialog.geometry("400x200")
         # Hide initially to prevent resize animation
         dialog.withdraw()
-        dialog.resizable(False, False)
+        dialog.resizable(True, True)
         dialog.transient(self.winfo_toplevel())
         dialog.grab_set()
         set_window_icon(dialog)
@@ -1949,10 +1959,11 @@ class ComprehensiveReconciliationUI(ttk.Frame):
 
         # Style configuration - keep minimal customizations and reuse the app's theme
         style = ttk.Style(dialog)
+        _tc = get_theme_colors()
         style.configure("DialogTitle.TLabel", font=("Segoe UI", 12, "bold"))
-        style.configure("DialogHint.TLabel", font=("Segoe UI", 9), foreground="#6B6B6B")
+        style.configure("DialogHint.TLabel", font=("Segoe UI", 9), foreground=_tc.get('text_secondary', '#6B6B6B'))
         style.configure("Dialog.TEntry", font=("Segoe UI", 10))
-        # Use Accent.TButton for primary actions to align with main UI styling
+        # Use Primary.TButton for primary actions to align with main UI styling
 
         # Main container
         container = ttk.Frame(dialog, padding=20)
@@ -1960,7 +1971,9 @@ class ComprehensiveReconciliationUI(ttk.Frame):
 
         # Title
         ttk.Label(container, text="Select Custom Date Range", style="DialogTitle.TLabel").pack(pady=(0, 5))
-        ttk.Label(container, text="Enter dates in YYYY-MM-DD format", style="DialogHint.TLabel").pack(pady=(0, 15))
+        from utils.date_utils import get_date_format as _get_df
+        _fmt_hint = _get_df().replace('%Y','YYYY').replace('%m','MM').replace('%d','DD')
+        ttk.Label(container, text=f"Enter dates in {_fmt_hint} format", style="DialogHint.TLabel").pack(pady=(0, 15))
 
         # Date fields frame
         fields_frame = ttk.Frame(container)
@@ -2034,7 +2047,7 @@ class ComprehensiveReconciliationUI(ttk.Frame):
         spacer = ttk.Frame(buttons_frame)
         spacer.pack(side=tk.LEFT, expand=True)
         ttk.Button(buttons_frame, text="Cancel", command=cancel, style="TButton").pack(side=tk.RIGHT)
-        ttk.Button(buttons_frame, text="Apply", command=apply_range, style="Accent.TButton").pack(side=tk.RIGHT, padx=(10, 0))
+        ttk.Button(buttons_frame, text="Apply", command=apply_range, style="Primary.TButton").pack(side=tk.RIGHT, padx=(10, 0))
 
         # Compute a sensible minimum size so all content (including buttons) is visible,
         # then center the dialog on the parent window and allow resizing if needed.
@@ -2093,50 +2106,6 @@ class ComprehensiveReconciliationUI(ttk.Frame):
         except Exception as e:
             logger.error(f"Error deleting session {session_id}: {e}")
             messagebox.showerror("Error", f"Failed to delete session: {str(e)}")
-
-    def _load_session(self, session_id: int) -> None:
-        """Load a reconciliation session."""
-        try:
-            session = get_reconciliation_session(session_id)
-            if session:
-                # Convert to our UI session format
-                self.current_session = ReconciliationSession(
-                    session_id=session.session_id,
-                    date=session.reconciliation_date,
-                    period_type=session.period_type,
-                    start_date=session.start_date,
-                    end_date=session.end_date,
-                    items=[],
-                    status=session.status,
-                    created_by=session.reconciled_by or 1,
-                    created_at=session.reconciled_at or datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    completed_at=session.reconciled_at,
-                    notes=session.notes,
-                    explanations_loaded=True  # Will load explanations below
-                )
-
-                # Convert entries to items
-                for entry in session.entries:
-                    item = ReconciliationItem(
-                        payment_method=entry.payment_method,
-                        system_amount=entry.system_amount,
-                        actual_amount=entry.actual_amount,
-                        variance=entry.variance,
-                        is_reviewed=getattr(entry, 'is_reviewed', False),
-                        notes=entry.explanation if hasattr(entry, 'explanation') else '',
-                        opening_balance=getattr(entry, 'opening_balance', 0.0),
-                        cash_out=getattr(entry, 'cash_out', 0.0),
-                    )
-                    self.current_session.items.append(item)
-
-                # Load explanations into memory
-                self.current_session.explanations = get_variance_explanations(self.current_session)
-
-        except Exception as e:
-            logger.error(f"Error loading session {session_id}: {e}")
-            messagebox.showerror("Error", f"Failed to load session: {str(e)}")
-
-        return frame
 
     def _load_session_data(self) -> None:
         """Load session data into the treeview (new opening/closing layout)."""
@@ -2432,11 +2401,13 @@ class ComprehensiveReconciliationUI(ttk.Frame):
                 for item in self.current_session.items:
                     cursor.execute("""
                         UPDATE reconciliation_entries
-                        SET actual_amount = ?, opening_balance = ?
+                        SET actual_amount = ?, opening_balance = ?, cash_out = ?, variance = ?
                         WHERE session_id = ? AND payment_method = ?
                     """, (
                         item.actual_amount,
                         getattr(item, 'opening_balance', 0.0),
+                        getattr(item, 'cash_out', 0.0),
+                        item.variance,
                         self.current_session.session_id,
                         item.payment_method
                     ))
@@ -2577,7 +2548,7 @@ class ComprehensiveReconciliationUI(ttk.Frame):
         progress_dialog = tk.Toplevel(dialog)
         progress_dialog.title("Saving...")
         progress_dialog.geometry("300x120")
-        progress_dialog.resizable(False, False)
+        progress_dialog.resizable(True, True)
         progress_dialog.transient(dialog)
         progress_dialog.grab_set()
         
@@ -2650,7 +2621,9 @@ class ComprehensiveReconciliationUI(ttk.Frame):
                                 system_amount=entry.system_amount,
                                 actual_amount=entry.actual_amount,
                                 variance=entry.variance,
-                                notes=entry.explanation
+                                notes=entry.explanation,
+                                opening_balance=getattr(entry, 'opening_balance', 0.0),
+                                cash_out=getattr(entry, 'cash_out', 0.0),
                             )
                             self.current_session.items.append(item)
                         
@@ -2693,7 +2666,7 @@ class ComprehensiveReconciliationUI(ttk.Frame):
         input_dialog = tk.Toplevel(dialog)
         input_dialog.title("Add Variance Explanation")
         input_dialog.geometry("400x220")
-        input_dialog.resizable(False, False)
+        input_dialog.resizable(True, True)
         input_dialog.transient(dialog)
         input_dialog.grab_set()
 
@@ -2809,7 +2782,7 @@ class ComprehensiveReconciliationUI(ttk.Frame):
         edit_dialog = tk.Toplevel(self)
         edit_dialog.title("Edit Variance Explanation")
         edit_dialog.geometry("400x200")
-        edit_dialog.resizable(False, False)
+        edit_dialog.resizable(True, True)
         edit_dialog.transient(self)
         edit_dialog.grab_set()
 
@@ -2973,7 +2946,7 @@ class ComprehensiveReconciliationUI(ttk.Frame):
         dialog = tk.Toplevel(self)
         dialog.title(f"Add Explanation - {payment_method}")
         dialog.geometry("500x300")
-        dialog.resizable(False, False)
+        dialog.resizable(True, True)
 
         # Set the app icon
         set_window_icon(dialog)
@@ -3043,11 +3016,13 @@ class ComprehensiveReconciliationUI(ttk.Frame):
                     for item in self.current_session.items:
                         cursor.execute("""
                             UPDATE reconciliation_entries
-                            SET actual_amount = ?, opening_balance = ?
+                            SET actual_amount = ?, opening_balance = ?, cash_out = ?, variance = ?
                             WHERE session_id = ? AND payment_method = ?
                         """, (
                             item.actual_amount,
                             getattr(item, 'opening_balance', 0.0),
+                            getattr(item, 'cash_out', 0.0),
+                            item.variance,
                             self.current_session.session_id,
                             item.payment_method
                         ))
@@ -3227,7 +3202,7 @@ class ComprehensiveReconciliationUI(ttk.Frame):
                     actual_sales = entry.actual_amount - opening + cash_out
                     writer.writerow([
                         session.session_id,
-                        session.reconciliation_date,
+                        format_date(session.reconciliation_date),
                         session.period_type,
                         session.status,
                         entry.payment_method,
@@ -3327,7 +3302,7 @@ class ComprehensiveReconciliationUI(ttk.Frame):
         filter_window = tk.Toplevel(self)
         filter_window.title("Filter Sessions")
         filter_window.geometry("300x200")
-        filter_window.resizable(False, False)
+        filter_window.resizable(True, True)
         filter_window.transient(self)
         filter_window.grab_set()
 

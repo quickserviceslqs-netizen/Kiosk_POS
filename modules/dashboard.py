@@ -39,14 +39,13 @@ def get_today_summary() -> dict:
             (today,)
         ).fetchone()
         
-        # Count line items sold (not raw quantities) - excludes refunded sales
+        # Count line items sold (not raw quantities) - all non-voided sales
         items_row = conn.execute(
             """
             SELECT COUNT(*) as line_items_sold
             FROM sales_items si
             JOIN sales s ON si.sale_id = s.sale_id
-            LEFT JOIN refunds r ON s.sale_id = r.original_sale_id
-            WHERE s.date = ? AND r.refund_id IS NULL
+            WHERE s.date = ?
             AND (s.voided IS NULL OR s.voided = 0)
             """,
             (today,)
@@ -154,7 +153,7 @@ def get_month_summary() -> dict:
 
 
 def get_top_products(limit: int = 5) -> list[dict]:
-    """Get top selling products today (excludes refunded sales).
+    """Get top selling products today (gross qty, voided sales excluded).
     For fractional items, quantities are converted to base units (L/kg/m)."""
     today = datetime.now().strftime("%Y-%m-%d")
     
@@ -173,8 +172,7 @@ def get_top_products(limit: int = 5) -> list[dict]:
             FROM sales_items si
             JOIN items i ON si.item_id = i.item_id
             JOIN sales s ON si.sale_id = s.sale_id
-            LEFT JOIN refunds r ON s.sale_id = r.original_sale_id
-            WHERE s.date = ? AND r.refund_id IS NULL
+            WHERE s.date = ?
             AND (s.voided IS NULL OR s.voided = 0)
             GROUP BY i.item_id
             ORDER BY quantity_sold_raw DESC
@@ -213,7 +211,7 @@ def get_top_products(limit: int = 5) -> list[dict]:
         return results
 
 
-def get_low_stock_items(threshold: int = 10) -> list[dict]:
+def get_low_stock_items(limit: int = 50, threshold: int = 10) -> list[dict]:
     """Get low-stock alerts. Returns a list of alert dicts.
 
     - For items with variants, returns variant-level alerts only (no parent alerts).
@@ -339,7 +337,7 @@ def get_low_stock_items(threshold: int = 10) -> list[dict]:
                 except Exception:
                     continue
 
-            if len(low_items) >= 10:
+            if len(low_items) >= limit:
                 break
 
         return low_items
@@ -509,30 +507,6 @@ def get_hourly_sales_data(date: str) -> list[dict]:
             (date,)
         ).fetchall()
     return [dict(r) for r in rows]
-
-
-def get_sales_trend_data(days: int = 7) -> list[dict]:
-    """Get sales data for the last N days."""
-    today = datetime.now()
-    dates = [(today - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(days - 1, -1, -1)]
-    
-    with get_connection() as conn:
-        conn.row_factory = sqlite3.Row
-        results = []
-        for date in dates:
-            row = conn.execute(
-                """
-                SELECT 
-                    ? as date,
-                    COALESCE(SUM(total), 0) as revenue
-                FROM sales
-                WHERE date = ?
-                AND (voided IS NULL OR voided = 0)
-                """,
-                (date, date)
-            ).fetchone()
-            results.append(dict(row))
-        return results
 
 
 def get_expenses_by_category(days: int = 30) -> list[dict]:

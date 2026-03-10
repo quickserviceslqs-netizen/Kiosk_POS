@@ -38,8 +38,7 @@ class VatSettingsFrame(ttk.Frame):
         self.tree = ttk.Treeview(
             tree_frame,
             columns=("rate", "description", "active"),
-            show="headings",
-            height=50
+            show="headings"
         )
         self.tree.heading("rate", text="Rate (%)")
         self.tree.heading("description", text="Description")
@@ -118,41 +117,49 @@ class VatSettingsFrame(ttk.Frame):
 
     def _open_dialog(self, *, title: str, existing: dict | None) -> None:
         dialog = tk.Toplevel(self)
+        dialog.withdraw()
         dialog.title(title)
         set_window_icon(dialog)
-        dialog.transient(self.winfo_toplevel())
-        dialog.grab_set()
-        dialog.geometry("400x200")
         dialog.resizable(True, True)
 
-        fields = {
-            "rate": tk.StringVar(value=str(existing.get("rate", 0.0)) if existing else "0.0"),
-            "description": tk.StringVar(value=existing.get("description", "") if existing else ""),
-            "active": tk.BooleanVar(value=bool(existing.get("active", 1)) if existing else True),
-        }
+        outer = ttk.Frame(dialog, padding=(14, 12, 14, 10))
+        outer.pack(fill=tk.BOTH, expand=True)
+        outer.columnconfigure(1, weight=1)
 
-        # Fields
-        ttk.Label(dialog, text="Rate (%):").grid(row=0, column=0, sticky=tk.W, pady=8, padx=12)
-        ttk.Entry(dialog, textvariable=fields["rate"], width=20).grid(row=0, column=1, sticky=tk.W, pady=8, padx=12)
+        rate_var = tk.StringVar(value=f"{existing['rate']:.2f}" if existing else "")
+        desc_var = tk.StringVar(value=existing.get("description", "") if existing else "")
+        active_var = tk.BooleanVar(value=bool(existing.get("active", True)) if existing else True)
 
-        ttk.Label(dialog, text="Description:").grid(row=1, column=0, sticky=tk.W, pady=8, padx=12)
-        ttk.Entry(dialog, textvariable=fields["description"], width=30).grid(row=1, column=1, sticky=tk.EW, pady=8, padx=12)
+        ttk.Label(outer, text="Rate (%) *").grid(row=0, column=0, sticky=tk.W, pady=6, padx=(0, 10))
+        rate_entry = ttk.Entry(outer, textvariable=rate_var, width=18)
+        rate_entry.grid(row=0, column=1, sticky=tk.W, pady=6)
 
-        ttk.Checkbutton(dialog, text="Active", variable=fields["active"]).grid(row=2, column=1, sticky=tk.W, pady=8, padx=12)
+        ttk.Label(outer, text="Description").grid(row=1, column=0, sticky=tk.W, pady=6, padx=(0, 10))
+        ttk.Entry(outer, textvariable=desc_var, width=28).grid(row=1, column=1, sticky=tk.EW, pady=6)
+
+        ttk.Checkbutton(outer, text="Active", variable=active_var).grid(
+            row=2, column=1, sticky=tk.W, pady=6)
 
         def on_submit():
+            raw = rate_var.get().strip()
+            if not raw:
+                messagebox.showerror("Required", "Please enter a rate.", parent=dialog)
+                rate_entry.focus_set()
+                return
             try:
-                rate = float(fields["rate"].get())
+                rate = float(raw)
+                if rate < 0:
+                    raise ValueError
             except ValueError:
-                messagebox.showerror("Invalid", "Enter a valid rate number")
+                messagebox.showerror("Invalid", "Rate must be a non-negative number.", parent=dialog)
+                rate_entry.focus_set()
                 return
 
             payload = {
                 "rate": rate,
-                "description": fields["description"].get().strip(),
-                "active": fields["active"].get(),
+                "description": desc_var.get().strip(),
+                "active": active_var.get(),
             }
-
             try:
                 if existing:
                     vat_rates.update_vat_rate(existing["vat_id"], **payload)
@@ -161,10 +168,21 @@ class VatSettingsFrame(ttk.Frame):
                 self.refresh()
                 dialog.destroy()
             except Exception as exc:
-                messagebox.showerror("Error", f"Failed to save VAT rate: {exc}")
+                messagebox.showerror("Error", f"Failed to save VAT rate:\n{exc}", parent=dialog)
 
-        # Buttons
-        btn_frame = ttk.Frame(dialog)
-        btn_frame.grid(row=3, column=0, columnspan=2, pady=16)
-        ttk.Button(btn_frame, text="Save", command=on_submit).pack(side=tk.LEFT, padx=4)
-        ttk.Button(btn_frame, text="Cancel", command=dialog.destroy).pack(side=tk.LEFT, padx=4)
+        btn_frame = ttk.Frame(outer)
+        btn_frame.grid(row=3, column=0, columnspan=2, pady=(10, 4))
+        ttk.Button(btn_frame, text="💾  Save", command=on_submit, width=10).pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(btn_frame, text="Cancel", command=dialog.destroy, width=8).pack(side=tk.LEFT)
+        dialog.bind("<Return>", lambda e: on_submit())
+        dialog.bind("<Escape>", lambda e: dialog.destroy())
+
+        dialog.update_idletasks()
+        sw, sh = dialog.winfo_screenwidth(), dialog.winfo_screenheight()
+        w, h = dialog.winfo_reqwidth(), dialog.winfo_reqheight()
+        dialog.geometry(f"+{(sw - w) // 2}+{max(30, (sh - h) // 2 - 40)}")
+        dialog.deiconify()
+        dialog.lift()
+        dialog.focus_force()
+        dialog.grab_set()
+        rate_entry.focus_set()

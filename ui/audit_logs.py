@@ -7,6 +7,18 @@ from datetime import datetime, timedelta
 import os
 import json
 from typing import List, Dict, Any
+from utils.theme import get_status_color
+
+
+def _get_tc():
+    """Get theme colors with safe fallback."""
+    try:
+        from utils.theme import get_theme_colors
+        return get_theme_colors()
+    except Exception:
+        return {'surface': '#FFFFFF', 'table_row_alt': '#f8f9fa', 'background': '#f5f5f5',
+                'text': '#1f2937', 'info': '#0ea5e9', 'primary_light': '#dbeafe',
+                'field_bg': '#FFFFFF', 'field_text': '#1f2937'}
 
 from database.init_db import get_connection
 from utils.audit import audit_logger
@@ -153,7 +165,7 @@ class AuditLogsFrame(ttk.Frame):
 
         # Status label
         self.status_var = tk.StringVar(value="Ready")
-        self.status_label = ttk.Label(self, textvariable=self.status_var, foreground="blue")
+        self.status_label = ttk.Label(self, textvariable=self.status_var, foreground=get_status_color('info'))
         self.status_label.grid(row=5, column=0, sticky=tk.W)
 
         # Configure grid weights for proper expansion
@@ -363,8 +375,9 @@ class AuditLogsFrame(ttk.Frame):
             self.tree.insert("", tk.END, values=values, tags=(entry.get("source", "").lower(),))
 
         # Configure row colors based on source
-        self.tree.tag_configure("database", background="#f0f8ff")
-        self.tree.tag_configure("file", background="#fff8f0")
+        _tc = _get_tc()
+        self.tree.tag_configure("database", background=_tc.get('primary_light', '#f0f8ff'))
+        self.tree.tag_configure("file", background=_tc.get('table_row_alt', '#fff8f0'))
 
         # Update page label
         self._update_page_label()
@@ -536,6 +549,13 @@ Full Entry Data:
 
     def _clear_old_entries(self):
         """Clear old audit entries from database (admin confirmation required)."""
+        from modules import permissions
+        from utils.security import get_username
+        current_username = get_username()
+        if not permissions.has_permission(current_username, 'export_audit_logs'):
+            messagebox.showerror("Permission Denied", "You do not have permission to clear audit log entries.")
+            return
+
         result = messagebox.askyesno(
             "Confirm Clear",
             "This will permanently delete audit entries older than 365 days from the database.\n\nFile-based logs will not be affected.\n\nContinue?"

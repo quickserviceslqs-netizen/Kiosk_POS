@@ -152,8 +152,7 @@ def receive_stock_batch(
         List of created StockLot objects
     """
     lots = []
-    errors = []
-    
+
     for idx, item in enumerate(items):
         try:
             lot = receive_stock(
@@ -170,15 +169,13 @@ def receive_stock_batch(
             )
             lots.append(lot)
         except Exception as e:
-            logger.error(f"Failed to receive item {item.get('item_id')}: {e}")
-            errors.append(f"Item {item.get('item_id')}: {e}")
-    
-    if errors:
-        raise ValueError(
-            f"Batch receiving partially failed ({len(errors)}/{len(items)} items). "
-            f"Errors: {'; '.join(errors)}"
-        )
-    
+            logger.error(f"Failed to receive item {item.get('item_id')} at index {idx}: {e}")
+            raise ValueError(
+                f"Batch receiving failed at item index {idx} "
+                f"(item_id={item.get('item_id')}): {e}. "
+                f"{len(lots)} prior item(s) were already committed."
+            ) from e
+
     return lots
 
 

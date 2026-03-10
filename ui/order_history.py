@@ -8,9 +8,38 @@ import tkcalendar
 import logging
 import os
 
+
+def _get_tc():
+    """Get theme colors with safe fallback."""
+    try:
+        from utils.theme import get_theme_colors
+        return get_theme_colors()
+    except Exception:
+        return {'surface': '#FFFFFF', 'table_row_alt': '#F9F9F9', 'background': '#f5f5f5',
+                'text': '#1f2937', 'danger': '#ef4444', 'warning': '#f59e0b',
+                'field_bg': '#FFFFFF', 'field_text': '#1f2937'}
+
+
+def _get_status_color(status: str) -> str:
+    """Get theme status color with safe fallback."""
+    try:
+        from utils.theme import get_status_color
+        return get_status_color(status)
+    except Exception:
+        fallbacks = {
+            'danger': '#ef4444',
+            'warning': '#f59e0b',
+            'success': '#10b981',
+            'info': '#3b82f6',
+            'blue': '#3b82f6',
+            'text_light': '#6b7280'
+        }
+        return fallbacks.get(status, '#000000')
+
 from modules import receipts, refunds
 from utils import set_window_icon
-from utils.security import get_currency_code, subscribe_payment_methods, unsubscribe_payment_methods, get_payment_methods
+from utils.security import subscribe_payment_methods, unsubscribe_payment_methods, get_payment_methods
+from utils.i18n import get_currency_symbol
 from utils.date_utils import format_date, parse_date_flexible, get_date_format, get_tkcalendar_date_pattern
 
 
@@ -52,7 +81,8 @@ class ToolTip:
         self.tooltip = tk.Toplevel(self.widget)
         self.tooltip.wm_overrideredirect(True)
         self.tooltip.wm_geometry(f"+{x}+{y}")
-        label = tk.Label(self.tooltip, text=self.text, background="yellow", relief="solid", borderwidth=1)
+        _tooltip_bg = _get_tc().get('tooltip_bg', '#fef3c7')
+        label = tk.Label(self.tooltip, text=self.text, background=_tooltip_bg, relief="solid", borderwidth=1)
         label.pack()
 
     def hide(self, event):
@@ -77,7 +107,7 @@ class OrderHistoryFrame(ttk.Frame):
     def _build_ui(self):
         """Build the UI layout."""
         self.columnconfigure(0, weight=1)
-        self.rowconfigure(3, weight=1)
+        self.rowconfigure(4, weight=1)
         self.grid_propagate(True)
         
         # Top bar
@@ -85,10 +115,10 @@ class OrderHistoryFrame(ttk.Frame):
         top.grid(row=0, column=0, sticky=tk.EW, pady=(0, 8))
         ttk.Label(top, text="Order History", font=("Segoe UI", 14, "bold")).pack(side=tk.LEFT)
         
-        # Date range filters
+        # Filter row 1: date range, search, payment method, status
         filter_frame = ttk.Frame(self)
-        filter_frame.grid(row=1, column=0, sticky=tk.EW, pady=(0, 8))
-        
+        filter_frame.grid(row=1, column=0, sticky=tk.EW, pady=(0, 4))
+
         ttk.Label(filter_frame, text="From:").pack(side=tk.LEFT, padx=(0, 4))
         self.start_date = tk.StringVar(value=format_date(datetime.now() - timedelta(days=30)))
         self.start_date.trace("w", lambda *args: self.refresh())
@@ -97,7 +127,7 @@ class OrderHistoryFrame(ttk.Frame):
         start_entry = ttk.Entry(start_frame, textvariable=self.start_date, width=12)
         start_entry.pack(side=tk.LEFT)
         ttk.Button(start_frame, text="📅", width=2, command=self._pick_start_date).pack(side=tk.LEFT, padx=2)
-        
+
         ttk.Label(filter_frame, text="To:").pack(side=tk.LEFT, padx=(8, 4))
         self.end_date = tk.StringVar(value=format_date(datetime.now()))
         self.end_date.trace("w", lambda *args: self.refresh())
@@ -106,7 +136,7 @@ class OrderHistoryFrame(ttk.Frame):
         end_entry = ttk.Entry(end_frame, textvariable=self.end_date, width=12)
         end_entry.pack(side=tk.LEFT)
         ttk.Button(end_frame, text="📅", width=2, command=self._pick_end_date).pack(side=tk.LEFT, padx=2)
-        
+
         ttk.Label(filter_frame, text="Search:").pack(side=tk.LEFT, padx=(8, 4))
         self.search_term = tk.StringVar()
         self.search_term.trace("w", lambda *args: self.refresh())
@@ -116,7 +146,7 @@ class OrderHistoryFrame(ttk.Frame):
         search_entry.pack(side=tk.LEFT)
         ToolTip(search_entry, "Search by receipt number, customer name, or cashier")
         ttk.Button(search_frame, text="×", width=2, command=self._clear_search).pack(side=tk.LEFT, padx=2)
-        # Advanced filters: Payment method, Refund status, User (cashier), Customer
+
         self.payment_method_var = tk.StringVar(value="Any")
         ttk.Label(filter_frame, text="Payment:").pack(side=tk.LEFT, padx=(8, 2))
         values = ["Any"] + get_payment_methods()
@@ -126,32 +156,36 @@ class OrderHistoryFrame(ttk.Frame):
         self.bind("<Destroy>", lambda _e: unsubscribe_payment_methods(self._on_payment_methods_changed))
         self.payment_method_cb.pack(side=tk.LEFT, padx=2)
         self.payment_method_cb.bind("<<ComboboxSelected>>", lambda e: self.refresh())
-        
+
         self.refund_status_var = tk.StringVar(value="Any")
         ttk.Label(filter_frame, text="Status:").pack(side=tk.LEFT, padx=(8, 2))
         self.status_cb = ttk.Combobox(filter_frame, textvariable=self.refund_status_var, values=["Any", "Active", "Partially Refunded", "Fully Refunded", "Voided"], width=15, state='readonly')
         self.status_cb.pack(side=tk.LEFT, padx=2)
         self.status_cb.bind("<<ComboboxSelected>>", lambda e: self.refresh())
-        
+
+        # Filter row 2: cashier, customer, action buttons
+        filter_frame2 = ttk.Frame(self)
+        filter_frame2.grid(row=2, column=0, sticky=tk.EW, pady=(0, 6))
+
         self.user_var = tk.StringVar(value="Any")
-        ttk.Label(filter_frame, text="Cashier:").pack(side=tk.LEFT, padx=(8, 2))
-        self.user_cb = ttk.Combobox(filter_frame, textvariable=self.user_var, values=["Any"], width=12)
+        ttk.Label(filter_frame2, text="Cashier:").pack(side=tk.LEFT, padx=(0, 2))
+        self.user_cb = ttk.Combobox(filter_frame2, textvariable=self.user_var, values=["Any"], width=12)
         self.user_cb.pack(side=tk.LEFT, padx=2)
         self.user_cb.bind("<<ComboboxSelected>>", lambda e: self.refresh())
-        
+
         self.customer_var = tk.StringVar(value="Any")
-        ttk.Label(filter_frame, text="Customer:").pack(side=tk.LEFT, padx=(8, 2))
-        self.customer_cb = ttk.Combobox(filter_frame, textvariable=self.customer_var, values=["Any"], width=12)
+        ttk.Label(filter_frame2, text="Customer:").pack(side=tk.LEFT, padx=(8, 2))
+        self.customer_cb = ttk.Combobox(filter_frame2, textvariable=self.customer_var, values=["Any"], width=14)
         self.customer_cb.pack(side=tk.LEFT, padx=2)
         self.customer_cb.bind("<<ComboboxSelected>>", lambda e: self.refresh())
-        
-        ttk.Button(filter_frame, text="Apply", command=self._filter_orders).pack(side=tk.LEFT, padx=4)
-        ttk.Button(filter_frame, text="Clear", command=self._clear_filter).pack(side=tk.LEFT, padx=2)
-        ttk.Button(filter_frame, text="📊 Generate Report", command=self._generate_report).pack(side=tk.LEFT, padx=4)
-        
+
+        ttk.Button(filter_frame2, text="Apply", command=self._filter_orders).pack(side=tk.LEFT, padx=(12, 2))
+        ttk.Button(filter_frame2, text="Clear", command=self._clear_filter).pack(side=tk.LEFT, padx=2)
+        ttk.Button(filter_frame2, text="📊 Generate Report", command=self._generate_report).pack(side=tk.LEFT, padx=(8, 2))
+
         # Action buttons
         button_frame = ttk.Frame(self)
-        button_frame.grid(row=2, column=0, sticky=tk.EW, pady=(0, 8))
+        button_frame.grid(row=3, column=0, sticky=tk.EW, pady=(0, 8))
         btn_pad = dict(side=tk.LEFT, padx=4, ipadx=8)
         ttk.Button(button_frame, text="📄 View Receipt", command=self._view_receipt).pack(**btn_pad)
         ttk.Button(button_frame, text="🖨️ Print Receipt", command=self._print_receipt).pack(**btn_pad)
@@ -183,16 +217,16 @@ class OrderHistoryFrame(ttk.Frame):
         self.tree.column("payment_method", width=120, minwidth=100)
         self.tree.column("status", width=100, minwidth=80, anchor=tk.CENTER)
         
-        self.tree.grid(row=3, column=0, sticky=tk.NSEW, pady=(0, 8))
+        self.tree.grid(row=4, column=0, sticky=tk.NSEW, pady=(0, 8))
         
         # Scrollbar
         scroll = ttk.Scrollbar(self, orient=tk.VERTICAL, command=self.tree.yview)
-        scroll.grid(row=3, column=1, sticky=tk.NS, pady=(0, 8))
+        scroll.grid(row=4, column=1, sticky=tk.NS, pady=(0, 8))
         self.tree.configure(yscroll=scroll.set)
         
         # Status bar
         bottom = ttk.Frame(self)
-        bottom.grid(row=4, column=0, sticky=tk.EW)
+        bottom.grid(row=5, column=0, sticky=tk.EW)
         self.count_label = ttk.Label(bottom, text="Orders: 0", font=("Segoe UI", 10, "bold"))
         self.count_label.pack(side=tk.LEFT, padx=8)
         self.total_label = ttk.Label(bottom, text="Total: 0.00", font=("Segoe UI", 10, "bold"))
@@ -228,7 +262,7 @@ class OrderHistoryFrame(ttk.Frame):
         if self.tree is None:
             return  # UI not fully initialized yet
         
-        currency = get_currency_code()
+        currency = get_currency_symbol()
         
         # Clear table
         for item in self.tree.get_children():
@@ -325,8 +359,11 @@ class OrderHistoryFrame(ttk.Frame):
                 voids_count += 1
                 voids_total += sale["total"]
         
-        self.tree.tag_configure("voided", background="#FFCCCC")
-        self.tree.tag_configure("refunded", background="#FFE5E5")
+        _tc = _get_tc()
+        self.tree.tag_configure("voided", background=_tc.get('danger_bg', '#FFCCCC'))
+        self.tree.tag_configure("refunded", background=_tc.get('danger_bg', '#FFE5E5'))
+        self.tree.tag_configure("even", background=_tc.get('table_row_alt', '#F8F9FA'))
+        self.tree.tag_configure("odd", background=_tc.get('surface', '#FFFFFF'))
         self.count_label.config(text=f"Orders: {displayed}")
         self.total_label.config(text=f"Total: {currency} {total:.2f}")
         self.sales_label.config(text=f"Sales: {sales_count} ({currency} {sales_total:.2f})")
@@ -473,6 +510,14 @@ class OrderHistoryFrame(ttk.Frame):
     def _export_all_orders(self) -> None:
         """Export all filtered orders to CSV with detailed line items."""
         try:
+            # Check permissions
+            root = self.winfo_toplevel()
+            current_user = getattr(root, 'current_user', {})
+            from modules import permissions
+            if not permissions.has_permission(current_user, 'export_reports'):
+                messagebox.showerror("Permission Denied", "You do not have permission to export orders")
+                return
+
             # Get current filters
             start = self.start_date.get().strip() or None
             end = self.end_date.get().strip() or None
@@ -553,7 +598,7 @@ class OrderHistoryFrame(ttk.Frame):
                     for item in sale_details["items"]:
                         writer.writerow([
                             receipt_num,
-                            sale_details["date"],
+                            format_date(sale_details["date"]),
                             sale_details["time"],
                             sale.get("customer_name", ""),
                             sale.get("username", ""),
@@ -601,7 +646,7 @@ class OrderHistoryFrame(ttk.Frame):
             popup.columnconfigure(0, weight=1)
             popup.rowconfigure(1, weight=1)
         
-            currency = get_currency_code()
+            currency = get_currency_symbol()
         
             # Header frame
             header_frame = ttk.Frame(popup, padding=10)
@@ -612,7 +657,7 @@ class OrderHistoryFrame(ttk.Frame):
         
             # Order info
             ttk.Label(header_frame, text="Date:").grid(row=1, column=0, sticky=tk.W)
-            ttk.Label(header_frame, text=f"{sale_data['date']} {sale_data['time']}").grid(row=1, column=1, sticky=tk.W, padx=(10, 20))
+            ttk.Label(header_frame, text=f"{format_date(sale_data['date'])} {sale_data['time']}").grid(row=1, column=1, sticky=tk.W, padx=(10, 20))
         
             ttk.Label(header_frame, text="Customer:").grid(row=1, column=2, sticky=tk.W)
             ttk.Label(header_frame, text=sale_data.get('customer_name', 'Walk-in')).grid(row=1, column=3, sticky=tk.W, padx=(10, 0))
@@ -706,16 +751,16 @@ class OrderHistoryFrame(ttk.Frame):
         
             if is_voided:
                 order_status = "Voided"
-                status_color = "red"
+                status_color = _get_status_color('danger')
             elif refunds.is_sale_fully_refunded(sid):
                 order_status = "Fully Refunded"
-                status_color = "orange"
+                status_color = _get_status_color('warning')
             elif refunds.get_refunded_quantities_for_sale(sid):
                 order_status = "Partially Refunded"
-                status_color = "orange"
+                status_color = _get_status_color('warning')
             else:
                 order_status = "Regular Sale"
-                status_color = "green"
+                status_color = _get_status_color('success')
         
             ttk.Label(summary_frame, text="Status:").grid(row=7, column=0, sticky=tk.W, pady=(10, 0))
             status_label = ttk.Label(summary_frame, text=order_status, foreground=status_color)
@@ -760,7 +805,7 @@ class OrderHistoryFrame(ttk.Frame):
             root = self.winfo_toplevel()
             current_user = getattr(root, 'current_user', {})
             from modules import permissions
-            if not permissions.has_permission(current_user, 'process_refunds'):
+            if not permissions.has_permission(current_user, 'refund_orders'):
                 messagebox.showerror("Permission Denied", "You do not have permission to process refunds")
                 return
             
@@ -775,12 +820,12 @@ class OrderHistoryFrame(ttk.Frame):
             dialog.columnconfigure(0, weight=1)
             dialog.rowconfigure(2, weight=1)
             
-            currency = get_currency_code()
+            currency = get_currency_symbol()
             
             # Order summary
             ttk.Label(dialog, text=f"Refund {receipt_num}", font=("Segoe UI", 12, "bold")).grid(row=0, column=0, columnspan=2, pady=8)
             ttk.Label(dialog, text=f"Amount: {currency} {sale_data['total']:.2f}").grid(row=1, column=0, sticky=tk.W, padx=12)
-            ttk.Label(dialog, text=f"Date: {sale_data['date']} {sale_data['time']}").grid(row=1, column=1, sticky=tk.W)
+            ttk.Label(dialog, text=f"Date: {format_date(sale_data['date'])} {sale_data['time']}").grid(row=1, column=1, sticky=tk.W)
             
             # Items to refund
             ttk.Label(dialog, text="Select items to refund:", font=("Segoe UI", 10, "bold")).grid(row=2, column=0, columnspan=2, sticky=tk.W, padx=12, pady=(12, 4))
@@ -870,7 +915,7 @@ class OrderHistoryFrame(ttk.Frame):
             
             # Refund amount display
             ttk.Label(dialog, text="Refund Amount:", font=("Segoe UI", 10, "bold")).grid(row=4, column=0, sticky=tk.W, padx=12, pady=(8, 0))
-            refund_amount_label = ttk.Label(dialog, text=f"{currency} {sale_data['total']:.2f}", font=("Segoe UI", 11, "bold"), foreground="green")
+            refund_amount_label = ttk.Label(dialog, text=f"{currency} {sale_data['total']:.2f}", font=("Segoe UI", 11, "bold"), foreground=_get_status_color("success"))
             refund_amount_label.grid(row=4, column=1, sticky=tk.W, padx=12, pady=(8, 0))
             
             def update_refund_amount(*args):
@@ -962,6 +1007,14 @@ class OrderHistoryFrame(ttk.Frame):
     def _export_receipt(self) -> None:
         """Export receipt as text file."""
         try:
+            # Check permissions
+            root = self.winfo_toplevel()
+            current_user = getattr(root, 'current_user', {})
+            from modules import permissions
+            if not permissions.has_permission(current_user, 'export_reports'):
+                messagebox.showerror("Permission Denied", "You do not have permission to export receipts")
+                return
+
             sale_id = self._selected_sale_id()
             if not sale_id:
                 return
@@ -1031,12 +1084,12 @@ class OrderHistoryFrame(ttk.Frame):
         dialog.transient(self.winfo_toplevel())
         dialog.grab_set()
         
-        currency = get_currency_code()
+        currency = get_currency_symbol()
         
         # Sale summary
         ttk.Label(dialog, text=f"Void Sale {receipt_num}", font=("Segoe UI", 12, "bold")).grid(row=0, column=0, columnspan=2, pady=8, padx=12)
         ttk.Label(dialog, text=f"Amount: {currency} {sale_data['total']:.2f}").grid(row=1, column=0, sticky=tk.W, padx=12)
-        ttk.Label(dialog, text=f"Date: {sale_data['date']} {sale_data['time']}").grid(row=1, column=1, sticky=tk.W)
+        ttk.Label(dialog, text=f"Date: {format_date(sale_data['date'])} {sale_data['time']}").grid(row=1, column=1, sticky=tk.W)
         ttk.Label(dialog, text=f"Customer: {sale_data.get('customer_name', 'N/A')}").grid(row=2, column=0, sticky=tk.W, padx=12)
         ttk.Label(dialog, text=f"Cashier: {sale_data.get('username', 'N/A')}").grid(row=2, column=1, sticky=tk.W)
         
@@ -1044,7 +1097,7 @@ class OrderHistoryFrame(ttk.Frame):
         warning_frame = ttk.Frame(dialog)
         warning_frame.grid(row=3, column=0, columnspan=2, sticky=tk.EW, padx=12, pady=8)
         ttk.Label(warning_frame, text="⚠️ WARNING: This will cancel the entire sale and restore all inventory!", 
-                 foreground="red", font=("Segoe UI", 9, "bold")).pack()
+                 foreground=_get_status_color("danger"), font=("Segoe UI", 9, "bold")).pack()
         
         # Void reason
         ttk.Label(dialog, text="Void Reason:").grid(row=4, column=0, sticky=tk.W, padx=12, pady=(8, 0))
@@ -1217,6 +1270,14 @@ class OrderHistoryFrame(ttk.Frame):
     def _generate_report(self) -> None:
         """Generate a report of the current filtered order history."""
         try:
+            # Check permissions
+            root = self.winfo_toplevel()
+            current_user = getattr(root, 'current_user', {})
+            from modules import permissions
+            if not permissions.has_permission(current_user, 'export_reports'):
+                messagebox.showerror("Permission Denied", "You do not have permission to generate reports")
+                return
+
             # Get current filter values
             start = self.start_date.get().strip() or None
             end = self.end_date.get().strip() or None
@@ -1261,7 +1322,7 @@ class OrderHistoryFrame(ttk.Frame):
                 return
             
             # Generate CSV content
-            currency = get_currency_code()
+            currency = get_currency_symbol()
             import io
             output = io.StringIO()
             import csv
@@ -1277,7 +1338,7 @@ class OrderHistoryFrame(ttk.Frame):
                 receipt_num = sale.get("receipt_number", f"#{sale['sale_id']}")
                 writer.writerow([
                     receipt_num,
-                    sale["date"],
+                    format_date(sale["date"]),
                     sale["time"],
                     sale.get("customer_name", ""),
                     sale.get("username", ""),

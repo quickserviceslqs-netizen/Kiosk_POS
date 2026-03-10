@@ -3,60 +3,154 @@
 import os
 from typing import Dict, Any
 
+# Import theme colors - use lazy loading to avoid circular imports
+def get_colors():
+    """Get colors from the centralized theme system."""
+    try:
+        from utils.theme import get_theme_colors
+        return get_theme_colors()
+    except Exception:
+        # Fallback to default colors if theme system not available
+        return _DEFAULT_COLORS
+
+# Fallback colors if theme system unavailable
+_DEFAULT_COLORS = {
+    'primary': '#2563EB',
+    'primary_dark': '#1D4ED8',
+    'primary_light': '#DBEAFE',
+    'secondary': '#64748B',
+    'accent': '#0EA5E9',
+    'success': '#10B981',
+    'success_light': '#D1FAE5',
+    'warning': '#F59E0B',
+    'warning_light': '#FEF3C7',
+    'danger': '#EF4444',
+    'danger_light': '#FEE2E2',
+    'info': '#3B82F6',
+    'info_light': '#DBEAFE',
+    'background': '#F8FAFC',
+    'surface': '#FFFFFF',
+    'surface_alt': '#F1F5F9',
+    'border': '#E2E8F0',
+    'border_dark': '#CBD5E1',
+    'text': '#1E293B',
+    'text_secondary': '#475569',
+    'text_light': '#64748B',
+    'text_muted': '#94A3B8',
+    'text_white': '#FFFFFF',
+    'sidebar_bg': '#1E293B',
+    'sidebar_text': '#E2E8F0',
+    'sidebar_hover': '#334155',
+    'sidebar_active': '#2563EB',
+    'table_header': '#F1F5F9',
+    'table_row_alt': '#F8FAFC',
+    'table_row_hover': '#E0F2FE',
+    'chart_1': '#2563EB',
+    'chart_2': '#10B981',
+    'chart_3': '#F59E0B',
+    'chart_4': '#EF4444',
+    'chart_5': '#8B5CF6',
+    'chart_6': '#EC4899',
+}
+
 # UI Constants
 WINDOW_PADDING = (20, 20, 20, 20)
-HEADER_PADDING = (0, 20)
-SIDEBAR_PADDING = (0, 20)
+HEADER_PADDING = (0, 15)
+SIDEBAR_PADDING = (10, 10)
 CARD_PADDING = (15, 15, 15, 15)
 BUTTON_PADDING = 6
 ACTION_BUTTON_PADDING = (10, 5)
 
 # Layout Constants
-SIDEBAR_WIDTH = 250
+SIDEBAR_WIDTH = 220
 REPORT_HEIGHT = 400
 MAX_RECORDS_DISPLAY = 100
 MAX_RECORDS_EXPORT = 1000
 
 # Font Sizes
 FONT_SIZES = {
-    'header': 16,
-    'subheader': 12,
+    'header': 18,
+    'subheader': 13,
     'body': 10,
     'caption': 9,
-    'large_value': 18
+    'large_value': 22,
+    'sidebar_title': 11,
+    'sidebar_item': 10
 }
 
-# Colors (matching main app)
-COLORS = {
-    'primary': '#1976D2',
-    'primary_light': '#BBDEFB',
-    'secondary': '#757575',
-    'success': '#4CAF50',
-    'warning': '#FF9800',
-    'danger': '#F44336',
-    'background': '#F5F5F5',
-    'surface': '#FFFFFF',
-    'text': '#212121',
-    'text_light': '#757575',
-    'border': '#E0E0E0',
-    'selected': '#E3F2FD'
-}
+# Dynamic COLORS property that pulls from theme
+class _ColorsProxy:
+    """Proxy object that fetches colors from theme system dynamically."""
+    def __getitem__(self, key):
+        colors = get_colors()
+        if key in colors:
+            return colors[key]
+        return _DEFAULT_COLORS.get(key, '#000000')
+    
+    def get(self, key, default=None):
+        colors = get_colors()
+        if key in colors:
+            return colors[key]
+        return _DEFAULT_COLORS.get(key, default)
+    
+    def __contains__(self, key):
+        colors = get_colors()
+        return key in colors or key in _DEFAULT_COLORS
+    
+    def keys(self):
+        return _DEFAULT_COLORS.keys()
+    
+    def values(self):
+        colors = get_colors()
+        return [colors.get(k, v) for k, v in _DEFAULT_COLORS.items()]
+    
+    def items(self):
+        colors = get_colors()
+        return [(k, colors.get(k, v)) for k, v in _DEFAULT_COLORS.items()]
+
+COLORS = _ColorsProxy()
 
 # Style Names
 STYLES = {
-    # Use the default frame style so the reports UI matches other modules
+    # Frame styles
     'frame': 'TFrame',
-    'card': 'Card.TLabelframe',
-    # Sidebar-specific card style so the categories area can inherit the
-    # shared app background (keeps other cards white)
+    'card': 'Reports.Card.TLabelframe',
+    'card_header': 'Reports.CardHeader.TFrame',
+    'sidebar_frame': 'Reports.Sidebar.TFrame',
     'sidebar_card': 'Reports.Sidebar.TLabelframe',
-    'primary_button': 'Primary.TButton',
-    'secondary_button': 'Secondary.TButton',
-    'action_button': 'Action.TButton',
-    'header_label': 'Header.TLabel',
-    'subheader_label': 'Subheader.TLabel',
-    'body_label': 'Body.TLabel',
-    'caption_label': 'Caption.TLabel'
+    'content_frame': 'Reports.Content.TFrame',
+    
+    # Button styles
+    'primary_button': 'Reports.Primary.TButton',
+    'secondary_button': 'Reports.Secondary.TButton',
+    'action_button': 'Reports.Action.TButton',
+    'sidebar_button': 'Reports.Sidebar.TButton',
+    'sidebar_button_active': 'Reports.SidebarActive.TButton',
+    'icon_button': 'Reports.Icon.TButton',
+    
+    # Label styles
+    'header_label': 'Reports.Header.TLabel',
+    'subheader_label': 'Reports.Subheader.TLabel',
+    'body_label': 'Reports.Body.TLabel',
+    'caption_label': 'Reports.Caption.TLabel',
+    'metric_value': 'Reports.MetricValue.TLabel',
+    'metric_label': 'Reports.MetricLabel.TLabel',
+    'sidebar_label': 'Reports.SidebarLabel.TLabel',
+    'sidebar_title': 'Reports.SidebarTitle.TLabel',
+    
+    # Table styles
+    'treeview': 'Reports.Treeview',
+    'treeview_heading': 'Reports.Treeview.Heading',
+}
+
+# Report Categories with icons
+REPORT_CATEGORIES = {
+    'overview': {'icon': '📊', 'label': 'Overview', 'color': 'primary'},
+    'sales': {'icon': '💰', 'label': 'Sales', 'color': 'success'},
+    'financial': {'icon': '💼', 'label': 'Financial', 'color': 'info'},
+    'inventory': {'icon': '📦', 'label': 'Inventory', 'color': 'warning'},
+    'reconciliation': {'icon': '🔄', 'label': 'Reconciliation', 'color': 'secondary'},
+    'purchase_orders': {'icon': '📋', 'label': 'Purchase Orders', 'color': 'info'},
 }
 
 
@@ -121,7 +215,10 @@ REPORT_TYPES = {
     'reconciliation_details': 'Reconciliation Details',
     'inventory_stock_levels': 'Inventory Stock Levels',
     'inventory_low_stock': 'Low Stock Items',
-    'inventory_value': 'Inventory Value'
+    'inventory_value': 'Inventory Value',
+    'po_summary': 'Purchase Order Summary',
+    'po_by_supplier': 'Spending by Supplier',
+    'po_items_detail': 'PO Items Detail',
 }
 
 # Report Limits (configurable)

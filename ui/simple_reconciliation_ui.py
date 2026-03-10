@@ -20,6 +20,7 @@ import logging
 
 from modules.reconciliation_core import ReconciliationSession, ReconciliationItem
 from utils.i18n import get_currency_symbol
+from utils.theme import get_status_color
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +82,7 @@ class SimpleReconciliationUI(ttk.Frame):
         # Status bar
         self.status_var = tk.StringVar(value="Ready")
         status_bar = ttk.Label(self, textvariable=self.status_var,
-                              font=("Segoe UI", 8), foreground="gray")
+                              font=("Segoe UI", 8), foreground=get_status_color("text_light"))
         status_bar.pack(fill=tk.X, pady=(10, 0), anchor=tk.W)
 
     def _build_table(self) -> None:

@@ -36,15 +36,35 @@ def _generate_receipt_number(conn: sqlite3.Connection) -> str:
             return receipt_number
 
 
+def _ensure_sale_payments_table(conn: sqlite3.Connection) -> None:
+    """Create sale_payments table if it does not already exist."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sale_payments (
+            sale_payment_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sale_id         INTEGER NOT NULL REFERENCES sales(sale_id) ON DELETE CASCADE,
+            payment_method  TEXT NOT NULL,
+            amount          REAL NOT NULL,
+            created_at      TEXT DEFAULT (datetime('now','localtime'))
+        )
+        """
+    )
+
+
 def create_sale(
     line_items: Iterable[dict],
     *,
     payment: float,
     payment_method: str | None = None,
+    split_payments: list[dict] | None = None,
     change: float = 0.0,
     vat_amount: float = 0.0,
     discount_amount: float = 0.0,
 ) -> dict:
+    """Insert a sale.  *split_payments* is a list of ``{method, amount}`` dicts
+    for multi-payment-method transactions.  When provided, *payment_method* on
+    the sale row is set to ``"Split"`` and the breakdown is stored in
+    ``sale_payments``."""
     """Insert a sale with line_items = [{item_id, quantity, price}], returns identifiers."""
     date_str, time_str = _now_date_time()
 
@@ -130,6 +150,8 @@ def create_sale(
 
         try:
             conn.execute("BEGIN")
+            # create split payments table if needed
+            _ensure_sale_payments_table(conn)
             # check stock
             for entry in sanitized:
                 item_id = entry["item_id"]
@@ -143,14 +165,31 @@ def create_sale(
             # Calculate totals: total = subtotal + vat - discount
             total = subtotal + vat_amount - discount_amount
             
+            # Resolve payment method label and total payment amount
+            if split_payments:
+                payment_method_label = "Split"
+                payment_total = sum(float(sp["amount"]) for sp in split_payments)
+                change = max(0.0, payment_total - total)
+            else:
+                payment_method_label = payment_method or "Cash"
+                payment_total = payment
+            
             # Generate unique receipt number
             receipt_number = _generate_receipt_number(conn)
             
             cursor = conn.execute(
                 "INSERT INTO sales (receipt_number, date, time, total, payment, change, payment_received, payment_method, subtotal, vat_amount, discount_amount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (receipt_number, date_str, time_str, total, payment, change, payment, payment_method or "Cash", subtotal, vat_amount, discount_amount),
+                (receipt_number, date_str, time_str, total, payment_total, change, payment_total, payment_method_label, subtotal, vat_amount, discount_amount),
             )
             sale_id = cursor.lastrowid
+
+            # Record individual split payment rows when applicable
+            if split_payments:
+                for sp in split_payments:
+                    conn.execute(
+                        "INSERT INTO sale_payments (sale_id, payment_method, amount) VALUES (?, ?, ?)",
+                        (sale_id, sp["method"], float(sp["amount"])),
+                    )
 
             for entry in sanitized:
                 item_id = entry["item_id"]
@@ -165,8 +204,12 @@ def create_sale(
                 lot_allocations = []
                 
                 try:
-                    # Try to use lot-based costing
-                    lot_allocations = _allocate_from_lots(conn, item_id, int(stock_units), variant_id)
+                    # Try to use lot-based costing.
+                    # stock_lots uses integer quantities; fractional sales (special-volume
+                    # items where stock_units < 1) are tracked via the items.quantity column
+                    # directly and do not use lot allocation.
+                    alloc_units = int(stock_units)
+                    lot_allocations = _allocate_from_lots(conn, item_id, alloc_units, variant_id) if alloc_units >= 1 else []
                     if lot_allocations:
                         # Calculate weighted average cost from lot allocations
                         total_cost = sum(a["quantity"] * a["unit_cost"] for a in lot_allocations)

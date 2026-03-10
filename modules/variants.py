@@ -164,3 +164,21 @@ def has_variants(item_id: int) -> bool:
         else:
             count = result[0] if len(result) > 0 else 0
         return count > 0
+
+
+def batch_has_variants(item_ids: list) -> dict:
+    """Return a dict mapping item_id -> bool for a list of item IDs.
+
+    Uses a single SQL query instead of N separate queries, which makes a
+    significant difference when the POS catalog list is large.
+    """
+    if not item_ids:
+        return {}
+    placeholders = ",".join("?" for _ in item_ids)
+    with get_connection() as conn:
+        rows = conn.execute(
+            f"SELECT DISTINCT item_id FROM item_variants WHERE item_id IN ({placeholders})",
+            item_ids,
+        ).fetchall()
+    ids_with_variants = {(r["item_id"] if isinstance(r, dict) else r[0]) for r in rows}
+    return {item_id: (item_id in ids_with_variants) for item_id in item_ids}

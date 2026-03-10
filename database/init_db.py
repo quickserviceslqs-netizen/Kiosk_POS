@@ -297,6 +297,21 @@ CREATE INDEX IF NOT EXISTS idx_stock_movements_type ON stock_movements(movement_
 CREATE INDEX IF NOT EXISTS idx_stock_movements_date ON stock_movements(created_at);
 CREATE INDEX IF NOT EXISTS idx_sale_lot_allocations_sale_item ON sale_lot_allocations(sale_item_id);
 CREATE INDEX IF NOT EXISTS idx_sale_lot_allocations_lot ON sale_lot_allocations(lot_id);
+
+-- Upgrade history table — stores every apply/rollback event atomically inside the DB
+CREATE TABLE IF NOT EXISTS upgrade_history (
+    history_id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    upgrade_id          TEXT    NOT NULL,
+    version             TEXT    NOT NULL,
+    applied_at          TEXT    NOT NULL,
+    success             INTEGER NOT NULL DEFAULT 0,
+    description         TEXT,
+    logs                TEXT,   -- JSON array of log lines
+    backup_path         TEXT,   -- JSON array of backup directory paths
+    rollback_operations TEXT,   -- JSON array of rollback operation dicts
+    created_at          TEXT    DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_upgrade_history_upgrade_id ON upgrade_history(upgrade_id);
 """
 
 
@@ -1150,31 +1165,34 @@ def get_connection(db_path: Path | None = None) -> sqlite3.Connection:
             # Connection is stale, remove from cache
             del _local.connections[cache_key]
 
-    # If the resolved path exists but appears to be an empty or stale DB, prefer
-    # an initialized `pos_*.db` candidate (created by installer or first run).
-    db_dir = Path(__file__).parent
-    def _table_count(path: Path) -> int:
-        try:
-            with sqlite3.connect(path) as _conn:
-                cur = _conn.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table'")
-                return cur.fetchone()[0] or 0
-        except Exception:
-            return 0
+    # If the path was NOT explicitly provided and the resolved DB appears empty,
+    # look for a better-initialised candidate (e.g. a pos_*.db created by the
+    # installer).  We deliberately skip this heuristic when the caller supplied
+    # an explicit db_path (demo mode, tests, CLI) so we always use exactly the
+    # path that was requested.
+    if db_path is None:
+        db_dir = Path(__file__).parent
+        def _table_count(path: Path) -> int:
+            try:
+                with sqlite3.connect(path) as _conn:
+                    cur = _conn.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table'")
+                    return cur.fetchone()[0] or 0
+            except Exception:
+                return 0
 
-    current_tables = _table_count(resolved) if resolved.exists() else 0
-    if (not resolved.exists()) or (current_tables < 3):
-        candidates = [p for p in db_dir.glob("pos_*.db") if p != resolved]
-        # Prefer the candidate with the most tables (i.e., fully initialized)
-        best = None
-        best_count = current_tables
-        for cand in candidates:
-            cnt = _table_count(cand)
-            if cnt > best_count:
-                best = cand
-                best_count = cnt
-        if best:
-            resolved = best
-            DB_PATH = resolved.resolve()
+        current_tables = _table_count(resolved) if resolved.exists() else 0
+        if (not resolved.exists()) or (current_tables < 3):
+            candidates = [p for p in db_dir.glob("pos_*.db") if p != resolved]
+            best = None
+            best_count = current_tables
+            for cand in candidates:
+                cnt = _table_count(cand)
+                if cnt > best_count:
+                    best = cand
+                    best_count = cnt
+            if best:
+                resolved = best
+                DB_PATH = resolved.resolve()
 
     _logger.debug("Connecting to database at: %s", resolved.resolve())
     resolved.parent.mkdir(parents=True, exist_ok=True)

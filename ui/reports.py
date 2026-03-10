@@ -1,7 +1,8 @@
 """Modern Sales Reporting UI with Enhanced Design."""
 
 from __future__ import annotations
-from utils.security import get_currency_code, get_username
+from typing import Dict, Any
+from utils.security import get_username
 from utils.i18n import get_currency_symbol
 from utils import set_window_icon
 from utils.date_utils import format_date, format_date_storage, get_tkcalendar_date_pattern
@@ -19,7 +20,7 @@ import json
 from .reports_constants import (
     WINDOW_PADDING, HEADER_PADDING, CARD_PADDING, BUTTON_PADDING, ACTION_BUTTON_PADDING,
     COLORS, STYLES, REPORT_TYPES, DATE_PRESETS, EXPORT_FORMATS, FILE_EXTENSIONS,
-    GRID_COLUMNS, FONT_SIZES, ERROR_MESSAGES
+    GRID_COLUMNS, FONT_SIZES, ERROR_MESSAGES, SIDEBAR_WIDTH, REPORT_CATEGORIES, SIDEBAR_PADDING
 )
 from .reports_controller import ReportController as ReportService
 from .reports_export import ExportManager
@@ -40,8 +41,171 @@ from .reports_base import ReportData, BaseReportFrame
 
 # Set up logging
 logger = logging.getLogger(__name__)
- 
 
+
+def setup_report_styles(style: ttk.Style) -> None:
+    """Configure all custom styles for the reports module."""
+    # Frame styles
+    style.configure('Reports.Card.TLabelframe', 
+                   background=COLORS['surface'],
+                   borderwidth=1,
+                   relief='solid')
+    style.configure('Reports.Card.TLabelframe.Label',
+                   background=COLORS['surface'],
+                   foreground=COLORS['text'],
+                   font=('Segoe UI', FONT_SIZES['subheader'], 'bold'))
+    
+    style.configure('Reports.Sidebar.TFrame',
+                   background=COLORS['sidebar_bg'])
+    
+    style.configure('Reports.Content.TFrame',
+                   background=COLORS['background'])
+    
+    # Button styles - white surface, neutral text + border
+    style.configure('Reports.Primary.TButton',
+                   background=COLORS['surface'],
+                   foreground=COLORS['text'],
+                   font=('Segoe UI', 10),
+                   padding=(12, 6),
+                   relief='raised',
+                   borderwidth=1,
+                   focuscolor='none',
+                   bordercolor=COLORS['border'],
+                   lightcolor=COLORS['surface'],
+                   darkcolor=COLORS['border'])
+    style.map('Reports.Primary.TButton',
+             background=[('disabled', COLORS.get('disabled_bg', COLORS['border'])),
+                         ('!disabled', COLORS['surface'])],
+             foreground=[('disabled', COLORS.get('text_light', '#9ca3af')),
+                         ('!disabled', COLORS['text'])],
+             bordercolor=[('!disabled', COLORS['border'])],
+             lightcolor=[('!disabled', COLORS['surface'])],
+             darkcolor=[('!disabled', COLORS['border'])])
+    
+    style.configure('Reports.Secondary.TButton',
+                   background=COLORS.get('neutral_bg', COLORS['border']),
+                   foreground=COLORS['text'],
+                   font=('Segoe UI', 10),
+                   padding=(10, 5),
+                   relief='raised',
+                   borderwidth=1,
+                   focuscolor='none',
+                   bordercolor=COLORS['border'],
+                   lightcolor=COLORS['surface'],
+                   darkcolor=COLORS.get('neutral_bg', COLORS['border']))
+    style.map('Reports.Secondary.TButton',
+             background=[('disabled', COLORS.get('disabled_bg', COLORS['border'])),
+                         ('!disabled', COLORS.get('neutral_bg', COLORS['border']))],
+             foreground=[('disabled', COLORS.get('text_light', '#9ca3af')),
+                         ('!disabled', COLORS['text'])],
+             lightcolor=[('!disabled', COLORS['surface'])],
+             darkcolor=[('!disabled', COLORS.get('neutral_bg', COLORS['border']))])
+    
+    style.configure('Reports.Action.TButton',
+                   background=COLORS['surface'],
+                   foreground=COLORS['text'],
+                   font=('Segoe UI', 9),
+                   padding=(8, 4),
+                   relief='raised',
+                   borderwidth=1,
+                   focuscolor='none',
+                   bordercolor=COLORS['border'],
+                   lightcolor=COLORS['surface'],
+                   darkcolor=COLORS['border'])
+    style.map('Reports.Action.TButton',
+             background=[('disabled', COLORS.get('disabled_bg', COLORS['border'])),
+                         ('!disabled', COLORS['surface'])],
+             foreground=[('disabled', COLORS.get('text_light', '#9ca3af')),
+                         ('!disabled', COLORS['text'])],
+             bordercolor=[('!disabled', COLORS['border'])],
+             lightcolor=[('!disabled', COLORS['surface'])],
+             darkcolor=[('!disabled', COLORS['border'])])
+    
+    style.configure('Reports.Sidebar.TButton',
+                   background=COLORS['sidebar_bg'],
+                   foreground=COLORS['sidebar_text'],
+                   font=('Segoe UI', FONT_SIZES['sidebar_item']),
+                   padding=(12, 8),
+                   anchor='w',
+                   bordercolor=COLORS['sidebar_bg'],
+                   lightcolor=COLORS['sidebar_hover'],
+                   darkcolor=COLORS['sidebar_bg'])
+    style.map('Reports.Sidebar.TButton',
+             background=[('pressed', COLORS['sidebar_hover']),
+                         ('active', COLORS['sidebar_hover']),
+                         ('!disabled', COLORS['sidebar_bg'])],
+             foreground=[('!disabled', COLORS['sidebar_text'])],
+             lightcolor=[('!disabled', COLORS['sidebar_hover'])],
+             darkcolor=[('!disabled', COLORS['sidebar_bg'])])
+    
+    style.configure('Reports.SidebarActive.TButton',
+                   background=COLORS['sidebar_active'],
+                   foreground=COLORS['sidebar_text'],
+                   font=('Segoe UI', FONT_SIZES['sidebar_item'], 'bold'),
+                   padding=(12, 8),
+                   anchor='w',
+                   bordercolor=COLORS['sidebar_active'],
+                   lightcolor=COLORS['sidebar_hover'],
+                   darkcolor=COLORS['sidebar_active'])
+    style.map('Reports.SidebarActive.TButton',
+             background=[('pressed', COLORS['sidebar_hover']),
+                         ('active', COLORS['sidebar_hover']),
+                         ('!disabled', COLORS['sidebar_active'])],
+             foreground=[('!disabled', COLORS['sidebar_text'])],
+             lightcolor=[('!disabled', COLORS['sidebar_hover'])],
+             darkcolor=[('!disabled', COLORS['sidebar_active'])])
+    
+    # Label styles
+    style.configure('Reports.Header.TLabel',
+                   font=('Segoe UI', FONT_SIZES['header'], 'bold'),
+                   foreground=COLORS['text'])
+    
+    style.configure('Reports.Subheader.TLabel',
+                   font=('Segoe UI', FONT_SIZES['subheader'], 'bold'),
+                   foreground=COLORS['text'])
+    
+    style.configure('Reports.Body.TLabel',
+                   font=('Segoe UI', FONT_SIZES['body']),
+                   foreground=COLORS['text'])
+    
+    style.configure('Reports.Caption.TLabel',
+                   font=('Segoe UI', FONT_SIZES['caption']),
+                   foreground=COLORS['text_light'])
+    
+    style.configure('Reports.MetricValue.TLabel',
+                   font=('Segoe UI', FONT_SIZES['large_value'], 'bold'),
+                   foreground=COLORS['primary'])
+    
+    style.configure('Reports.MetricLabel.TLabel',
+                   font=('Segoe UI', FONT_SIZES['caption']),
+                   foreground=COLORS['text_secondary'])
+    
+    style.configure('Reports.SidebarLabel.TLabel',
+                   font=('Segoe UI', FONT_SIZES['sidebar_item']),
+                   foreground=COLORS['sidebar_text'],
+                   background=COLORS['sidebar_bg'])
+    
+    style.configure('Reports.SidebarTitle.TLabel',
+                   font=('Segoe UI', FONT_SIZES['sidebar_title'], 'bold'),
+                   foreground=COLORS['sidebar_text'],
+                   background=COLORS['sidebar_bg'])
+    
+    # Treeview styles
+    style.configure('Reports.Treeview',
+                   font=('Segoe UI', FONT_SIZES['body']),
+                   rowheight=28,
+                   background=COLORS['surface'],
+                   fieldbackground=COLORS['surface'],
+                   foreground=COLORS['text'])
+    
+    style.configure('Reports.Treeview.Heading',
+                   font=('Segoe UI', FONT_SIZES['body'], 'bold'),
+                   background=COLORS['table_header'],
+                   foreground=COLORS['text'])
+    
+    style.map('Reports.Treeview',
+             background=[('selected', COLORS['primary_light'])],
+             foreground=[('selected', COLORS['text'])])
 
 
 class ModernReportsFrame(BaseReportFrame):
@@ -50,8 +214,12 @@ class ModernReportsFrame(BaseReportFrame):
     def __init__(self, parent: tk.Misc, *, on_home: callable | None = None, **kwargs):
         # store before base call since header building may reference it
         self.on_home = on_home
-        # call base which sets up service, vars, frames etc.
-        super().__init__(parent, service=ReportService(), **kwargs)
+        # call base which sets up service, vars, frames etc - skip default UI
+        super().__init__(parent, service=ReportService(), skip_default_ui=True, **kwargs)
+        
+        # Setup custom styles
+        style = ttk.Style()
+        setup_report_styles(style)
 
         # Default date range: last 30 days
         self.start_date.set(format_date(datetime.now() - timedelta(days=30)))
@@ -63,18 +231,113 @@ class ModernReportsFrame(BaseReportFrame):
         self._date_preset_popup = None
         self._modal_dialogs: set = set()
         self._popup_page = None
+        self._sidebar_buttons: dict = {}
 
         # Frame padding and initial UI build
         self.configure(padding=WINDOW_PADDING)
+        self.columnconfigure(0, minsize=SIDEBAR_WIDTH)
+        self.columnconfigure(1, weight=1)
+        self.rowconfigure(1, weight=1)
+        
         self._build_header()
-        if hasattr(self, '_build_sidebar'):
-            self._build_sidebar(self)
+        self._build_sidebar(self)
         self._build_report_area(self)
+
+    def _build_sidebar(self, parent) -> None:
+        """Build the sidebar navigation panel."""
+        # Create sidebar container
+        self.sidebar_frame = tk.Frame(parent, bg=COLORS['sidebar_bg'], width=SIDEBAR_WIDTH)
+        self.sidebar_frame.grid(row=1, column=0, sticky=tk.NS, padx=(0, 15))
+        self.sidebar_frame.grid_propagate(False)
+        
+        # Sidebar title
+        title_frame = tk.Frame(self.sidebar_frame, bg=COLORS['sidebar_bg'])
+        title_frame.pack(fill=tk.X, padx=SIDEBAR_PADDING[0], pady=(15, 20))
+        
+        tk.Label(title_frame, text="📊 Reports", 
+                font=('Segoe UI', FONT_SIZES['header'], 'bold'),
+                bg=COLORS['sidebar_bg'], fg=COLORS['sidebar_text']).pack(anchor=tk.W)
+        
+        # Separator
+        sep = tk.Frame(self.sidebar_frame, bg=COLORS['sidebar_hover'], height=1)
+        sep.pack(fill=tk.X, padx=SIDEBAR_PADDING[0], pady=(0, 10))
+        
+        # Category buttons
+        categories = [
+            ('overview', '📊', 'Overview', self._show_overview),
+            ('sales', '💰', 'Sales Reports', self._show_sales_category),
+            ('financial', '💼', 'Financial', self._show_financial_category),
+            ('inventory', '📦', 'Inventory', self._show_inventory_category),
+            ('reconciliation', '🔄', 'Reconciliation', self._show_reconciliation_category),
+            ('purchase_orders', '📋', 'Purchase Orders', self._show_purchase_orders_category),
+        ]
+        
+        self._sidebar_buttons = {}
+        
+        for cat_id, icon, label, command in categories:
+            btn_frame = tk.Frame(self.sidebar_frame, bg=COLORS['sidebar_bg'])
+            btn_frame.pack(fill=tk.X, padx=SIDEBAR_PADDING[0], pady=2)
+            
+            is_selected = self.selected_category.get() == cat_id
+            bg_color = COLORS['sidebar_active'] if is_selected else COLORS['sidebar_bg']
+            fg_color = COLORS['text_white'] if is_selected else COLORS['sidebar_text']
+            
+            btn = tk.Label(btn_frame, text=f"  {icon}  {label}",
+                          font=('Segoe UI', FONT_SIZES['sidebar_item'], 'bold' if is_selected else 'normal'),
+                          bg=bg_color, fg=fg_color,
+                          anchor='w', padx=10, pady=8, cursor='hand2')
+            btn.pack(fill=tk.X)
+            
+            # Bind events
+            def on_enter(e, b=btn, c=cat_id):
+                if self.selected_category.get() != c:
+                    b.configure(bg=COLORS['sidebar_hover'], fg=COLORS['sidebar_text'])
+            
+            def on_leave(e, b=btn, c=cat_id):
+                if self.selected_category.get() != c:
+                    b.configure(bg=COLORS['sidebar_bg'], fg=COLORS['sidebar_text'])
+                else:
+                    b.configure(bg=COLORS['sidebar_active'], fg=COLORS['text_white'])
+            
+            def on_click(e, c=cat_id, cmd=command):
+                self._select_category(c, cmd)
+            
+            btn.bind('<Enter>', on_enter)
+            btn.bind('<Leave>', on_leave)
+            btn.bind('<Button-1>', on_click)
+            
+            self._sidebar_buttons[cat_id] = btn
+        
+        # Add some spacing before the help section
+        spacer = tk.Frame(self.sidebar_frame, bg=COLORS['sidebar_bg'])
+        spacer.pack(fill=tk.BOTH, expand=True)
+        
+        # Help/Info section at bottom
+        help_frame = tk.Frame(self.sidebar_frame, bg=COLORS['sidebar_hover'])
+        help_frame.pack(fill=tk.X, padx=SIDEBAR_PADDING[0], pady=SIDEBAR_PADDING[1], side=tk.BOTTOM)
+        
+        tk.Label(help_frame, text="💡 Tip: Click a report button",
+                font=('Segoe UI', 8), bg=COLORS['sidebar_hover'], 
+                fg=COLORS['text_muted']).pack(anchor=tk.W, padx=8, pady=4)
+        tk.Label(help_frame, text="to select date range options",
+                font=('Segoe UI', 8), bg=COLORS['sidebar_hover'], 
+                fg=COLORS['text_muted']).pack(anchor=tk.W, padx=8, pady=(0, 4))
+
+    def _update_sidebar_selection(self) -> None:
+        """Update sidebar button styles based on current selection."""
+        selected = self.selected_category.get()
+        for cat_id, btn in self._sidebar_buttons.items():
+            if cat_id == selected:
+                btn.configure(bg=COLORS['sidebar_active'], fg=COLORS['text_white'],
+                            font=('Segoe UI', FONT_SIZES['sidebar_item'], 'bold'))
+            else:
+                btn.configure(bg=COLORS['sidebar_bg'], fg=COLORS['sidebar_text'],
+                            font=('Segoe UI', FONT_SIZES['sidebar_item'], 'normal'))
 
     def _build_report_area(self, parent) -> None:
         """Build the main report display area."""
         self.report_container = ttk.Frame(parent, style=STYLES['frame'])
-        self.report_container.grid(row=0, column=1, sticky=tk.NSEW)
+        self.report_container.grid(row=1, column=1, sticky=tk.NSEW)
         self.report_container.columnconfigure(0, weight=1)
         self.report_container.rowconfigure(0, weight=1)
 
@@ -105,33 +368,40 @@ class ModernReportsFrame(BaseReportFrame):
         command()
 
     def _rebuild_sidebar(self) -> None:
-        """Rebuild the sidebar to reflect current selection."""
-        parent = self.report_container.master
-        parent.grid_slaves(row=0, column=0)[0].destroy()
-        self._build_sidebar(parent)
+        """Update sidebar to reflect current selection."""
+        self._update_sidebar_selection()
 
     def _show_overview(self) -> None:
         """Show the overview dashboard with key metrics."""
         self._clear_report_area()
-        self._create_overview_header()
-        self._create_overview_metrics_container()
         self._generate_overview_data()
 
     def _create_overview_header(self) -> None:
         """Create the overview header section."""
-        header = ttk.Frame(self.content_frame, style=STYLES['frame'])
-        header.pack(fill=tk.X, pady=HEADER_PADDING)
-        ttk.Label(header, text="📈 Business Overview", style=STYLES['subheader_label']).pack(anchor=tk.W)
+        header = tk.Frame(self.content_frame, bg=COLORS['background'])
+        header.pack(fill=tk.X, pady=(0, 20))
+        
+        # Title with welcome message
+        title_frame = tk.Frame(header, bg=COLORS['background'])
+        title_frame.pack(fill=tk.X)
+        
+        tk.Label(title_frame, text="📈 Business Overview", 
+                font=('Segoe UI', FONT_SIZES['header'], 'bold'),
+                bg=COLORS['background'], fg=COLORS['text']).pack(side=tk.LEFT)
+        
+        # Current date
+        date_label = tk.Label(title_frame, text=format_date(datetime.now()),
+                             font=('Segoe UI', FONT_SIZES['body']),
+                             bg=COLORS['background'], fg=COLORS['text_secondary'])
+        date_label.pack(side=tk.RIGHT)
 
     def _create_overview_metrics_container(self) -> None:
         """Create the container for overview metrics cards."""
-        self.metrics_frame = ttk.Frame(self.content_frame, style=STYLES['frame'])
-        self.metrics_frame.pack(fill=tk.X, pady=HEADER_PADDING)
+        self.metrics_frame = tk.Frame(self.content_frame, bg=COLORS['background'])
+        self.metrics_frame.pack(fill=tk.X, pady=(0, 20))
 
     def _generate_overview_data(self) -> None:
         """Generate and display overview data asynchronously."""
-        self.show_loading()
-
         # Generate overview data and let the polling loop deliver the result on the main thread
         from utils.date_utils import format_date_db
         today = format_date_db(datetime.now())
@@ -143,159 +413,352 @@ class ModernReportsFrame(BaseReportFrame):
         self._poll_report_results()
 
     def _display_overview_metrics(self, metadata: Dict[str, Any]) -> None:
-        """Display the overview metrics in cards."""
+        """Display the overview metrics in modern cards."""
+        # Clear any remaining loading widgets
+        self._clear_report_area()
+        
+        # Create header and metrics container
+        self._create_overview_header()
+        
+        # Key Metrics section header
+        metrics_header = tk.Frame(self.content_frame, bg=COLORS['background'])
+        metrics_header.pack(fill=tk.X, pady=(0, 10))
+        tk.Label(metrics_header, text="📊 Key Metrics",
+                font=('Segoe UI', FONT_SIZES['subheader'], 'bold'),
+                bg=COLORS['background'], fg=COLORS['text']).pack(anchor=tk.W)
+        
+        self._create_overview_metrics_container()
+        
         currency_symbol = get_currency_symbol()
 
         today_revenue = metadata.get('today_revenue', 0)
         today_transactions = metadata.get('today_transactions', 0)
         week_revenue = metadata.get('week_revenue', 0)
         growth_rate = metadata.get('growth_rate', 0)
+        
+        # Determine growth color
+        growth_color = COLORS['success'] if growth_rate >= 0 else COLORS['danger']
 
-        self._create_metric_card(self.metrics_frame, "💵 Today's Revenue",
-                               f"{currency_symbol}{today_revenue:.2f}", 0, 0)
-        self._create_metric_card(self.metrics_frame, "🛒 Today's Transactions",
-                               f"{today_transactions}", 0, 1)
-        self._create_metric_card(self.metrics_frame, "📊 This Week's Revenue",
-                               f"{currency_symbol}{week_revenue:.2f}", 1, 0)
-        self._create_metric_card(self.metrics_frame, "📈 Growth Rate",
-                               f"{growth_rate:+.1f}%", 1, 1)
+        # Create 4-column grid for metrics
+        metrics = [
+            ("💵", "Today's Revenue", f"{currency_symbol}{today_revenue:,.2f}", COLORS['success']),
+            ("🛒", "Transactions", str(today_transactions), COLORS['info']),
+            ("📊", "Week Revenue", f"{currency_symbol}{week_revenue:,.2f}", COLORS['primary']),
+            ("📈", "Growth Rate", f"{growth_rate:+.1f}%", growth_color),
+        ]
+        
+        for i, (icon, title, value, color) in enumerate(metrics):
+            self._create_metric_card(self.metrics_frame, icon, title, value, color, 0, i)
 
-        # Quick actions
-        actions_frame = ttk.LabelFrame(self.content_frame, text=" Quick Actions ",
-                                     style=STYLES['card'])
-        actions_frame.pack(fill=tk.X, pady=(20, 0))
-        actions_frame.configure(padding=CARD_PADDING)
+        # Quick Actions section
+        actions_container = tk.Frame(self.content_frame, bg=COLORS['background'])
+        actions_container.pack(fill=tk.X, pady=(10, 0))
+        
+        # Section header
+        tk.Label(actions_container, text="⚡ Quick Actions",
+                font=('Segoe UI', FONT_SIZES['subheader'], 'bold'),
+                bg=COLORS['background'], fg=COLORS['text']).pack(anchor=tk.W, pady=(0, 15))
+
+        # Actions grid
+        actions_frame = tk.Frame(actions_container, bg=COLORS['background'])
+        actions_frame.pack(fill=tk.X)
 
         actions = [
-            ("📊 Generate Sales Report", "daily"),
-            ("💰 View Profit Analysis", "profit"),
-            ("📦 Check Inventory Status", "category"),
-            ("🔄 Run Reconciliation", "reconciliation_summary")
+            ("📊", "Sales Report", "daily", COLORS['primary']),
+            ("💰", "Profit Analysis", "profit", COLORS['success']),
+            ("📦", "Inventory Status", "inventory_stock_levels", COLORS['warning']),
+            ("🔄", "Reconciliation", "reconciliation_summary", COLORS['info']),
         ]
 
-        for i, (text, report_type) in enumerate(actions):
-            btn = ttk.Button(actions_frame, text=text, style=STYLES['secondary_button'])
-            btn.grid(row=i//2, column=i%2, sticky=tk.EW, padx=(0, 10) if i%2 == 0 else 0,
-                    pady=(0, 10) if i//2 == 0 else 0)
-            btn.bind('<Button-1>', lambda e, rt=report_type, w=btn: self._on_report_click(e, rt, w))
-            btn.bind('<Double-Button-1>', lambda e, rt=report_type: self._on_report_double_click(e, rt))
+        for i, (icon, text, report_type, color) in enumerate(actions):
+            btn_frame = tk.Frame(actions_frame, bg=COLORS['surface'], 
+                               relief='flat', borderwidth=1,
+                               highlightbackground=COLORS['border'],
+                               highlightthickness=1)
+            btn_frame.grid(row=0, column=i, sticky=tk.NSEW, padx=(0, 15) if i < 3 else 0)
+            btn_frame.configure(cursor='hand2')
+            
+            inner = tk.Frame(btn_frame, bg=COLORS['surface'])
+            inner.pack(fill=tk.BOTH, expand=True, padx=15, pady=12)
+            
+            tk.Label(inner, text=icon, font=('Segoe UI', 20),
+                    bg=COLORS['surface'], fg=color).pack(anchor=tk.W)
+            tk.Label(inner, text=text, font=('Segoe UI', FONT_SIZES['body'], 'bold'),
+                    bg=COLORS['surface'], fg=COLORS['text']).pack(anchor=tk.W, pady=(5, 0))
+            
+            # Bind click events to the frame and all children
+            def bind_click(widget, rt=report_type):
+                widget.bind('<Button-1>', lambda e, r=rt: self._on_action_click(r))
+                widget.bind('<Enter>', lambda e, w=btn_frame: w.configure(bg=COLORS['primary_light']))
+                widget.bind('<Leave>', lambda e, w=btn_frame: w.configure(bg=COLORS['surface']))
+                for child in widget.winfo_children():
+                    bind_click(child, rt)
+            
+            bind_click(btn_frame, report_type)
+            
+        for i in range(4):
+            actions_frame.grid_columnconfigure(i, weight=1)
 
-        actions_frame.grid_columnconfigure(0, weight=1)
-        actions_frame.grid_columnconfigure(1, weight=1)
+    def _on_action_click(self, report_type: str) -> None:
+        """Handle quick action button click."""
+        self._show_date_preset_popup(report_type)
 
-    def _create_metric_card(self, parent, title: str, value: str, row: int, col: int) -> None:
-        """Create a metric card with modern styling."""
-        card = ttk.LabelFrame(parent, text=f" {title} ", style=STYLES['card'])
-        card.grid(row=row, column=col, sticky=tk.EW, padx=(0, 15) if col == 0 else 0,
-                 pady=(0, 15) if row == 0 else 0)
-        card.configure(padding=CARD_PADDING)
-
-        value_label = ttk.Label(card, text=value,
-                              font=('Segoe UI', FONT_SIZES['large_value'], 'bold'),
-                              foreground=COLORS['primary'])
-        value_label.pack(anchor=tk.W)
-
+    def _create_metric_card(self, parent, icon: str, title: str, value: str, 
+                           accent_color: str, row: int, col: int) -> None:
+        """Create a modern metric card with accent color."""
+        # Card container
+        card = tk.Frame(parent, bg=COLORS['surface'], relief='flat',
+                       highlightbackground=COLORS['border'], highlightthickness=1)
+        card.grid(row=row, column=col, sticky=tk.NSEW, 
+                 padx=(0, 15) if col < 3 else 0, pady=5)
+        
+        # Inner content with padding
+        inner = tk.Frame(card, bg=COLORS['surface'])
+        inner.pack(fill=tk.BOTH, expand=True, padx=15, pady=12)
+        
+        # Icon and title row
+        header_frame = tk.Frame(inner, bg=COLORS['surface'])
+        header_frame.pack(fill=tk.X)
+        
+        tk.Label(header_frame, text=icon, font=('Segoe UI', 16),
+                bg=COLORS['surface'], fg=accent_color).pack(side=tk.LEFT)
+        tk.Label(header_frame, text=title, font=('Segoe UI', FONT_SIZES['caption']),
+                bg=COLORS['surface'], fg=COLORS['text_secondary']).pack(side=tk.LEFT, padx=(8, 0))
+        
+        # Value
+        tk.Label(inner, text=value, font=('Segoe UI', FONT_SIZES['large_value'], 'bold'),
+                bg=COLORS['surface'], fg=accent_color).pack(anchor=tk.W, pady=(8, 0))
+        
         parent.grid_columnconfigure(col, weight=1)
+
+    def _create_report_button_card(self, parent, icon: str, title: str, 
+                                    report_type: str, description: str = "",
+                                    accent_color: str = None) -> tk.Frame:
+        """Create a modern report button card."""
+        if accent_color is None:
+            accent_color = COLORS['primary']
+        
+        card = tk.Frame(parent, bg=COLORS['surface'], relief='flat',
+                       highlightbackground=COLORS['border'], highlightthickness=1,
+                       cursor='hand2')
+        
+        inner = tk.Frame(card, bg=COLORS['surface'])
+        inner.pack(fill=tk.BOTH, expand=True, padx=15, pady=12)
+        
+        # Icon
+        tk.Label(inner, text=icon, font=('Segoe UI', 24),
+                bg=COLORS['surface'], fg=accent_color).pack(anchor=tk.W)
+        
+        # Title
+        tk.Label(inner, text=title, font=('Segoe UI', FONT_SIZES['body'], 'bold'),
+                bg=COLORS['surface'], fg=COLORS['text']).pack(anchor=tk.W, pady=(8, 2))
+        
+        # Description
+        if description:
+            tk.Label(inner, text=description, font=('Segoe UI', FONT_SIZES['caption']),
+                    bg=COLORS['surface'], fg=COLORS['text_muted'],
+                    wraplength=150).pack(anchor=tk.W)
+        
+        # Hover effects
+        def on_enter(e):
+            card.configure(highlightbackground=accent_color, highlightthickness=2)
+        
+        def on_leave(e):
+            card.configure(highlightbackground=COLORS['border'], highlightthickness=1)
+        
+        def on_click(e):
+            self._show_date_preset_popup(report_type)
+        
+        # Bind to card and all children
+        def bind_events(widget):
+            widget.bind('<Enter>', on_enter)
+            widget.bind('<Leave>', on_leave)
+            widget.bind('<Button-1>', on_click)
+            for child in widget.winfo_children():
+                bind_events(child)
+        
+        bind_events(card)
+        return card
 
     def _show_sales_category(self) -> None:
         """Show sales-related reports."""
         self._clear_report_area()
+        
+        # Header
+        header = tk.Frame(self.content_frame, bg=COLORS['background'])
+        header.pack(fill=tk.X, pady=(0, 20))
+        
+        tk.Label(header, text="💰 Sales Reports",
+                font=('Segoe UI', FONT_SIZES['header'], 'bold'),
+                bg=COLORS['background'], fg=COLORS['text']).pack(side=tk.LEFT)
+        
+        tk.Label(header, text="Track and analyze your sales performance",
+                font=('Segoe UI', FONT_SIZES['body']),
+                bg=COLORS['background'], fg=COLORS['text_secondary']).pack(side=tk.RIGHT)
 
-        header = ttk.Frame(self.content_frame, style=STYLES['frame'])
-        header.pack(fill=tk.X, pady=HEADER_PADDING)
-
-        ttk.Label(header, text="💰 Sales Reports", style=STYLES['subheader_label']).pack(anchor=tk.W)
-
-        # Report type buttons in a grid
-        reports_frame = ttk.Frame(self.content_frame, style=STYLES['frame'])
-        reports_frame.pack(fill=tk.X)
+        # Reports grid
+        reports_frame = tk.Frame(self.content_frame, bg=COLORS['background'])
+        reports_frame.pack(fill=tk.BOTH, expand=True)
 
         sales_reports = [
-            ("📅 Daily Sales", "daily"),
-            ("📆 Date Range Sales", "range"),
-            ("🏆 Best Sellers", "bestsellers"),
-            ("📊 Sales by Category", "category"),
-            ("💳 Payment Methods", "payment_methods"),
-            ("📈 Sales Trends", "trends"),
-            ("❌ Voided Sales", "voided"),
-            ("📝 Sales Log", "sales_log")
+            ("📅", "Daily Sales", "daily", "View today's sales", COLORS['primary']),
+            ("📆", "Date Range", "range", "Sales by date range", COLORS['info']),
+            ("🏆", "Best Sellers", "bestsellers", "Top selling items", COLORS['success']),
+            ("📊", "By Category", "category", "Sales by category", COLORS['warning']),
+            ("💳", "Payment Methods", "payment_methods", "Payment breakdown", COLORS['accent']),
+            ("📈", "Trends", "trends", "Sales trends over time", COLORS['chart_5']),
+            ("❌", "Voided Sales", "voided", "Cancelled transactions", COLORS['danger']),
+            ("📝", "Sales Log", "sales_log", "Detailed transaction log", COLORS['secondary']),
         ]
 
-        for i, (text, report_type) in enumerate(sales_reports):
-            row, col = divmod(i, GRID_COLUMNS['sales_buttons'])
-            btn = ttk.Button(reports_frame, text=text, style=STYLES['secondary_button'])
-            btn.grid(row=row, column=col, sticky=tk.EW, padx=(0, 10) if col < 3 else 0,
-                    pady=(0, 10) if row == 0 else 0)
-            # Bind single and double click handlers
-            btn.bind('<Button-1>', lambda e, rt=report_type, w=btn: self._on_report_click(e, rt, w))
-            btn.bind('<Double-Button-1>', lambda e, rt=report_type: self._on_report_double_click(e, rt))
-
-        for col in range(GRID_COLUMNS['sales_buttons']):
+        for i, (icon, title, report_type, desc, color) in enumerate(sales_reports):
+            row, col = divmod(i, 4)
+            card = self._create_report_button_card(reports_frame, icon, title, 
+                                                   report_type, desc, color)
+            card.grid(row=row, column=col, sticky=tk.NSEW, 
+                     padx=(0, 15) if col < 3 else 0, pady=(0, 15))
+        
+        for col in range(4):
             reports_frame.grid_columnconfigure(col, weight=1)
+        for row in range(2):
+            reports_frame.grid_rowconfigure(row, weight=1)
 
     def _show_financial_category(self) -> None:
         """Show financial reports."""
         self._clear_report_area()
+        
+        # Header
+        header = tk.Frame(self.content_frame, bg=COLORS['background'])
+        header.pack(fill=tk.X, pady=(0, 20))
+        
+        tk.Label(header, text="💼 Financial Reports",
+                font=('Segoe UI', FONT_SIZES['header'], 'bold'),
+                bg=COLORS['background'], fg=COLORS['text']).pack(side=tk.LEFT)
+        
+        tk.Label(header, text="Financial analysis and profit tracking",
+                font=('Segoe UI', FONT_SIZES['body']),
+                bg=COLORS['background'], fg=COLORS['text_secondary']).pack(side=tk.RIGHT)
 
-        header = ttk.Frame(self.content_frame, style=STYLES['frame'])
-        header.pack(fill=tk.X, pady=HEADER_PADDING)
-
-        ttk.Label(header, text="💼 Financial Reports", style=STYLES['subheader_label']).pack(anchor=tk.W)
+        # Reports grid
+        reports_frame = tk.Frame(self.content_frame, bg=COLORS['background'])
+        reports_frame.pack(fill=tk.BOTH, expand=True)
 
         financial_reports = [
-            ("💰 Profit Analysis", "profit"),
-            ("📊 Transactions", "transactions"),
-            ("📈 Revenue Trends", "trends")
+            ("💰", "Profit Analysis", "profit", "Revenue & profit margins", COLORS['success']),
+            ("📊", "Transactions", "transactions", "All transactions summary", COLORS['primary']),
+            ("📈", "Revenue Trends", "trends", "Trend analysis over time", COLORS['info']),
         ]
 
-        for text, report_type in financial_reports:
-            btn = ttk.Button(self.content_frame, text=text, style=STYLES['secondary_button'])
-            btn.pack(fill=tk.X, pady=(0, 10))
-            btn.bind('<Button-1>', lambda e, rt=report_type, w=btn: self._on_report_click(e, rt, w))
-            btn.bind('<Double-Button-1>', lambda e, rt=report_type: self._on_report_double_click(e, rt))
+        for i, (icon, title, report_type, desc, color) in enumerate(financial_reports):
+            card = self._create_report_button_card(reports_frame, icon, title,
+                                                   report_type, desc, color)
+            card.grid(row=0, column=i, sticky=tk.NSEW, 
+                     padx=(0, 15) if i < 2 else 0, pady=(0, 15))
+        
+        for col in range(3):
+            reports_frame.grid_columnconfigure(col, weight=1)
 
     def _show_inventory_category(self) -> None:
         """Show inventory reports."""
         self._clear_report_area()
+        
+        # Header
+        header = tk.Frame(self.content_frame, bg=COLORS['background'])
+        header.pack(fill=tk.X, pady=(0, 20))
+        
+        tk.Label(header, text="📦 Inventory Reports",
+                font=('Segoe UI', FONT_SIZES['header'], 'bold'),
+                bg=COLORS['background'], fg=COLORS['text']).pack(side=tk.LEFT)
+        
+        tk.Label(header, text="Monitor stock levels and inventory value",
+                font=('Segoe UI', FONT_SIZES['body']),
+                bg=COLORS['background'], fg=COLORS['text_secondary']).pack(side=tk.RIGHT)
 
-        header = ttk.Frame(self.content_frame, style=STYLES['frame'])
-        header.pack(fill=tk.X, pady=HEADER_PADDING)
+        # Reports grid
+        reports_frame = tk.Frame(self.content_frame, bg=COLORS['background'])
+        reports_frame.pack(fill=tk.BOTH, expand=True)
 
-        ttk.Label(header, text="📦 Inventory Reports", style=STYLES['subheader_label']).pack(anchor=tk.W)
-
-        # Report type buttons
         inventory_reports = [
-            ("📊 Current Stock Levels", "inventory_stock_levels"),
-            ("⚠️ Low Stock Items", "inventory_low_stock"),
-            ("💰 Inventory Value Analysis", "inventory_value")
+            ("📊", "Stock Levels", "inventory_stock_levels", "Current stock quantities", COLORS['primary']),
+            ("⚠️", "Low Stock", "inventory_low_stock", "Items below threshold", COLORS['warning']),
+            ("💰", "Inventory Value", "inventory_value", "Total inventory valuation", COLORS['success']),
         ]
 
-        for text, report_type in inventory_reports:
-            btn = ttk.Button(self.content_frame, text=text, style=STYLES['secondary_button'])
-            btn.pack(fill=tk.X, pady=(0, 10))
-            btn.bind('<Button-1>', lambda e, rt=report_type, w=btn: self._on_report_click(e, rt, w))
-            btn.bind('<Double-Button-1>', lambda e, rt=report_type: self._on_report_double_click(e, rt))
+        for i, (icon, title, report_type, desc, color) in enumerate(inventory_reports):
+            card = self._create_report_button_card(reports_frame, icon, title,
+                                                   report_type, desc, color)
+            card.grid(row=0, column=i, sticky=tk.NSEW, 
+                     padx=(0, 15) if i < 2 else 0, pady=(0, 15))
+        
+        for col in range(3):
+            reports_frame.grid_columnconfigure(col, weight=1)
 
     def _show_reconciliation_category(self) -> None:
         """Show reconciliation reports."""
         self._clear_report_area()
+        
+        # Header
+        header = tk.Frame(self.content_frame, bg=COLORS['background'])
+        header.pack(fill=tk.X, pady=(0, 20))
+        
+        tk.Label(header, text="🔄 Reconciliation Reports",
+                font=('Segoe UI', FONT_SIZES['header'], 'bold'),
+                bg=COLORS['background'], fg=COLORS['text']).pack(side=tk.LEFT)
+        
+        tk.Label(header, text="Cash and sales reconciliation tracking",
+                font=('Segoe UI', FONT_SIZES['body']),
+                bg=COLORS['background'], fg=COLORS['text_secondary']).pack(side=tk.RIGHT)
 
-        header = ttk.Frame(self.content_frame, style=STYLES['frame'])
-        header.pack(fill=tk.X, pady=HEADER_PADDING)
+        # Reports grid
+        reports_frame = tk.Frame(self.content_frame, bg=COLORS['background'])
+        reports_frame.pack(fill=tk.BOTH, expand=True)
 
-        ttk.Label(header, text="🔄 Reconciliation Reports", style=STYLES['subheader_label']).pack(anchor=tk.W)
-
-        # Report buttons
         reconciliation_reports = [
-            ("📋 Reconciliation Summary", "reconciliation_summary"),
-            ("📄 Reconciliation Details", "reconciliation_details")
+            ("📋", "Summary", "reconciliation_summary", "Overview of reconciliations", COLORS['primary']),
+            ("📄", "Details", "reconciliation_details", "Detailed session data", COLORS['info']),
         ]
 
-        for text, report_type in reconciliation_reports:
-            btn = ttk.Button(self.content_frame, text=text, style=STYLES['secondary_button'])
-            btn.pack(fill=tk.X, pady=(0, 10))
-            btn.bind('<Button-1>', lambda e, rt=report_type, w=btn: self._on_report_click(e, rt, w))
-            btn.bind('<Double-Button-1>', lambda e, rt=report_type: self._on_report_double_click(e, rt))
+        for i, (icon, title, report_type, desc, color) in enumerate(reconciliation_reports):
+            card = self._create_report_button_card(reports_frame, icon, title,
+                                                   report_type, desc, color)
+            card.grid(row=0, column=i, sticky=tk.NSEW, 
+                     padx=(0, 15) if i < 1 else 0, pady=(0, 15))
+        
+        for col in range(2):
+            reports_frame.grid_columnconfigure(col, weight=1)
+
+    def _show_purchase_orders_category(self) -> None:
+        """Show Purchase Order reports."""
+        self._clear_report_area()
+
+        header = tk.Frame(self.content_frame, bg=COLORS['background'])
+        header.pack(fill=tk.X, pady=(0, 20))
+
+        tk.Label(header, text="📋 Purchase Order Reports",
+                font=('Segoe UI', FONT_SIZES['header'], 'bold'),
+                bg=COLORS['background'], fg=COLORS['text']).pack(side=tk.LEFT)
+
+        tk.Label(header, text="Analyze supplier spending and order history",
+                font=('Segoe UI', FONT_SIZES['body']),
+                bg=COLORS['background'], fg=COLORS['text_secondary']).pack(side=tk.RIGHT)
+
+        reports_frame = tk.Frame(self.content_frame, bg=COLORS['background'])
+        reports_frame.pack(fill=tk.BOTH, expand=True)
+
+        po_reports = [
+            ("📄", "PO Summary", "po_summary", "All orders with status & totals", COLORS['primary']),
+            ("🏭", "By Supplier", "po_by_supplier", "Spending aggregated per supplier", COLORS['success']),
+            ("📦", "Items Detail", "po_items_detail", "Line-by-line breakdown of all POs", COLORS['info']),
+        ]
+
+        for i, (icon, title, report_type, desc, color) in enumerate(po_reports):
+            card = self._create_report_button_card(reports_frame, icon, title,
+                                                   report_type, desc, color)
+            card.grid(row=0, column=i, sticky=tk.NSEW,
+                     padx=(0, 15) if i < 2 else 0, pady=(0, 15))
+
+        for col in range(3):
+            reports_frame.grid_columnconfigure(col, weight=1)
 
     def _next_page(self) -> None:
         """Go to next page and refresh display."""
@@ -439,7 +902,7 @@ class ModernReportsFrame(BaseReportFrame):
         historical_reports = ('reconciliation_summary', 'reconciliation_details', 'range', 'bestsellers', 
                             'profit', 'category', 'payment_methods', 'voided', 'sales_log', 
                             'transactions', 'trends', 'inventory_stock_levels', 'inventory_low_stock', 
-                            'inventory_value')
+                            'inventory_value', 'po_summary', 'po_by_supplier', 'po_items_detail')
         if report_type in historical_reports:
             # Historical reports default to last 30 days
             if not self._local_date_vars.get(report_type):
@@ -547,30 +1010,63 @@ class ModernReportsFrame(BaseReportFrame):
         # Clear current content
         self._clear_report_area()
 
-        # Modern report header
-        header = ttk.Frame(self.content_frame, style=STYLES['frame'])
-        header.pack(fill=tk.X, pady=HEADER_PADDING)
+        # Modern report header with title and date range
+        header = tk.Frame(self.content_frame, bg=COLORS['background'])
+        header.pack(fill=tk.X, pady=(0, 15))
+        
+        # Left side - Title and date range
+        title_frame = tk.Frame(header, bg=COLORS['background'])
+        title_frame.pack(side=tk.LEFT, fill=tk.Y)
 
         report_title = REPORT_TYPES.get(report_data.report_type, report_data.report_type.title())
-        title_label = ttk.Label(header, text=f"📊 {report_title}", style=STYLES['subheader_label'])
+        title_label = tk.Label(title_frame, text=f"📊 {report_title}",
+                font=('Segoe UI', FONT_SIZES['header'], 'bold'),
+                bg=COLORS['background'], fg=COLORS['text'])
         title_label.pack(anchor=tk.W)
+        
+        # Date range subtitle – format ISO dates using the system date format setting
         try:
-            title_label.configure(cursor="hand2")
+            _start_disp = format_date(report_data.start_date)
+            _end_disp   = format_date(report_data.end_date)
         except Exception:
-            pass  # configure may not be supported in some themes
+            _start_disp = report_data.start_date
+            _end_disp   = report_data.end_date
+        date_range_text = f"Period: {_start_disp} to {_end_disp}"
+        tk.Label(title_frame, text=date_range_text,
+                font=('Segoe UI', FONT_SIZES['body']),
+                bg=COLORS['background'], fg=COLORS['text_secondary']).pack(anchor=tk.W)
+        
+        # Record count
+        record_text = f"{report_data.record_count} records found"
+        tk.Label(title_frame, text=record_text,
+                font=('Segoe UI', FONT_SIZES['caption']),
+                bg=COLORS['background'], fg=COLORS['text_light']).pack(anchor=tk.W, pady=(2, 0))
 
         # Data Management section (right-aligned) - Export and management actions
         if report_data.report_type != 'overview':
-            mgmt_frame = ttk.Frame(header, style=STYLES['frame'])
-            mgmt_frame.pack(side=tk.RIGHT)
-
-            # Label for clarity
-            ttk.Label(mgmt_frame, text="📊 Data Management", style=STYLES['body_label']).pack(side=tk.LEFT, padx=(0, 8))
+            mgmt_frame = tk.Frame(header, bg=COLORS['background'])
+            mgmt_frame.pack(side=tk.RIGHT, anchor=tk.N)
 
             # Export menu button (CSV/Excel/PDF/Text)
             try:
-                export_btn = tk.Menubutton(mgmt_frame, text="Export ▾", relief="raised")
-                export_menu = tk.Menu(export_btn, tearoff=0)
+                export_btn = tk.Menubutton(
+                    mgmt_frame, text="📤 Export ▾", relief="raised",
+                    font=('Segoe UI', 10),
+                    bg=COLORS.get('neutral_bg', COLORS['border']),
+                    fg=COLORS['text'],
+                    activebackground=COLORS['border'],
+                    activeforeground=COLORS['text'],
+                    padx=10, pady=5, cursor='hand2',
+                    bd=1,
+                )
+                export_menu = tk.Menu(
+                    export_btn, tearoff=0,
+                    bg=COLORS.get('surface', '#ffffff'),
+                    fg=COLORS['text'],
+                    activebackground=COLORS.get('neutral_bg', COLORS['border']),
+                    activeforeground=COLORS['text'],
+                    font=('Segoe UI', 10),
+                )
                 export_menu.add_command(label="CSV", command=lambda rd=report_data: self._export_report(rd, 'csv'))
                 export_menu.add_command(label="Excel", command=lambda rd=report_data: self._export_report(rd, 'xlsx'))
                 export_menu.add_command(label="PDF", command=lambda rd=report_data: self._export_report(rd, 'pdf'))
@@ -595,29 +1091,29 @@ class ModernReportsFrame(BaseReportFrame):
             filter_frame = ttk.Frame(self.content_frame, style=STYLES['frame'])
             filter_frame.pack(fill=tk.X, pady=(6, 8))
 
-            # For reconciliation reports, show status combobox (local to this report)
-            if report_data.report_type in ('reconciliation_summary', 'reconciliation_details'):
-                status_var = tk.StringVar(value=report_data.metadata.get('status_filter', 'all') or 'all')
-                self._local_status_vars[report_data.report_type] = status_var
-                ttk.Label(filter_frame, text="Filter by Status:", style=STYLES['body_label']).pack(side=tk.LEFT, padx=(0, 10))
-                status_combo = ttk.Combobox(filter_frame, textvariable=status_var,
-                                            values=["all", "draft", "completed", "approved"],
-                                            state="readonly", width=15)
-                status_combo.pack(side=tk.LEFT)
-                # regenerate when status changes; will use current report dates
-                def _on_status_change(e, rt=report_data.report_type, sv=status_var, rd=report_data):
-                    self._generate_report_with_params(rt, rd.start_date, rd.end_date, sv.get())
-                status_combo.bind('<<ComboboxSelected>>', _on_status_change)
+            # Status combobox (local to this report)
+            status_var = tk.StringVar(value=report_data.metadata.get('status_filter', 'all') or 'all')
+            self._local_status_vars[report_data.report_type] = status_var
+            ttk.Label(filter_frame, text="Filter by Status:", style=STYLES['body_label']).pack(side=tk.LEFT, padx=(0, 10))
+            status_combo = ttk.Combobox(filter_frame, textvariable=status_var,
+                                        values=["all", "draft", "completed", "approved"],
+                                        state="readonly", width=15)
+            status_combo.pack(side=tk.LEFT)
+            # regenerate when status changes; will use current report dates
+            def _on_status_change(e, rt=report_data.report_type, sv=status_var, rd=report_data):
+                self._generate_report_with_params(rt, rd.start_date, rd.end_date, sv.get())
+            status_combo.bind('<<ComboboxSelected>>', _on_status_change)
 
             # Date range controls (per-report) - display only
             ttk.Label(filter_frame, text="Date Range:", style=STYLES['body_label']).pack(side=tk.LEFT, padx=(10, 4))
             try:
-                start_display = format_date(parse_date_flexible(report_data.start_date))
-                end_display = format_date(parse_date_flexible(report_data.end_date))
+                from utils.date_utils import parse_date_flexible as _parse_date_flex
+                start_display = format_date(_parse_date_flex(report_data.start_date))
+                end_display = format_date(_parse_date_flex(report_data.end_date))
                 date_range_text = f"{start_display} to {end_display}"
             except Exception:
                 date_range_text = f"{report_data.start_date} to {report_data.end_date}"
-            ttk.Label(filter_frame, text=date_range_text, style=STYLES['body_label'], 
+            ttk.Label(filter_frame, text=date_range_text, style=STYLES['body_label'],
                      foreground=COLORS['text_light']).pack(side=tk.LEFT, padx=(0, 6))
 
         # Create report details card immediately so content is visible without extra clicks
@@ -1164,22 +1660,6 @@ class ModernReportsFrame(BaseReportFrame):
                     tk.Label(fallback, text="Unable to render report.", font=('Segoe UI', FONT_SIZES['body']),
                             bg=COLORS['background'], fg=COLORS['text']).pack(anchor=tk.W)
 
-        # Add export buttons for each report
-        export_frame = ttk.Frame(report_card, style=STYLES['frame'])
-        export_frame.pack(fill=tk.X, pady=(10, 0))
-
-        ttk.Label(export_frame, text="📊 Data Management:", style=STYLES['body_label']).pack(side=tk.LEFT, padx=(0, 10))
-
-        # Export buttons
-        ttk.Button(export_frame, text="📄 CSV", style=STYLES['action_button'],
-                  command=lambda rd=report_data: self._export_report(rd, 'csv')).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(export_frame, text="📊 Excel", style=STYLES['action_button'],
-                  command=lambda rd=report_data: self._export_report(rd, 'xlsx')).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(export_frame, text="📋 PDF", style=STYLES['action_button'],
-                  command=lambda rd=report_data: self._export_report(rd, 'pdf')).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(export_frame, text="📝 Text", style=STYLES['action_button'],
-                  command=lambda rd=report_data: self._export_report(rd, 'txt')).pack(side=tk.LEFT)
-
         # Header click bindings: single click for date presets/special-case, double-click toggles details
         title_label.bind("<Button-1>", lambda e, rt=report_data.report_type: self._on_header_click(rt))
         title_label.bind("<Double-Button-1>", lambda e, rd=report_data: self._on_header_double_click(e.widget, rd))
@@ -1337,7 +1817,7 @@ class ModernReportsFrame(BaseReportFrame):
         set_window_icon(popup)
         popup.title("Quick Date Filter")
         popup.geometry("200x240")
-        popup.resizable(False, False)
+        popup.resizable(True, True)
         popup.configure(bg=COLORS['background'])
         
         # Keep popup hidden until fully constructed to avoid mapping/jump
@@ -1389,7 +1869,7 @@ class ModernReportsFrame(BaseReportFrame):
                 popup.destroy()
                 cmd(rt)
 
-            btn = tk.Button(popup, text=text, bg=COLORS['primary'], fg='white',
+            btn = tk.Button(popup, text=text, bg=COLORS['primary'], fg=COLORS['text_white'],
                            font=('Segoe UI', 9), command=preset_action)
             btn.pack(fill=tk.X, padx=10, pady=(0, 5))
 
@@ -1444,7 +1924,7 @@ class ModernReportsFrame(BaseReportFrame):
         set_window_icon(popup)
         popup.title("Select Custom Date Range")
         popup.geometry("400x250")
-        popup.resizable(False, False)
+        popup.resizable(True, True)
         popup.transient(self)
         popup.grab_set()
 
@@ -1506,7 +1986,7 @@ class ModernReportsFrame(BaseReportFrame):
             start_picker.geometry("300x250")
             start_picker.transient(popup)
             start_picker.withdraw()
-            start_picker.resizable(False, False)
+            start_picker.resizable(True, True)
 
             # Position above the parent popup to avoid taskbar
             start_picker.geometry("+{}+{}".format(
@@ -1581,7 +2061,7 @@ class ModernReportsFrame(BaseReportFrame):
             end_picker.geometry("300x250")
             end_picker.transient(popup)
             end_picker.withdraw()
-            end_picker.resizable(False, False)
+            end_picker.resizable(True, True)
 
             # Position above the parent popup to avoid taskbar
             end_picker.geometry("+{}+{}".format(
@@ -1807,7 +2287,7 @@ class ModernReportsFrame(BaseReportFrame):
         set_window_icon(popup)
         popup.title("Schedule Export")
         popup.geometry('420x260')
-        popup.resizable(False, False)
+        popup.resizable(True, True)
         popup.transient(self)
         popup.grab_set()
 
@@ -1881,7 +2361,7 @@ class ModernReportsFrame(BaseReportFrame):
         set_window_icon(popup)
         popup.title('Manage Export Schedules')
         popup.geometry('520x320')
-        popup.resizable(False, False)
+        popup.resizable(True, True)
         popup.transient(self)
         popup.grab_set()
 
@@ -1958,7 +2438,7 @@ class ModernReportsFrame(BaseReportFrame):
     def _build_header(self) -> None:
         """Build the modern header with navigation and actions."""
         header = ttk.Frame(self, style=STYLES['frame'])
-        header.grid(row=0, column=0, sticky=tk.EW, pady=HEADER_PADDING)
+        header.grid(row=0, column=0, columnspan=2, sticky=tk.EW, pady=HEADER_PADDING)
         header.columnconfigure(1, weight=1)
 
         # Title and navigation
@@ -1973,8 +2453,7 @@ class ModernReportsFrame(BaseReportFrame):
         actions_frame.grid(row=0, column=2, sticky=tk.E)
 
         if self.on_home:
-            ttk.Button(actions_frame, text="🏠 Home", style=STYLES['action_button'],
-                      command=self.on_home).pack(side=tk.LEFT, padx=(0, 10))
+            pass
 
         ttk.Button(actions_frame, text="🔄 Refresh", style=STYLES['action_button'],
                   command=self._refresh_current_view).pack(side=tk.LEFT, padx=(0, 10))

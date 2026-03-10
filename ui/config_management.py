@@ -67,7 +67,7 @@ class ConfigManagementDialog:
         # Environment info
         env_info = get_environment_info()
         env_text = f"Environment: {env_info['environment'].title()}"
-        ttk.Label(title_frame, text=env_text, foreground="blue").pack(side=tk.RIGHT)
+        ttk.Label(title_frame, text=env_text, foreground=get_status_color('info')).pack(side=tk.RIGHT)
 
         # Notebook for different config sections
         self.notebook = ttk.Notebook(main_frame)
@@ -173,7 +173,9 @@ class ConfigManagementDialog:
         appearance_group.pack(fill=tk.X, pady=(0, 10))
 
         ttk.Label(appearance_group, text="Theme:").grid(row=0, column=0, sticky=tk.W, pady=2)
-        self.theme = ttk.Combobox(appearance_group, values=["default", "dark", "light", "blue", "green"], state="readonly", width=12)
+        from utils.theme import get_available_themes
+        theme_options = list(get_available_themes().keys())
+        self.theme = ttk.Combobox(appearance_group, values=theme_options, state="readonly", width=12)
         self.theme.grid(row=0, column=1, sticky=tk.W, padx=(10, 0), pady=2)
 
         ttk.Label(appearance_group, text="Language:").grid(row=1, column=0, sticky=tk.W, pady=2)
