@@ -576,7 +576,17 @@ class AdminSetupFrame(ttk.Frame):
         tk.Label(card, text='Currency', font=('Segoe UI', 10, 'bold'),
                  bg=_C_WHITE, fg=_C_TEXT, anchor='w').grid(
             row=2, column=0, sticky=tk.W, padx=20, pady=(16, 2))
-        _CURRENCIES = ['USD', 'EUR', 'GBP', 'KES', 'ZAR', 'CAD', 'AUD', 'JPY', 'CNY']
+        
+        # Get comprehensive currency list from pycountry (consistent with main settings)
+        # This provides 180+ world currencies instead of the limited 9 currencies previously hardcoded
+        try:
+            import pycountry
+            _CURRENCIES = sorted([currency.alpha_3 for currency in pycountry.currencies])
+        except ImportError:
+            # Fallback to expanded currency list if pycountry not available
+            _CURRENCIES = ['USD', 'EUR', 'GBP', 'KES', 'ZAR', 'CAD', 'AUD', 'JPY', 'CNY', 
+                         'CHF', 'SEK', 'NOK', 'DKK', 'NGN', 'GHS', 'INR', 'SGD', 'BRL', 'MXN']
+        
         cur = ttk.Combobox(
             card, textvariable=self.currency, width=36,
             values=_CURRENCIES,
