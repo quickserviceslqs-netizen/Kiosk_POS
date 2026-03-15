@@ -64,7 +64,7 @@ class AdminSetupFrame(ttk.Frame):
         self.date_format_var = tk.StringVar(value='%Y-%m-%d')
         # Persistent vars for System Config step — must survive step navigation
         self.business_name = tk.StringVar(value='My Store')
-        self.currency = tk.StringVar(value='USD')
+        self.currency = tk.StringVar(value='USD ($)')
         setup_logger.info("Setup wizard initialized")
         self._build_ui()
         self._show_step(0)
@@ -581,11 +581,17 @@ class AdminSetupFrame(ttk.Frame):
         # This provides 180+ world currencies instead of the limited 9 currencies previously hardcoded
         try:
             import pycountry
-            _CURRENCIES = sorted([currency.alpha_3 for currency in pycountry.currencies])
+            from utils.i18n import get_default_currency_symbol_for_code
+            _CURRENCY_CODES = sorted([currency.alpha_3 for currency in pycountry.currencies])
+            # Format currencies to show both code and symbol for better UX
+            _CURRENCIES = []
+            for code in _CURRENCY_CODES:
+                symbol = get_default_currency_symbol_for_code(code)
+                _CURRENCIES.append(f"{code} ({symbol})")
         except ImportError:
             # Fallback to expanded currency list if pycountry not available
-            _CURRENCIES = ['USD', 'EUR', 'GBP', 'KES', 'ZAR', 'CAD', 'AUD', 'JPY', 'CNY', 
-                         'CHF', 'SEK', 'NOK', 'DKK', 'NGN', 'GHS', 'INR', 'SGD', 'BRL', 'MXN']
+            _CURRENCIES = ['USD ($)', 'EUR (€)', 'GBP (£)', 'KES (KSh)', 'ZAR (R)', 'CAD (C$)', 'AUD (A$)', 'JPY (¥)', 'CNY (¥)', 
+                         'CHF (CHF)', 'SEK (kr)', 'NOK (kr)', 'DKK (kr)', 'NGN (₦)', 'GHS (GH₵)', 'INR (₹)', 'SGD (S$)', 'BRL (R$)', 'MXN (MX$)']
         
         cur = ttk.Combobox(
             card, textvariable=self.currency, width=36,
@@ -593,8 +599,14 @@ class AdminSetupFrame(ttk.Frame):
             state='readonly', font=('Segoe UI', 11))
         cur.grid(row=3, column=0, sticky=tk.EW, padx=20, pady=(0, 4))
         # Preserve existing selection; default to USD only on first render
-        if self.currency.get() not in _CURRENCIES:
-            self.currency.set('USD')
+        current_code = self.currency.get()
+        if current_code and not any(currency.startswith(current_code + ' ') for currency in _CURRENCIES):
+            # Convert plain code to formatted display  
+            from utils.i18n import get_default_currency_symbol_for_code
+            symbol = get_default_currency_symbol_for_code(current_code)
+            self.currency.set(f"{current_code} ({symbol})")
+        elif not self.currency.get():
+            self.currency.set('USD ($)')
 
         # ── Date Format ───────────────────────────────────────────────────
         tk.Frame(card, bg=_C_BORDER, height=1).grid(
@@ -829,20 +841,26 @@ class AdminSetupFrame(ttk.Frame):
         try:
             from database.init_db import get_connection
             from utils.i18n import get_default_currency_symbol_for_code
-            code   = self.currency.get().strip().upper()
+            # Extract currency code from formatted display "CODE (SYMBOL)"
+            currency_display = self.currency.get().strip()
+            if ' (' in currency_display and ')' in currency_display:
+                code = currency_display.split(' (')[0].upper()
+            else:
+                # Fallback for plain codes
+                code = currency_display.upper()
+            
             symbol = get_default_currency_symbol_for_code(code)
             biz    = self.business_name.get().strip() or 'My Store'
+            
+            # Save business name
             with get_connection() as conn:
-                for key, value in [
-                    ('business_name',  biz),
-                    ('currency_code',  code),
-                    ('currency_symbol', symbol),
-                    ('currency',       code),   # legacy fallback
-                ]:
-                    conn.execute(
-                        "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-                        (key, value))
+                conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", 
+                           ('business_name', biz))
                 conn.commit()
+            
+            # Use centralized currency setting system (handles encoding and notifications)
+            from utils.currency_notifications import set_currency_settings
+            set_currency_settings(code, symbol)
         except Exception as e:
             print(f"Warning: Failed to save currency/business setting: {e}")
 
@@ -883,7 +901,10 @@ class AdminSetupFrame(ttk.Frame):
             
             # Step 4: Seed sample data — demo mode only, never in live store
             import sys as _sys_seed
-            if '--demo' in _sys_seed.argv:
+            is_demo_mode = '--demo' in _sys_seed.argv
+            setup_logger.info(f"Demo mode check: args={_sys_seed.argv}, is_demo={is_demo_mode}")
+            
+            if is_demo_mode:
                 setup_logger.info("Demo mode: seeding sample data")
                 self._seed_sample_data()
             else:
@@ -908,12 +929,21 @@ class AdminSetupFrame(ttk.Frame):
     def _seed_sample_data(self):
         """Seed the main database with ~60 sample items across 10 categories for testing."""
         try:
+            # Double-check we're in demo mode
+            import sys
+            if '--demo' not in sys.argv:
+                setup_logger.warning("_seed_sample_data called but not in demo mode - skipping")
+                return
+            
             from database.init_db import get_connection
             with get_connection() as conn:
                 # Skip if items already exist
-                if conn.execute("SELECT COUNT(*) FROM items").fetchone()[0] > 0:
-                    setup_logger.info("Items already present — skipping sample data seed")
+                existing_items = conn.execute("SELECT COUNT(*) FROM items").fetchone()[0]
+                if existing_items > 0:
+                    setup_logger.info(f"Items already present ({existing_items}) — skipping sample data seed")
                     return
+
+                setup_logger.info("Seeding demo sample data...")
 
                 # ── Categories ────────────────────────────────────────────────
                 inv_cats = [

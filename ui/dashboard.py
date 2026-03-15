@@ -12,6 +12,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from modules import dashboard
 from modules import permissions
 from utils.i18n import get_currency_symbol
+from utils.currency_notifications import subscribe_to_currency_changes, unsubscribe_from_currency_changes
 from utils.date_utils import format_date
 from utils.security import get_username
 
@@ -37,6 +38,7 @@ class DashboardFrame(ttk.Frame):
         super().__init__(master, padding=(8, 8, 8, 12), **kwargs)
         self.on_home = on_home
         self.theme_colors = _get_dashboard_colors()
+        self._destroyed = False
         
         # Check permission to view dashboard
         current_user = get_username()
@@ -44,8 +46,13 @@ class DashboardFrame(ttk.Frame):
             # Show permission denied message
             from tkinter import messagebox
             messagebox.showerror("Permission Denied", "You do not have permission to view the dashboard")
-            # Create empty frame
+            # Create empty frame but still subscribe to currency changes for cleanup
+            self._destroyed = False
+            subscribe_to_currency_changes(self._on_currency_changed)
             return
+        
+        # Subscribe to currency change notifications
+        subscribe_to_currency_changes(self._on_currency_changed)
         
         self._build_ui()
         self._refresh_data()
@@ -330,13 +337,47 @@ class DashboardFrame(ttk.Frame):
 
         return card
 
+    def _on_currency_changed(self, currency_code: str, currency_symbol: str):
+        """Handle currency change notifications."""
+        try:
+            if self._destroyed or not getattr(self, 'winfo_exists', lambda: True)() or not self.winfo_exists():
+                unsubscribe_from_currency_changes(self._on_currency_changed)
+                return
+            
+            print(f"🔄 Dashboard: Currency updated to {currency_code} ({currency_symbol})")
+            
+            # Refresh all dashboard data to show new currency
+            self._refresh_data()
+            
+        except tk.TclError:
+            # Widget destroyed
+            self._destroyed = True
+            try:
+                unsubscribe_from_currency_changes(self._on_currency_changed)
+            except Exception:
+                pass
+        except Exception as e:
+            print(f"Error updating currency in dashboard: {e}")
+
+    def destroy(self):
+        """Clean up currency notifications when dashboard is destroyed."""
+        try:
+            self._destroyed = True
+            unsubscribe_from_currency_changes(self._on_currency_changed)
+        except Exception:
+            pass
+        super().destroy()
+
     def _refresh_data(self) -> None:
-        """Refresh all dashboard data."""
+        """Refresh all dashboard data with current currency symbol."""
         import logging
         logger = logging.getLogger(__name__)
         try:
+            if self._destroyed:
+                return
+                
             logger.info("Refreshing dashboard data")
-            currency = get_currency_symbol()
+            currency = get_currency_symbol()  # Get fresh currency symbol
             
             # Update summary cards
             today = dashboard.get_today_summary()

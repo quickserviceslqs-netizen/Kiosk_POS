@@ -217,7 +217,7 @@ def create_expense(*, date: str, category: str, amount: float, description: str 
     validated_ref = (reference_number or "").strip() or None
 
     created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    from utils.security import get_currency_code
+    from utils.i18n import get_currency_code
     currency_code = get_currency_code()
 
     with get_connection() as conn:

@@ -107,3 +107,91 @@ class InventoryValueTextFormatter(TextReportFormatter):
             lines.append(line)
 
         return "\n".join(lines)
+
+
+class InventoryStockMovementTextFormatter(TextReportFormatter):
+    """Text formatter for stock movement analysis report."""
+
+    def _get_report_title(self) -> str:
+        """Get the report title."""
+        return "STOCK MOVEMENT ANALYSIS REPORT"
+
+    def format_body(self) -> str:
+        """Format the main report content."""
+        if self.report_data.is_empty:
+            return "No stock movement data found for the specified period."
+
+        lines = []
+        currency = self.report_data.currency_symbol
+
+        # Summary section
+        metadata = self.report_data.metadata
+        lines.append("📈 MOVEMENT SUMMARY")
+        lines.append("-" * 50)
+        lines.append(f"Period Length: {metadata.get('period_days', 'N/A')} days")
+        lines.append(f"Total Items Analyzed: {metadata.get('total_items', 'N/A')}")
+        lines.append(f"Items With Movement: {metadata.get('items_with_movement', 'N/A')}")
+        lines.append(f"Items Without Movement: {metadata.get('items_without_movement', 'N/A')}")
+        lines.append(f"Total Quantity Sold: {metadata.get('total_quantity_sold', 'N/A'):,.0f}")
+        lines.append(f"Total Revenue: {currency}{metadata.get('total_revenue', 0):,.2f}")
+        lines.append(f"Average Daily Movement: {metadata.get('avg_daily_movement', 'N/A'):,.1f} items/day")
+        lines.append("")
+
+        # Table header
+        lines.append("📦 DETAILED STOCK MOVEMENT")
+        lines.append("-" * 110)
+        header = f"{'Item Name':<25} {'Category':<15} {'Current':<8} {'Sold':<8} {'Sales':<6} {'Revenue':<12} {'Velocity':<9} {'Status':<12}"
+        lines.append(header)
+        lines.append(f"{'':>25} {'':>15} {'Stock':>8} {'Qty':>8} {'Count':>6} {'':>12} {'(per day)':>9} {'':>12}")
+        lines.append("-" * 110)
+
+        # Sort by total sold descending
+        sorted_data = sorted(self.report_data.data, key=lambda x: x.get('total_sold', 0), reverse=True)
+
+        for item in sorted_data:
+            name = (item.get('name') or 'Unknown')[:24]
+            category = (item.get('category') or 'N/A')[:14]
+            current_stock = item.get('current_stock', 0)
+            total_sold = item.get('total_sold', 0)
+            sales_count = item.get('sales_transactions', 0)
+            revenue = item.get('total_revenue', 0)
+            velocity = item.get('velocity_per_day', 0)
+            status = (item.get('stock_status') or 'Unknown')[:11]
+            unit = item.get('unit', 'pcs')
+
+            line = f"{name:<25} {category:<15} {current_stock:>6}{unit[:2]:<2} {total_sold:>8.0f} {sales_count:>6} {currency}{revenue:>11.2f} {velocity:>9.1f} {status:<12}"
+            lines.append(line)
+
+        # Additional analysis
+        lines.append("")
+        lines.append("📊 MOVEMENT ANALYSIS")
+        lines.append("-" * 50)
+        
+        # Find top movers
+        top_movers = sorted([item for item in self.report_data.data if item.get('total_sold', 0) > 0], 
+                           key=lambda x: x.get('total_sold', 0), reverse=True)[:5]
+        
+        if top_movers:
+            lines.append("🏆 TOP 5 MOVING ITEMS:")
+            for i, item in enumerate(top_movers, 1):
+                name = item.get('name', 'Unknown')
+                sold = item.get('total_sold', 0)
+                velocity = item.get('velocity_per_day', 0)
+                lines.append(f"  {i}. {name} - {sold:.0f} sold ({velocity:.1f}/day)")
+        
+        # Find slow movers (items with stock but no sales)
+        slow_movers = [item for item in self.report_data.data 
+                      if item.get('current_stock', 0) > 0 and item.get('total_sold', 0) == 0]
+        
+        if slow_movers:
+            lines.append("")
+            lines.append(f"⚠️  SLOW MOVERS: {len(slow_movers)} items with stock but no sales")
+            for item in slow_movers[:5]:  # Show first 5
+                name = item.get('name', 'Unknown')
+                stock = item.get('current_stock', 0)
+                unit = item.get('unit', 'pcs')
+                lines.append(f"  • {name} - {stock} {unit} in stock")
+            if len(slow_movers) > 5:
+                lines.append(f"  ... and {len(slow_movers) - 5} more")
+
+        return "\n".join(lines)

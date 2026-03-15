@@ -7,6 +7,6 @@
   "from_email": "",
   "to_emails": [],
   "daily_report_enabled": false,
-  "low_stock_alerts_enabled": false,
+  "low_stock_alerts_enabled": true,
   "low_stock_threshold": 10
 }

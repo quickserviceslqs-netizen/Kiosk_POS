@@ -34,7 +34,8 @@ from .reports_reconciliation_formatters import (
     ReconciliationSummaryTextFormatter, ReconciliationDetailsTextFormatter
 )
 from .reports_inventory_formatters import (
-    InventoryStockLevelsTextFormatter, InventoryLowStockTextFormatter, InventoryValueTextFormatter
+    InventoryStockLevelsTextFormatter, InventoryLowStockTextFormatter, InventoryValueTextFormatter,
+    InventoryStockMovementTextFormatter
 )
 
 from .reports_base import ReportData, BaseReportFrame
@@ -682,6 +683,7 @@ class ModernReportsFrame(BaseReportFrame):
             ("📊", "Stock Levels", "inventory_stock_levels", "Current stock quantities", COLORS['primary']),
             ("⚠️", "Low Stock", "inventory_low_stock", "Items below threshold", COLORS['warning']),
             ("💰", "Inventory Value", "inventory_value", "Total inventory valuation", COLORS['success']),
+            ("📈", "Stock Movement", "inventory_stock_movement", "How items are selling", COLORS['info']),
         ]
 
         for i, (icon, title, report_type, desc, color) in enumerate(inventory_reports):
@@ -902,7 +904,7 @@ class ModernReportsFrame(BaseReportFrame):
         historical_reports = ('reconciliation_summary', 'reconciliation_details', 'range', 'bestsellers', 
                             'profit', 'category', 'payment_methods', 'voided', 'sales_log', 
                             'transactions', 'trends', 'inventory_stock_levels', 'inventory_low_stock', 
-                            'inventory_value', 'po_summary', 'po_by_supplier', 'po_items_detail')
+                            'inventory_value', 'inventory_stock_movement', 'po_summary', 'po_by_supplier', 'po_items_detail')
         if report_type in historical_reports:
             # Historical reports default to last 30 days
             if not self._local_date_vars.get(report_type):
@@ -2137,6 +2139,34 @@ class ModernReportsFrame(BaseReportFrame):
 
         ttk.Button(button_frame, text="Apply", style=STYLES['primary_button'], command=apply_dates).pack(side=tk.LEFT, padx=(0, 10))
         ttk.Button(button_frame, text="Cancel", style=STYLES['secondary_button'], command=popup.destroy).pack(side=tk.LEFT)
+
+    def _get_formatter_for_report(self, report_data: ReportData) -> 'TextReportFormatter':
+        """Get the appropriate formatter for the report type."""
+        formatters = {
+            'daily': SalesTextFormatter,
+            'range': SalesTextFormatter,
+            'bestsellers': SalesTextFormatter,
+            'profit': ProfitTextFormatter,
+            'category': CategoryTextFormatter,
+            'payment_methods': PaymentMethodsTextFormatter,
+            'voided': VoidedSalesTextFormatter,
+            'sales_log': SalesLogTextFormatter,
+            'transactions': TransactionsTextFormatter,
+            'trends': TrendsTextFormatter,
+            'reconciliation_summary': ReconciliationSummaryTextFormatter,
+            'reconciliation_details': ReconciliationDetailsTextFormatter,
+            'inventory_stock_levels': InventoryStockLevelsTextFormatter,
+            'inventory_low_stock': InventoryLowStockTextFormatter,
+            'inventory_value': InventoryValueTextFormatter,
+            'inventory_stock_movement': InventoryStockMovementTextFormatter,
+        }
+        
+        formatter_class = formatters.get(report_data.report_type)
+        if formatter_class:
+            return formatter_class(report_data)
+        
+        # Fallback for unknown report types
+        return SalesTextFormatter(report_data)
 
     def _download_report(self) -> None:
         """Download the current report as CSV or text file."""

@@ -699,10 +699,18 @@ def _ensure_item_portions_table(conn: sqlite3.Connection) -> None:
                 cost_price REAL NOT NULL DEFAULT 0,
                 sort_order INTEGER NOT NULL DEFAULT 0,
                 is_active INTEGER NOT NULL DEFAULT 1,
+                lot_id INTEGER,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (item_id) REFERENCES items(item_id) ON DELETE CASCADE
+                FOREIGN KEY (item_id) REFERENCES items(item_id) ON DELETE CASCADE,
+                FOREIGN KEY (lot_id) REFERENCES stock_lots(lot_id)
             )
         """)
+    else:
+        # Check for lot_id column and add if missing
+        existing = _pragma_columns(conn, 'item_portions')
+        if "lot_id" not in existing:
+            conn.execute("ALTER TABLE item_portions ADD COLUMN lot_id INTEGER REFERENCES stock_lots(lot_id)")
+    
     conn.commit()
 
 

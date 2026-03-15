@@ -2,6 +2,7 @@
 from __future__ import annotations
 from typing import List, Optional
 from datetime import datetime
+import logging
 from ..domain.entities import (
     ReconciliationSession, ReconciliationEntry, VarianceExplanation,
     ReconciliationStatus, PeriodType
@@ -14,6 +15,8 @@ from ..infrastructure.repositories import (
 )
 from modules.external_accounts import account_manager
 from modules import reports
+
+logger = logging.getLogger(__name__)
 
 
 class ReconciliationApplicationService:
@@ -50,10 +53,20 @@ class ReconciliationApplicationService:
             pm = row['payment_method']
             sales_lookup[pm] = float(row['total_sales'])
 
-        # Also include any external-account payment methods that might not
-        # appear in sales (so the user can still reconcile them).
+        # Get ALL payment methods that have ever been used (not just those with sales in this period)
+        from database.init_db import get_connection
+        all_historical_methods = set()
+        try:
+            with get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT DISTINCT COALESCE(payment_method, 'Cash') as payment_method FROM sale_payments ORDER BY payment_method")
+                all_historical_methods = {row[0] for row in cursor.fetchall()}
+        except Exception as e:
+            logger.warning(f"Could not fetch all payment methods: {e}")
+
+        # Also include any external-account payment methods
         account_balances = account_manager.get_balances_by_payment_method()
-        all_methods = set(sales_lookup.keys()) | set(account_balances.keys())
+        all_methods = all_historical_methods | set(account_balances.keys()) | set(sales_lookup.keys())
 
         # Fetch the last completed/draft session's closing balances to use
         # as today's opening balance.

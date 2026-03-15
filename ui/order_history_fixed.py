@@ -34,8 +34,9 @@ def _get_status_color(status: str) -> str:
 
 from modules import receipts, refunds
 from utils import set_window_icon
-from utils.security import get_currency_code, subscribe_payment_methods, unsubscribe_payment_methods, get_payment_methods
-from utils.date_utils import format_date, parse_date_flexible
+from utils.i18n import get_currency_code
+from utils.security import subscribe_payment_methods, unsubscribe_payment_methods, get_payment_methods
+from utils.date_utils import format_date, parse_date_flexible, get_tkcalendar_date_pattern
 
 
 # Setup audit logging
@@ -1107,7 +1108,7 @@ class OrderHistoryFrame(ttk.Frame):
             year=current.year, 
             month=current.month, 
             day=current.day,
-            date_pattern="yyyy-mm-dd"
+            date_pattern=get_tkcalendar_date_pattern()
         )
         cal.pack(fill="both", expand=True, padx=10, pady=10)
         
@@ -1145,7 +1146,7 @@ class OrderHistoryFrame(ttk.Frame):
             year=current.year, 
             month=current.month, 
             day=current.day,
-            date_pattern="yyyy-mm-dd"
+            date_pattern=get_tkcalendar_date_pattern()
         )
         cal.pack(fill="both", expand=True, padx=10, pady=10)
         

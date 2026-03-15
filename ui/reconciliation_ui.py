@@ -486,71 +486,25 @@ class ReconciliationUI(ttk.Frame):
                 self.after_cancel(self._resize_after_id)
             except Exception:
                 pass
-        self._resize_after_id = self.after(120, lambda: (self._autosize_tree_columns(self.system_tree), self._autosize_tree_columns(self.manual_tree)))
+        # Only resize recon_tree since that's the main/only tree
+        self._resize_after_id = self.after(120, lambda: self._autosize_tree_columns(self.recon_tree))
 
     def _on_manual_double_click(self, event):
-        """Handle double-click on manual tree to edit amounts."""
-        # Get the clicked item and column
-        item = self.manual_tree.identify_row(event.y)
-        column = self.manual_tree.identify_column(event.x)
-
-        if not item or column != '#2':  # Only allow editing the amount column
-            return
-
-        # Get current values
-        values = self.manual_tree.item(item, 'values')
-        if not values:
-            return
-
-        pm, current_amount = values
-
-        # Create an entry widget for editing
-        x, y, width, height = self.manual_tree.bbox(item, column)
-        entry = ttk.Entry(self.manual_tree, justify='right')
-
-        # Remove currency symbol for editing
-        clean_amount = current_amount.replace(self.currency_symbol, '').replace(',', '').strip()
-        entry.insert(0, clean_amount)
-        entry.select_range(0, tk.END)
-        entry.focus()
-
-        entry.place(x=x, y=y, width=width, height=height)
-
-        def save_edit():
-            try:
-                new_amount = float(entry.get().strip() or '0')
-                # Update the tree
-                self.manual_tree.item(item, values=(pm, f"{self.currency_symbol}{new_amount:.2f}"))
-
-                # Update the session if this corresponds to a mapped item
-                if pm in self._mappings:
-                    sys_pm = self._mappings[pm]
-                    reconciliation_service.update_item_actual_amount(
-                        self.current_session, sys_pm, new_amount
-                    )
-                else:
-                    # Find the item in session and update
-                    for session_item in self.current_session.items:
-                        if session_item.payment_method == pm:
-                            reconciliation_service.update_item_actual_amount(
-                                self.current_session, pm, new_amount
-                            )
-                            break
-
-                self._refresh_display()
-                self._update_summary()
-
-            except ValueError:
-                pass  # Invalid input, don't update
-            finally:
-                entry.destroy()
-
-        def cancel_edit():
-            entry.destroy()
-
-        entry.bind('<Return>', lambda e: save_edit())
-        entry.bind('<Escape>', lambda e: cancel_edit())
-        entry.bind('<FocusOut>', lambda e: save_edit())
+        """Handle double-click on manual tree to edit amounts.
+        
+        DEPRECATED: This method was for the old dual-tree layout.
+        Now the UI uses a single tree (_on_recon_double_click).
+        Kept for reference only.
+        """
+        # Old implementation for dual-tree layout - no longer used
+        # If needed in future, implement similar functionality in _on_recon_double_click
+        pass
+    
+    # Original _on_manual_double_click implementation (commented out for reference):
+    # 
+    # item = self.manual_tree.identify_row(event.y)
+    # column = self.manual_tree.identify_column(event.x)
+    # ... [rest of implementation]
 
     def _on_recon_double_click(self, event):
         """Handle double-click on recon tree to edit actual amounts."""
@@ -614,6 +568,7 @@ class ReconciliationUI(ttk.Frame):
 
         try:
             # Create ReconSession for orchestrator
+            logger.debug("Creating ReconSession object")
             recon_session = ReconSession(
                 session_id=self.current_session.session_id,
                 start_date=self.current_session.start_date,
@@ -622,7 +577,9 @@ class ReconciliationUI(ttk.Frame):
             )
 
             # Get entries from all adapters
+            logger.debug("Getting entries from orchestrator modules")
             for module_key in orchestrator.get_available_modules():
+                logger.debug(f"Processing module: {module_key}")
                 entries = orchestrator.get_module_entries(recon_session, module_key)
                 for entry in entries:
                     pm = entry.payment_method
@@ -633,10 +590,12 @@ class ReconciliationUI(ttk.Frame):
                         reconciliation_service.add_item(self.current_session, pm, expected, 0.0)
                     self._recon_data[pm] = {'expected': expected, 'actual': 0.0}
 
-            self._refresh_display()
+            logger.debug(f"Loaded {len(self._recon_data)} payment methods")
+            # Don't call _refresh_display here - it will be called by the caller
+            # Calling it here causes infinite recursion with _refresh_display
 
         except Exception as e:
-            logger.error(f"Error loading expected amounts: {e}")
+            logger.error(f"Error loading expected amounts: {e}", exc_info=True)
             messagebox.showerror("Error", f"Failed to load expected amounts: {e}")
 
     def _on_add_manual_entry(self) -> None:
@@ -662,14 +621,15 @@ class ReconciliationUI(ttk.Frame):
             # If session is persisted, add to DB; otherwise add in-memory
             reconciliation_service.add_manual_entry(self.current_session, pm, system_amount, actual_amount)
 
-            # Also insert into manual tree for mapping convenience
-            iid = f"manual_{pm}"
-            self.manual_tree.insert('', 'end', iid=iid, values=(pm, f"{self.currency_symbol}{actual_amount:.2f}"))
+            # Update the data structure for display
+            self._recon_data[pm] = {'expected': system_amount, 'actual': actual_amount}
 
-            # Clear inputs and refresh
+            # Refresh display to show the new entry
+            self._refresh_display()
+
+            # Clear inputs
             self.add_payment_var.set("")
             self.add_actual_var.set("")
-            self._refresh_display()
             messagebox.showinfo("Added", f"Added {pm} to session.")
         except ValueError:
             messagebox.showerror("Invalid Input", "Please enter a valid amount for Actual.")
@@ -711,11 +671,16 @@ That's it!"""
             date = self.date_var.get()
             period_type = self.period_var.get()
 
+            logger.debug(f"Creating session for date={date}, period_type={period_type}, user_id={self.user_id}")
             self.current_session = reconciliation_service.create_session(
                 date, period_type, self.user_id
             )
+            logger.debug(f"Session created with {len(self.current_session.entries)} entries")
 
+            logger.debug("Calling _refresh_display()")
             self._refresh_display()
+            logger.debug("_refresh_display() successful")
+            
             messagebox.showinfo("Session Created",
                               f"Created reconciliation session for {period_type} period.")
 
@@ -725,33 +690,41 @@ That's it!"""
                 pass
 
         except Exception as e:
-            logger.error(f"Error creating session: {e}")
+            logger.error(f"Error creating session: {e}", exc_info=True)
             messagebox.showerror("Error", f"Failed to create session: {e}")
 
     def _refresh_display(self) -> None:
         """Refresh the UI to show current session data."""
+        logger.debug(f"_refresh_display called, current_session={self.current_session}")
         if not self.current_session:
+            logger.debug("No current session, showing welcome message")
             self._show_welcome_message()
             return
 
         # Hide welcome message
         if hasattr(self, 'welcome_frame'):
+            logger.debug("Hiding welcome frame")
             self.welcome_frame.pack_forget()
 
         # Update summary
+        logger.debug("Updating summary")
         self._update_summary()
 
         # Populate single recon tree
+        logger.debug("Populating recon tree")
         for i in self.recon_tree.get_children():
             self.recon_tree.delete(i)
 
         if not self._recon_data:
             # Load expected if not loaded
+            logger.debug("Loading expected amounts")
             try:
                 self._load_expected()
-            except:
+            except Exception as load_error:
+                logger.error(f"Error loading expected: {load_error}", exc_info=True)
                 pass  # If fails, leave empty
         else:
+            logger.debug(f"Populating tree with {len(self._recon_data)} payment methods")
             for pm, data in self._recon_data.items():
                 expected = data['expected']
                 actual = data['actual']
@@ -759,9 +732,11 @@ That's it!"""
                 self.recon_tree.insert('', tk.END, values=(pm, f"{self.currency_symbol}{expected:.2f}", f"{self.currency_symbol}{actual:.2f}", f"{self.currency_symbol}{variance:.2f}"))
 
         # Auto-size columns
+        logger.debug("Auto-sizing tree columns")
         try:
             self._autosize_tree_columns(self.recon_tree)
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Auto-size failed: {e}")
             pass
 
     def _create_item_row(self, item: ReconciliationItem) -> None:
@@ -847,29 +822,22 @@ That's it!"""
         self._update_summary()
 
     def _auto_match(self) -> None:
-        """Auto-match manual entries to system entries by name equality."""
-        self._mappings.clear()
-        for mid in self.manual_tree.get_children():
-            mvals = self.manual_tree.item(mid, 'values')
-            if not mvals:
-                continue
-            m_pm = mvals[0]
-            if m_pm in self.system_tree.get_children():
-                # if iid equal pm exists in system_tree
-                self._mappings[m_pm] = m_pm
-        messagebox.showinfo('Auto-match', f'Auto-mapped {len(self._mappings)} entries by name.')
+        """Auto-match manual entries to system entries by name equality.
+        
+        DEPRECATED: This method was for the old dual-tree layout.
+        Kept for reference only.
+        """
+        # This functionality is no longer used with the single-tree UI
+        messagebox.showinfo('Auto-match', 'This feature is not available in the current UI.')
 
     def _map_selected(self) -> None:
-        """Map the selected manual row to the selected system row."""
-        sel_sys = self.system_tree.selection()
-        sel_man = self.manual_tree.selection()
-        if not sel_sys or not sel_man:
-            messagebox.showwarning('Mapping', 'Select one system row and one manual row to map.')
-            return
-        sys_pm = self.system_tree.item(sel_sys[0], 'values')[0]
-        man_pm = self.manual_tree.item(sel_man[0], 'values')[0]
-        self._mappings[man_pm] = sys_pm
-        messagebox.showinfo('Mapped', f'{man_pm} -> {sys_pm}')
+        """Map the selected manual row to the selected system row.
+        
+        DEPRECATED: This method was for the old dual-tree layout.
+        Kept for reference only.
+        """
+        # This functionality is no longer used with the single-tree UI
+        messagebox.showinfo('Mapping', 'This feature is not available in the current UI.')
 
     def _clear_mappings(self) -> None:
         """Clear all mappings."""
@@ -877,49 +845,13 @@ That's it!"""
         messagebox.showinfo('Mappings', 'Cleared mappings.')
 
     def _reconcile_mapped(self) -> None:
-        """Apply manual actual amounts to mapped system payment methods and persist."""
-        if not self._mappings:
-            messagebox.showwarning('Reconcile', 'No mappings to reconcile.')
-            return
-
-        applied = 0
-        for man_pm, sys_pm in list(self._mappings.items()):
-            # get manual amount
-            man_iid = f"manual_{man_pm}"
-            if man_iid not in self.manual_tree.get_children() and man_pm not in [self.manual_tree.item(i,'values')[0] for i in self.manual_tree.get_children()]:
-                continue
-            # search for manual tree entry (support both iid and by value)
-            man_val = None
-            if man_iid in self.manual_tree.get_children():
-                man_val = self.manual_tree.item(man_iid, 'values')
-            else:
-                # fallback: find by pm
-                for iid in self.manual_tree.get_children():
-                    if self.manual_tree.item(iid, 'values')[0] == man_pm:
-                        man_val = self.manual_tree.item(iid, 'values')
-                        break
-            if not man_val:
-                continue
-            actual_str = man_val[1].replace(self.currency_symbol, '').replace(',', '').strip()
-            try:
-                actual_amount = float(actual_str)
-            except Exception:
-                continue
-
-            # If system payment exists, update it
-            if sys_pm in self.system_tree.get_children():
-                # Persist via service
-                reconciliation_service.update_item_actual_amount(self.current_session, sys_pm, actual_amount)
-                applied += 1
-            else:
-                # Create a new manual entry in session mapped to system name
-                reconciliation_service.add_manual_entry(self.current_session, sys_pm, 0.0, actual_amount)
-                applied += 1
-
-        # Refresh and report
-        self._refresh_display()
-        self._update_summary()
-        messagebox.showinfo('Reconciled', f'Applied {applied} mappings.')
+        """Apply manual actual amounts to mapped system payment methods and persist.
+        
+        DEPRECATED: This method was for the old dual-tree layout.
+        Kept for reference only.
+        """
+        # This functionality is no longer used with the single-tree UI
+        messagebox.showinfo('Reconciled', 'This feature is not available in the current UI.')
 
     def _update_item_display(self, payment_method: str) -> None:
         """Update the display for a specific item."""

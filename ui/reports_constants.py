@@ -216,6 +216,7 @@ REPORT_TYPES = {
     'inventory_stock_levels': 'Inventory Stock Levels',
     'inventory_low_stock': 'Low Stock Items',
     'inventory_value': 'Inventory Value',
+    'inventory_stock_movement': 'Stock Movement Analysis',
     'po_summary': 'Purchase Order Summary',
     'po_by_supplier': 'Spending by Supplier',
     'po_items_detail': 'PO Items Detail',

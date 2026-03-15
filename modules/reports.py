@@ -715,27 +715,158 @@ def get_detailed_sales_transactions(start_date: str, end_date: str, limit: int =
 
 
 def get_sales_by_payment_method(start_date: str, end_date: str) -> list[dict]:
-    """Get sales breakdown by payment method."""
-    with get_connection() as conn:
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            """
-            SELECT 
-                COALESCE(payment_method, 'Cash') as payment_method,
-                COUNT(*) as transaction_count,
-                SUM(total) as total_sales,
-                AVG(total) as avg_transaction,
-                MIN(total) as min_transaction,
-                MAX(total) as max_transaction
-            FROM sales
-            WHERE date BETWEEN ? AND ?
-            AND (voided IS NULL OR voided = 0)
-            GROUP BY payment_method
-            ORDER BY total_sales DESC
-            """,
-            (start_date, end_date)
-        ).fetchall()
-    return [_row_to_dict(r) for r in rows]
+    """Get sales breakdown by payment method, with split payments broken into their respective channels."""
+    try:
+        with get_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            
+            # Check if sale_payments table exists
+            table_check = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='sale_payments'"
+            ).fetchone()
+            
+            if not table_check:
+                # Table doesn't exist - fall back to simple grouping
+                rows = conn.execute(
+                    """
+                    SELECT 
+                        COALESCE(payment_method, 'Cash') as payment_method,
+                        COUNT(*) as transaction_count,
+                        SUM(total) as total_sales,
+                        AVG(total) as avg_transaction,
+                        MIN(total) as min_transaction,
+                        MAX(total) as max_transaction
+                    FROM sales
+                    WHERE date BETWEEN ? AND ?
+                    AND (voided IS NULL OR voided = 0)
+                    GROUP BY payment_method
+                    ORDER BY total_sales DESC
+                    """,
+                    (start_date, end_date)
+                ).fetchall()
+                return [_row_to_dict(r) for r in rows]
+            
+            # Query 1: Non-split sales grouped by payment method
+            non_split_rows = conn.execute(
+                """
+                SELECT 
+                    COALESCE(payment_method, 'Cash') as payment_method,
+                    COUNT(*) as transaction_count,
+                    SUM(total) as total_sales,
+                    AVG(total) as avg_transaction,
+                    MIN(total) as min_transaction,
+                    MAX(total) as max_transaction
+                FROM sales
+                WHERE date BETWEEN ? AND ?
+                AND (voided IS NULL OR voided = 0)
+                AND payment_method != 'Split'
+                GROUP BY payment_method
+                """,
+                (start_date, end_date)
+            ).fetchall()
+            
+            # Query 2: Split payments broken into their respective channels
+            split_rows = conn.execute(
+                """
+                SELECT 
+                    sp.payment_method,
+                    COUNT(DISTINCT s.sale_id) as transaction_count,
+                    SUM(sp.amount) as total_sales,
+                    AVG(sp.amount) as avg_transaction,
+                    MIN(sp.amount) as min_transaction,
+                    MAX(sp.amount) as max_transaction
+                FROM sale_payments sp
+                JOIN sales s ON sp.sale_id = s.sale_id
+                WHERE s.date BETWEEN ? AND ?
+                AND (s.voided IS NULL OR s.voided = 0)
+                GROUP BY sp.payment_method
+                """,
+                (start_date, end_date)
+            ).fetchall()
+            
+            # Combine results, summing amounts for the same payment method
+            combined = {}
+            
+            # Process non-split sales
+            for r in non_split_rows:
+                row_dict = _row_to_dict(r)
+                pm = row_dict['payment_method']
+                if pm not in combined:
+                    combined[pm] = {
+                        'payment_method': pm,
+                        'transaction_count': 0,
+                        'total_sales': 0.0,
+                        'avg_transaction': 0.0,
+                        'min_transaction': float('inf'),
+                        'max_transaction': 0.0,
+                        'sales_list': []
+                    }
+                combined[pm]['transaction_count'] += row_dict['transaction_count']
+                combined[pm]['total_sales'] += row_dict['total_sales']
+                combined[pm]['sales_list'].append(row_dict['total_sales'])
+                combined[pm]['min_transaction'] = min(combined[pm]['min_transaction'], row_dict['min_transaction'])
+                combined[pm]['max_transaction'] = max(combined[pm]['max_transaction'], row_dict['max_transaction'])
+            
+            # Process split payments
+            for r in split_rows:
+                row_dict = _row_to_dict(r)
+                pm = row_dict['payment_method']
+                if pm not in combined:
+                    combined[pm] = {
+                        'payment_method': pm,
+                        'transaction_count': 0,
+                        'total_sales': 0.0,
+                        'avg_transaction': 0.0,
+                        'min_transaction': float('inf'),
+                        'max_transaction': 0.0,
+                        'sales_list': []
+                    }
+                combined[pm]['transaction_count'] += row_dict['transaction_count']
+                combined[pm]['total_sales'] += row_dict['total_sales']
+                combined[pm]['sales_list'].append(row_dict['total_sales'])
+                if row_dict['min_transaction'] is not None:
+                    combined[pm]['min_transaction'] = min(combined[pm]['min_transaction'], row_dict['min_transaction'])
+                if row_dict['max_transaction'] is not None:
+                    combined[pm]['max_transaction'] = max(combined[pm]['max_transaction'], row_dict['max_transaction'])
+            
+            # Calculate averages and format results
+            result = []
+            for pm, data in sorted(combined.items()):
+                avg = data['total_sales'] / len(data['sales_list']) if data['sales_list'] else 0.0
+                min_val = data['min_transaction'] if data['min_transaction'] != float('inf') else 0.0
+                result.append({
+                    'payment_method': pm,
+                    'transaction_count': data['transaction_count'],
+                    'total_sales': data['total_sales'],
+                    'avg_transaction': avg,
+                    'min_transaction': min_val,
+                    'max_transaction': data['max_transaction']
+                })
+            
+            return sorted(result, key=lambda x: x['total_sales'], reverse=True)
+    except Exception as e:
+        logger.error(f"Error getting sales by payment method: {e}")
+        # Fall back to simple grouping
+        with get_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                """
+                SELECT 
+                    COALESCE(payment_method, 'Cash') as payment_method,
+                    COUNT(*) as transaction_count,
+                    SUM(total) as total_sales,
+                    AVG(total) as avg_transaction,
+                    MIN(total) as min_transaction,
+                    MAX(total) as max_transaction
+                FROM sales
+                WHERE date BETWEEN ? AND ?
+                AND (voided IS NULL OR voided = 0)
+                GROUP BY payment_method
+                ORDER BY total_sales DESC
+                """,
+                (start_date, end_date)
+            ).fetchall()
+        return [_row_to_dict(r) for r in rows]
 
 
 def get_sales_performance_trends(start_date: str, end_date: str, group_by: str = 'day') -> list[dict]:
@@ -1261,11 +1392,40 @@ def get_detailed_sales_transactions(start_date: str, end_date: str, limit: int =
 
 
 def get_sales_by_payment_method(start_date: str, end_date: str) -> list[dict]:
-    """Get sales breakdown by payment method."""
+    """Get sales breakdown by payment method, with split payments broken into their respective channels."""
     try:
         with get_connection() as conn:
             conn.row_factory = sqlite3.Row
-            rows = conn.execute(
+            
+            # Check if sale_payments table exists
+            table_check = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='sale_payments'"
+            ).fetchone()
+            
+            if not table_check:
+                # Table doesn't exist - fall back to simple grouping
+                rows = conn.execute(
+                    """
+                    SELECT 
+                        COALESCE(payment_method, 'Cash') as payment_method,
+                        COUNT(*) as transaction_count,
+                        SUM(total) as total_sales,
+                        AVG(total) as avg_transaction,
+                        MIN(total) as min_transaction,
+                        MAX(total) as max_transaction
+                    FROM sales
+                    WHERE date BETWEEN ? AND ?
+                    AND (voided IS NULL OR voided = 0)
+                    GROUP BY payment_method
+                    ORDER BY total_sales DESC
+                    """,
+                    (start_date, end_date)
+                ).fetchall()
+                return [_row_to_dict(r) for r in rows]
+            
+            # Table exists - get non-split and split sales separately
+            # Query 1: Non-split sales grouped by payment method
+            non_split_rows = conn.execute(
                 """
                 SELECT 
                     COALESCE(payment_method, 'Cash') as payment_method,
@@ -1275,24 +1435,123 @@ def get_sales_by_payment_method(start_date: str, end_date: str) -> list[dict]:
                     MIN(total) as min_transaction,
                     MAX(total) as max_transaction
                 FROM sales
-                WHERE date BETWEEN ? AND ? 
+                WHERE date BETWEEN ? AND ?
                 AND (voided IS NULL OR voided = 0)
+                AND COALESCE(payment_method, 'Cash') != 'Split'
                 GROUP BY payment_method
-                ORDER BY total_sales DESC
                 """,
                 (start_date, end_date)
             ).fetchall()
-        result = [_row_to_dict(r) for r in rows] if rows is not None else []
-        return result
+            
+            # Query 2: Split payments broken into their respective channels
+            split_rows = conn.execute(
+                """
+                SELECT 
+                    sp.payment_method,
+                    COUNT(DISTINCT s.sale_id) as transaction_count,
+                    SUM(sp.amount) as total_sales,
+                    AVG(sp.amount) as avg_transaction,
+                    MIN(sp.amount) as min_transaction,
+                    MAX(sp.amount) as max_transaction
+                FROM sale_payments sp
+                JOIN sales s ON sp.sale_id = s.sale_id
+                WHERE s.date BETWEEN ? AND ?
+                AND (s.voided IS NULL OR s.voided = 0)
+                GROUP BY sp.payment_method
+                """,
+                (start_date, end_date)
+            ).fetchall()
+            
+            # Combine results, summing amounts for the same payment method
+            combined = {}
+            
+            # Process non-split sales
+            for r in non_split_rows:
+                row_dict = _row_to_dict(r)
+                pm = row_dict['payment_method']
+                if pm not in combined:
+                    combined[pm] = {
+                        'payment_method': pm,
+                        'transaction_count': 0,
+                        'total_sales': 0.0,
+                        'avg_transaction': 0.0,
+                        'min_transaction': float('inf'),
+                        'max_transaction': 0.0,
+                        'sales_list': []
+                    }
+                combined[pm]['transaction_count'] += row_dict.get('transaction_count', 0)
+                combined[pm]['total_sales'] += row_dict.get('total_sales', 0.0)
+                if row_dict.get('total_sales'):
+                    combined[pm]['sales_list'].append(row_dict['total_sales'])
+                if row_dict.get('min_transaction'):
+                    combined[pm]['min_transaction'] = min(combined[pm]['min_transaction'], row_dict['min_transaction'])
+                if row_dict.get('max_transaction'):
+                    combined[pm]['max_transaction'] = max(combined[pm]['max_transaction'], row_dict['max_transaction'])
+            
+            # Process split payments
+            for r in split_rows:
+                row_dict = _row_to_dict(r)
+                pm = row_dict['payment_method']
+                if pm not in combined:
+                    combined[pm] = {
+                        'payment_method': pm,
+                        'transaction_count': 0,
+                        'total_sales': 0.0,
+                        'avg_transaction': 0.0,
+                        'min_transaction': float('inf'),
+                        'max_transaction': 0.0,
+                        'sales_list': []
+                    }
+                combined[pm]['transaction_count'] += row_dict.get('transaction_count', 0)
+                combined[pm]['total_sales'] += row_dict.get('total_sales', 0.0)
+                if row_dict.get('total_sales'):
+                    combined[pm]['sales_list'].append(row_dict['total_sales'])
+                if row_dict.get('min_transaction'):
+                    combined[pm]['min_transaction'] = min(combined[pm]['min_transaction'], row_dict['min_transaction'])
+                if row_dict.get('max_transaction'):
+                    combined[pm]['max_transaction'] = max(combined[pm]['max_transaction'], row_dict['max_transaction'])
+            
+            # Calculate averages and format results
+            result = []
+            for pm, data in sorted(combined.items()):
+                avg = data['total_sales'] / len(data['sales_list']) if data['sales_list'] else 0.0
+                min_val = data['min_transaction'] if data['min_transaction'] != float('inf') else 0.0
+                result.append({
+                    'payment_method': pm,
+                    'transaction_count': data['transaction_count'],
+                    'total_sales': data['total_sales'],
+                    'avg_transaction': avg,
+                    'min_transaction': min_val,
+                    'max_transaction': data['max_transaction']
+                })
+            
+            return sorted(result, key=lambda x: x['total_sales'], reverse=True)
     except Exception as e:
         logger.error(f"Failed to get sales by payment method: {e}")
-        return []
-
-def get_sales_performance_trends(start_date: str, end_date: str, group_by: str = 'day') -> list[dict]:
-    """Get sales performance trends over time."""
-    with get_connection() as conn:
-        conn.row_factory = sqlite3.Row
-        
+        # Fallback to simple query if anything goes wrong
+        try:
+            with get_connection() as conn:
+                conn.row_factory = sqlite3.Row
+                rows = conn.execute(
+                    """
+                    SELECT 
+                        COALESCE(payment_method, 'Cash') as payment_method,
+                        COUNT(*) as transaction_count,
+                        SUM(total) as total_sales,
+                        AVG(total) as avg_transaction,
+                        MIN(total) as min_transaction,
+                        MAX(total) as max_transaction
+                    FROM sales
+                    WHERE date BETWEEN ? AND ?
+                    AND (voided IS NULL OR voided = 0)
+                    GROUP BY payment_method
+                    ORDER BY total_sales DESC
+                    """,
+                    (start_date, end_date)
+                ).fetchall()
+            return [_row_to_dict(r) for r in rows]
+        except:
+            return []
         if group_by == 'day':
             date_format = '%Y-%m-%d'
             group_field = 'date'
@@ -1645,6 +1904,152 @@ def get_inventory_value(start_date: str, end_date: str) -> 'ReportData':
         'total_categories': len(data)
     }
     return ReportData('inventory_value', start_date, end_date, data, metadata)
+
+
+@report_generator('inventory_stock_movement')
+def get_inventory_stock_movement(start_date: str, end_date: str, item_id: int = None) -> 'ReportData':
+    from ui.reports_base import ReportData
+    """Return stock movement details for items within the specified date range.
+    
+    Shows how items are being sold, including:
+    - Sales transactions and quantities
+    - Current stock levels
+    - Movement velocity
+    - Stock turnover analysis
+    """
+    from database.init_db import get_connection
+    
+    # Build the WHERE clause for optional item filter
+    item_filter = ""
+    params = [start_date, end_date]
+    if item_id:
+        item_filter = "AND i.item_id = ?"
+        params.append(item_id)
+    
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        
+        # Get detailed stock movement data
+        query = f"""
+            SELECT 
+                i.item_id,
+                i.name,
+                i.category,
+                i.unit_of_measure as unit,
+                i.quantity as current_stock,
+                i.cost_price,
+                i.selling_price,
+                i.low_stock_threshold,
+                COALESCE(sales_data.total_sold, 0) as total_sold,
+                COALESCE(sales_data.sales_count, 0) as sales_transactions,
+                COALESCE(sales_data.total_revenue, 0) as total_revenue,
+                COALESCE(sales_data.avg_sale_qty, 0) as avg_sale_quantity,
+                sales_data.first_sale_date,
+                sales_data.last_sale_date
+            FROM items i
+            LEFT JOIN (
+                SELECT 
+                    si.item_id,
+                    SUM(si.quantity) as total_sold,
+                    COUNT(DISTINCT si.sale_id) as sales_count,
+                    SUM(si.quantity * si.price) as total_revenue,
+                    AVG(si.quantity) as avg_sale_qty,
+                    MIN(s.date) as first_sale_date,
+                    MAX(s.date) as last_sale_date
+                FROM sales_items si
+                JOIN sales s ON si.sale_id = s.sale_id
+                WHERE s.date BETWEEN ? AND ?
+                GROUP BY si.item_id
+            ) sales_data ON i.item_id = sales_data.item_id
+            WHERE (sales_data.item_id IS NOT NULL OR 1=1) {item_filter}
+            ORDER BY sales_data.total_sold DESC, i.name
+        """
+        
+        rows = conn.execute(query, params).fetchall()
+    
+    data = []
+    total_items = 0
+    total_sold = 0
+    total_revenue = 0
+    items_with_movement = 0
+    items_without_movement = 0
+    
+    for r in rows:
+        item = dict(r)
+        
+        # Calculate additional metrics
+        current_stock = item.get('current_stock') or 0
+        sold_qty = item.get('total_sold') or 0
+        
+        # Calculate stock turnover rate (sold / average stock)
+        # Estimate average stock as current + (sold/2) 
+        estimated_avg_stock = current_stock + (sold_qty / 2) if sold_qty > 0 else current_stock  
+        turnover_rate = sold_qty / estimated_avg_stock if estimated_avg_stock > 0 else 0
+        
+        # Calculate days between first and last sale
+        days_active = 0
+        velocity_per_day = 0
+        if item['first_sale_date'] and item['last_sale_date']:
+            try:
+                from datetime import datetime
+                first_date = datetime.strptime(item['first_sale_date'], '%Y-%m-%d')
+                last_date = datetime.strptime(item['last_sale_date'], '%Y-%m-%d')
+                days_active = (last_date - first_date).days + 1  # +1 to include both days
+                velocity_per_day = sold_qty / days_active if days_active > 0 else sold_qty
+            except:
+                days_active = 1
+                velocity_per_day = sold_qty
+        elif sold_qty > 0:
+            # If sold but no date range, assume 1 day
+            days_active = 1
+            velocity_per_day = sold_qty
+        
+        # Stock status
+        low_threshold = item.get('low_stock_threshold') or 0
+        is_low_stock = low_threshold > 0 and current_stock <= low_threshold
+        
+        # Add calculated fields
+        item.update({
+            'unit': item.get('unit') or 'pcs',
+            'category': item.get('category') or 'Uncategorized', 
+            'turnover_rate': round(turnover_rate, 2),
+            'days_active': days_active,
+            'velocity_per_day': round(velocity_per_day, 2),
+            'is_low_stock': is_low_stock,
+            'stock_status': 'Low Stock' if is_low_stock else ('No Movement' if sold_qty == 0 else 'Active')
+        })
+        
+        data.append(item)
+        total_items += 1
+        total_sold += sold_qty
+        total_revenue += item.get('total_revenue') or 0
+        
+        if sold_qty > 0:
+            items_with_movement += 1
+        else:
+            items_without_movement += 1
+    
+    # Calculate period length for metadata
+    period_days = 1
+    try:
+        from datetime import datetime
+        start_dt = datetime.strptime(start_date, '%Y-%m-%d')
+        end_dt = datetime.strptime(end_date, '%Y-%m-%d')
+        period_days = (end_dt - start_dt).days + 1
+    except:
+        period_days = 1
+    
+    metadata = {
+        'total_items': total_items,
+        'items_with_movement': items_with_movement,
+        'items_without_movement': items_without_movement,
+        'total_quantity_sold': total_sold,
+        'total_revenue': total_revenue,
+        'period_days': period_days,
+        'avg_daily_movement': round(total_sold / period_days, 2) if period_days > 0 else 0
+    }
+    
+    return ReportData('inventory_stock_movement', start_date, end_date, data, metadata)
 
 
 # reconciliation wrappers delegate to the UI generators; placing them here

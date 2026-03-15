@@ -81,7 +81,7 @@ from modules.stock_receiving import (
 from utils.security import get_username
 from utils.i18n import get_currency_symbol
 from utils import set_window_icon
-from utils.date_utils import format_date, get_date_format, parse_date_flexible
+from utils.date_utils import format_date, get_date_format, parse_date_flexible, get_tkcalendar_date_pattern
 from modules import permissions
 
 logger = logging.getLogger(__name__)
@@ -106,6 +106,7 @@ class StockReceivingFrame(ttk.Frame):
         self.currency = get_currency_symbol()
         self.selected_item_id = None
         self._item_list_visible = True  # Track item list visibility state
+        self._form_state = {}  # Store form data per item for persistence
         self._build_ui()
         self._load_items()
         
@@ -135,7 +136,7 @@ class StockReceivingFrame(ttk.Frame):
         
         ttk.Label(
             header_frame, 
-            text="📦 Stock Receiving", 
+            text="Stock Receiving", 
             font=("Segoe UI", 14, "bold")
         ).pack(side=tk.LEFT)
         
@@ -171,14 +172,14 @@ class StockReceivingFrame(ttk.Frame):
         search_frame = ttk.Frame(self.left_frame)
         search_frame.pack(fill=tk.X, pady=(0, 8))
         
-        ttk.Label(search_frame, text="🔍").pack(side=tk.LEFT)
+        ttk.Label(search_frame, text="Search:").pack(side=tk.LEFT)
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *a: self._filter_items())
         search_entry = ttk.Entry(search_frame, textvariable=self.search_var, width=30)
         search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
         
         # Clear search button
-        ttk.Button(search_frame, text="✕", width=3, 
+        ttk.Button(search_frame, text="X", width=3, 
                   command=lambda: self.search_var.set("")).pack(side=tk.LEFT)
         
         # Quick filters
@@ -270,7 +271,7 @@ class StockReceivingFrame(ttk.Frame):
     def _build_receive_tab(self):
         """Build the Receive Stock tab."""
         frame = ttk.Frame(self.notebook, padding=12)
-        self.notebook.add(frame, text="📥 Receive Stock")
+        self.notebook.add(frame, text="Receive Stock")
         
         # Item info display
         info_frame = ttk.LabelFrame(frame, text="Selected Item", padding=8)
@@ -299,7 +300,7 @@ class StockReceivingFrame(ttk.Frame):
         
         self.receive_btn = ttk.Button(
             top_btn_frame,
-            text="📥 Receive Stock (Ctrl+S)",
+            text="Receive Stock",
             command=self._receive_stock,
             style="Primary.TButton",
             state="disabled"  # disabled until an item is selected
@@ -307,7 +308,7 @@ class StockReceivingFrame(ttk.Frame):
         self.receive_btn.pack(side=tk.LEFT, padx=(0, 8))
         
         # Add helper text when button is disabled
-        self.receive_help_var = tk.StringVar(value="← Select an item first")
+        self.receive_help_var = tk.StringVar(value="<-- Select an item first")
         self.receive_help_label = ttk.Label(
             top_btn_frame,
             textvariable=self.receive_help_var,
@@ -317,34 +318,68 @@ class StockReceivingFrame(ttk.Frame):
         
         self.clear_form_btn = ttk.Button(
             top_btn_frame,
-            text="🔄 Clear Form",
+            text="Clear Form",
             command=self._clear_form
         )
         self.clear_form_btn.pack(side=tk.LEFT)
         
-        # "Receive More" quick action button (hidden until after first receipt)
-        self.receive_more_btn = ttk.Button(
+        # Helper text for Ctrl+S shortcut
+        ttk.Label(
             top_btn_frame,
-            text="➕ Receive More of Same",
-            command=self._receive_more_same,
-            style="Primary.TButton"
-        )
-        # Initially hidden - will show after successful receipt
-        self._last_received_item_id = None
+            text="• Ctrl+S to Save",
+            font=("Segoe UI", 9, "italic"),
+            foreground=_get_tc().get('info', '#0066cc')
+        ).pack(side=tk.LEFT, padx=(15, 0))
         
         # End top control buttons
         
-        # Receive form
-        form_frame = ttk.LabelFrame(frame, text="New Stock Details", padding=12)
-        form_frame.pack(fill=tk.X, pady=(0, 12))
+        # Create scrollable form container
+        form_container = ttk.Frame(frame)
+        form_container.pack(fill=tk.BOTH, expand=True, pady=(0, 12))
+        
+        # Create canvas with scrollbar
+        form_canvas = tk.Canvas(form_container, highlightthickness=0, bg="white")
+        form_scrollbar = ttk.Scrollbar(form_container, orient=tk.VERTICAL, command=form_canvas.yview)
+        scrollable_frame = ttk.Frame(form_canvas)
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: form_canvas.configure(scrollregion=form_canvas.bbox("all"))
+        )
+        
+        form_canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        form_canvas.configure(yscrollcommand=form_scrollbar.set)
+        
+        # Pack canvas and scrollbar
+        form_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        form_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Enable mouse wheel scrolling
+        def _on_mousewheel(event):
+            form_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        form_canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        
+        # Receive form - now inside scrollable container
+        form_frame = ttk.LabelFrame(scrollable_frame, text="New Stock Details", padding=12)
+        form_frame.pack(fill=tk.X, padx=4, pady=4)
         
         row = 0
         
-        # Quantity
+        # Quantity with unit of measure
         ttk.Label(form_frame, text="Quantity *:").grid(row=row, column=0, sticky=tk.W, pady=4)
+        
+        # Frame for quantity entry and unit label
+        quantity_frame = ttk.Frame(form_frame)
+        quantity_frame.grid(row=row, column=1, sticky=tk.W, pady=4)
+        
         self.quantity_var = tk.StringVar()
-        quantity_entry = ttk.Entry(form_frame, textvariable=self.quantity_var, width=15)
-        quantity_entry.grid(row=row, column=1, sticky=tk.W, pady=4)
+        quantity_entry = ttk.Entry(quantity_frame, textvariable=self.quantity_var, width=15)
+        quantity_entry.pack(side=tk.LEFT)
+        
+        # Unit label that will be updated when item is selected
+        self.unit_label_var = tk.StringVar(value="")
+        self.unit_label = ttk.Label(quantity_frame, textvariable=self.unit_label_var, font=("Segoe UI", 9))
+        self.unit_label.pack(side=tk.LEFT, padx=(8, 0))
         
         # Quantity validation label
         self.quantity_error_var = tk.StringVar()
@@ -385,6 +420,26 @@ class StockReceivingFrame(ttk.Frame):
                  foreground=_get_tc().get('info', '#0066cc')).grid(row=row, column=1, sticky=tk.W, pady=4)
         row += 1
         
+        # Selling Price (lot-specific) - REQUIRED
+        self.selling_price_label_var = tk.StringVar(value=f"Selling Price ({self.currency}) *:")
+        self.selling_price_label = ttk.Label(form_frame, textvariable=self.selling_price_label_var)
+        self.selling_price_label.grid(row=row, column=0, sticky=tk.W, pady=4)
+        self.selling_price_var = tk.StringVar()
+        self.selling_entry = ttk.Entry(form_frame, textvariable=self.selling_price_var, width=15)
+        self.selling_entry.grid(row=row, column=1, sticky=tk.W, pady=4)
+        
+        # Selling price validation label
+        self.selling_error_var = tk.StringVar()
+        self.selling_error_label = ttk.Label(
+            form_frame, 
+            textvariable=self.selling_error_var, 
+            foreground=_get_status_color('danger'), 
+            font=("Segoe UI", 8)
+        )
+        self.selling_error_label.grid(row=row, column=2, sticky=tk.W, padx=(10, 0))
+        self.selling_price_var.trace_add("write", lambda *a: self._validate_selling_price())
+        row += 1
+        
         # Supplier
         ttk.Label(form_frame, text="Supplier:").grid(row=row, column=0, sticky=tk.W, pady=4)
         self.supplier_var = tk.StringVar()
@@ -419,7 +474,8 @@ class StockReceivingFrame(ttk.Frame):
                 selectbackground=_accent,
                 selectforeground=_tw,
                 borderwidth=2,
-                date_pattern='yyyy-mm-dd'
+                date_pattern=get_tkcalendar_date_pattern(),
+                state='readonly'
             )
             self.purchase_date_entry.grid(row=row, column=1, sticky=tk.W, pady=4)
         else:
@@ -454,7 +510,8 @@ class StockReceivingFrame(ttk.Frame):
                 selectbackground=_accent,
                 selectforeground=_tw,
                 borderwidth=2,
-                date_pattern='yyyy-mm-dd'
+                date_pattern=get_tkcalendar_date_pattern(),
+                state='readonly'
             )
             self.expiry_date_entry.grid(row=row, column=1, sticky=tk.W, pady=4)
         else:
@@ -468,7 +525,7 @@ class StockReceivingFrame(ttk.Frame):
         # Add Notes button on same row as expiry date
         ttk.Button(
             form_frame, 
-            text="📝 Add Notes", 
+            text="Add Notes", 
             command=self._open_notes_dialog,
             width=15
         ).grid(row=row, column=2, sticky=tk.W, pady=4)
@@ -490,10 +547,10 @@ class StockReceivingFrame(ttk.Frame):
     def _build_lots_tab(self):
         """Build the Stock Lots tab."""
         frame = ttk.Frame(self.notebook, padding=12)
-        self.notebook.add(frame, text="📦 Stock Lots")
+        self.notebook.add(frame, text="Stock Lots")
         
         # Lots treeview
-        columns = ("lot_id", "date", "received", "remaining", "cost", "supplier", "expiry")
+        columns = ("lot_id", "date", "received", "remaining", "cost", "selling", "supplier", "expiry")
         self.lots_tree = ttk.Treeview(
             frame, 
             columns=columns, 
@@ -506,6 +563,7 @@ class StockReceivingFrame(ttk.Frame):
         self.lots_tree.heading("received", text="Received")
         self.lots_tree.heading("remaining", text="Remaining")
         self.lots_tree.heading("cost", text=f"Cost ({self.currency})")
+        self.lots_tree.heading("selling", text=f"Selling ({self.currency})")
         self.lots_tree.heading("supplier", text="Supplier")
         self.lots_tree.heading("expiry", text="Expiry")
         
@@ -514,26 +572,85 @@ class StockReceivingFrame(ttk.Frame):
         self.lots_tree.column("received", width=70, minwidth=60)
         self.lots_tree.column("remaining", width=70, minwidth=60)
         self.lots_tree.column("cost", width=80, minwidth=60)
+        self.lots_tree.column("selling", width=80, minwidth=60)
         self.lots_tree.column("supplier", width=120, minwidth=80)
         self.lots_tree.column("expiry", width=90, minwidth=70)
         
         scrollbar = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=self.lots_tree.yview)
         self.lots_tree.configure(yscrollcommand=scrollbar.set)
         
+        # Bind selection event to show lot details
+        self.lots_tree.bind("<<TreeviewSelect>>", self._on_lot_selected_in_table)
+        
         self.lots_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Lot details panel at bottom
+        self.details_frame = ttk.LabelFrame(frame, text="Selected Lot Details", padding=8)
+        self.details_frame.pack(fill=tk.X, pady=(8, 0))
+        
+        # Create a grid for lot details (for regular items)
+        ttk.Label(self.details_frame, text="Lot ID:", font=("Segoe UI", 9, "bold")).grid(row=0, column=0, sticky=tk.W, padx=5)
+        self.lot_detail_id_var = tk.StringVar(value="--")
+        ttk.Label(self.details_frame, textvariable=self.lot_detail_id_var).grid(row=0, column=1, sticky=tk.W, padx=5)
+        
+        ttk.Label(self.details_frame, text="Cost Price:", font=("Segoe UI", 9, "bold")).grid(row=0, column=2, sticky=tk.W, padx=5)
+        self.lot_detail_cost_var = tk.StringVar(value="--")
+        ttk.Label(self.details_frame, textvariable=self.lot_detail_cost_var).grid(row=0, column=3, sticky=tk.W, padx=5)
+        
+        ttk.Label(self.details_frame, text="Selling Price:", font=("Segoe UI", 9, "bold")).grid(row=0, column=4, sticky=tk.W, padx=5)
+        self.lot_detail_selling_var = tk.StringVar(value="--")
+        ttk.Label(self.details_frame, textvariable=self.lot_detail_selling_var).grid(row=0, column=5, sticky=tk.W, padx=5)
+        
+        ttk.Label(self.details_frame, text="Remaining Qty:", font=("Segoe UI", 9, "bold")).grid(row=1, column=0, sticky=tk.W, padx=5)
+        self.lot_detail_qty_var = tk.StringVar(value="--")
+        ttk.Label(self.details_frame, textvariable=self.lot_detail_qty_var).grid(row=1, column=1, sticky=tk.W, padx=5)
+        
+        ttk.Label(self.details_frame, text="Supplier:", font=("Segoe UI", 9, "bold")).grid(row=1, column=2, sticky=tk.W, padx=5)
+        self.lot_detail_supplier_var = tk.StringVar(value="--")
+        ttk.Label(self.details_frame, textvariable=self.lot_detail_supplier_var).grid(row=1, column=3, sticky=tk.W, padx=5)
+        
+        ttk.Label(self.details_frame, text="Expiry Date:", font=("Segoe UI", 9, "bold")).grid(row=1, column=4, sticky=tk.W, padx=5)
+        self.lot_detail_expiry_var = tk.StringVar(value="--")
+        ttk.Label(self.details_frame, textvariable=self.lot_detail_expiry_var).grid(row=1, column=5, sticky=tk.W, padx=5)
+        
+        # Portions breakdown table for special volume items (replaces regular details)
+        self.portions_detail_frame = ttk.LabelFrame(frame, text="Portion Details for Lot", padding=8)
+        self.portions_detail_frame.pack(fill=tk.BOTH, expand=True, pady=(8, 0))
+        self.portions_detail_frame.pack_forget()  # Hidden by default
+        
+        # Create treeview for portions details
+        columns = ("portion_name", "cost_price", "selling_price", "margin")
+        self.portions_detail_tree = ttk.Treeview(self.portions_detail_frame, columns=columns, show="headings", height=8)
+        
+        self.portions_detail_tree.heading("portion_name", text="Portion Name")
+        self.portions_detail_tree.heading("cost_price", text=f"Cost Price ({self.currency})")
+        self.portions_detail_tree.heading("selling_price", text=f"Selling Price ({self.currency})")
+        self.portions_detail_tree.heading("margin", text="Margin (%)")
+        
+        self.portions_detail_tree.column("portion_name", width=150, anchor=tk.W)
+        self.portions_detail_tree.column("cost_price", width=120, anchor=tk.E)
+        self.portions_detail_tree.column("selling_price", width=120, anchor=tk.E)
+        self.portions_detail_tree.column("margin", width=100, anchor=tk.E)
+        
+        # Scrollbars
+        v_scroll = ttk.Scrollbar(self.portions_detail_frame, orient=tk.VERTICAL, command=self.portions_detail_tree.yview)
+        self.portions_detail_tree.configure(yscroll=v_scroll.set)
+        
+        self.portions_detail_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        v_scroll.pack(side=tk.RIGHT, fill=tk.Y)
         
         # Summary at bottom
         summary_frame = ttk.Frame(frame)
         summary_frame.pack(fill=tk.X, pady=(8, 0))
         
         self.lots_summary_var = tk.StringVar(value="Select an item to view stock lots")
-        ttk.Label(summary_frame, textvariable=self.lots_summary_var).pack(side=tk.LEFT)
+        ttk.Label(summary_frame, textvariable=self.lots_summary_var, font=("Segoe UI", 9, "italic")).pack(side=tk.LEFT)
     
     def _build_purchases_tab(self):
         """Build the Recent Purchases tab."""
         frame = ttk.Frame(self.notebook, padding=12)
-        self.notebook.add(frame, text="📋 Recent Purchases")
+        self.notebook.add(frame, text="Recent Purchases")
         
         # Filter options
         filter_frame = ttk.Frame(frame)
@@ -594,7 +711,7 @@ class StockReceivingFrame(ttk.Frame):
     def _build_movements_tab(self):
         """Build the Stock Movements tab."""
         frame = ttk.Frame(self.notebook, padding=12)
-        self.notebook.add(frame, text="📊 Movements")
+        self.notebook.add(frame, text="Movements")
         
         # Filter
         filter_frame = ttk.Frame(frame)
@@ -655,18 +772,19 @@ class StockReceivingFrame(ttk.Frame):
     def _build_adjustments_tab(self):
         """Build the Stock Adjustments tab for recording spoilage, theft, damage, etc."""
         frame = ttk.Frame(self.notebook, padding=12)
-        self.notebook.add(frame, text="⚙️ Adjustments")
+        self.notebook.add(frame, text="Adjustments")
         
         # Adjustment reasons configuration
         self.adjustment_reasons = {
-            "Spoiled": {"icon": "🔴", "color": "#fd7e14", "desc": "Mold, rot, spoilage"},
-            "Damaged": {"icon": "💔", "color": "#dc3545", "desc": "Physical damage, breakage"},
-            "Expired": {"icon": "⏰", "color": "#6c757d", "desc": "Past expiration date"},
-            "Theft": {"icon": "🚨", "color": "#dc3545", "desc": "Missing/stolen items"},
-            "Quality Issue": {"icon": "⚠️", "color": "#fd7e14", "desc": "Quality problems detected"},
-            "Waste": {"icon": "♻️", "color": "#ffc107", "desc": "General waste/disposal"},
-            "Correction": {"icon": "✏️", "color": "#0dcaf0", "desc": "Inventory correction"},
-            "Breakage": {"icon": "💥", "color": "#dc3545", "desc": "Broken during handling"},
+            "Spoiled": {"icon": "", "color": "#fd7e14", "desc": "Mold, rot, spoilage", "add": False},
+            "Damaged": {"icon": "", "color": "#dc3545", "desc": "Physical damage, breakage", "add": False},
+            "Expired": {"icon": "", "color": "#6c757d", "desc": "Past expiration date", "add": False},
+            "Theft": {"icon": "", "color": "#dc3545", "desc": "Missing/stolen items", "add": False},
+            "Quality Issue": {"icon": "", "color": "#fd7e14", "desc": "Quality problems detected", "add": False},
+            "Waste": {"icon": "", "color": "#ffc107", "desc": "General waste/disposal", "add": False},
+            "Correction": {"icon": "", "color": "#0dcaf0", "desc": "Inventory correction (both add/remove)", "add": False},
+            "Breakage": {"icon": "", "color": "#dc3545", "desc": "Broken during handling", "add": False},
+            "Stock Addition": {"icon": "", "color": "#10b981", "desc": "Add back stock (e.g., under-received items)", "add": True},
         }
         
         # PanedWindow for resizable split between form and history
@@ -681,9 +799,7 @@ class StockReceivingFrame(ttk.Frame):
         right_frame = ttk.LabelFrame(paned, text="Adjustment History", padding=12)
         paned.add(right_frame, weight=2)
         
-        # ═══════════════════════════════════════════════════════════════════
         # LEFT PANEL - ADJUSTMENT FORM
-        # ═══════════════════════════════════════════════════════════════════
         
         row = 0
         
@@ -753,9 +869,29 @@ class StockReceivingFrame(ttk.Frame):
             row=row, column=0, sticky=tk.W, pady=8
         )
         self.adj_expiry_var = tk.StringVar()
-        ttk.Entry(left_frame, textvariable=self.adj_expiry_var, width=15).grid(
-            row=row, column=1, sticky=tk.W, pady=8
-        )
+        if HAS_TKCALENDAR:
+            _tc = _get_tc()
+            _accent = _tc.get('accent', _tc.get('primary', '#3b82f6'))
+            _tw = _tc.get('text_white', '#ffffff')
+            self.adj_expiry_entry = TopDateEntry(
+                left_frame, 
+                textvariable=self.adj_expiry_var,
+                width=12,
+                background=_accent,
+                foreground=_tw,
+                headersbackground=_accent,
+                headersforeground=_tw,
+                selectbackground=_accent,
+                selectforeground=_tw,
+                borderwidth=2,
+                date_pattern=get_tkcalendar_date_pattern(),
+                state='readonly'
+            )
+            self.adj_expiry_entry.grid(row=row, column=1, sticky=tk.W, pady=8)
+        else:
+            ttk.Entry(left_frame, textvariable=self.adj_expiry_var, width=15).grid(
+                row=row, column=1, sticky=tk.W, pady=8
+            )
         ttk.Label(left_frame, text="(optional)", font=("Segoe UI", 8)).grid(
             row=row, column=1, sticky=tk.E, pady=8
         )
@@ -775,20 +911,18 @@ class StockReceivingFrame(ttk.Frame):
         
         ttk.Button(
             btn_frame,
-            text="✅ Record Adjustment (Ctrl+S)",
+            text="Record Adjustment",
             command=self._record_adjustment,
             style="Primary.TButton"
         ).pack(side=tk.LEFT, padx=(0, 8))
         
         ttk.Button(
             btn_frame,
-            text="🔄 Clear",
+            text="Clear",
             command=self._clear_adjustment_form
         ).pack(side=tk.LEFT)
         
-        # ═══════════════════════════════════════════════════════════════════
         # RIGHT PANEL - ADJUSTMENT HISTORY
-        # ═══════════════════════════════════════════════════════════════════
         
         # Filter for history
         filter_frame = ttk.Frame(right_frame)
@@ -872,7 +1006,7 @@ class StockReceivingFrame(ttk.Frame):
         reason = self.adj_reason_var.get()
         if reason in self.adjustment_reasons:
             desc = self.adjustment_reasons[reason]["desc"]
-            self.adj_reason_desc_var.set(f"ℹ️  {desc}")
+            self.adj_reason_desc_var.set(f"- {desc}")
     
     def _refresh_adjustment_ui(self):
         """Refresh adjustment UI controls."""
@@ -918,7 +1052,7 @@ class StockReceivingFrame(ttk.Frame):
                     logger.error(f"Failed to update adjustment lots: {e}")
     
     def _record_adjustment(self):
-        """Record a stock adjustment."""
+        """Record a stock adjustment (removal or addition)."""
         current_user = get_username()
         if not permissions.has_permission(current_user, 'adjust_stock'):
             messagebox.showerror("Permission Denied",
@@ -945,18 +1079,22 @@ class StockReceivingFrame(ttk.Frame):
         quantity = int(qty_str)
         item_id = self._item_lookup.get(item_name)
         
-        # Check available stock
-        try:
-            item = items_module.get_item(item_id)
-            if not item or item.get("quantity", 0) < quantity:
-                messagebox.showerror(
-                    "Insufficient Stock",
-                    f"Not enough stock. Available: {item.get('quantity', 0)}"
-                )
+        # Determine if this is an addition or removal
+        is_addition = self.adjustment_reasons.get(reason, {}).get("add", False)
+        
+        # Check available stock (for removals only)
+        if not is_addition:
+            try:
+                item = items_module.get_item(item_id)
+                if not item or item.get("quantity", 0) < quantity:
+                    messagebox.showerror(
+                        "Insufficient Stock",
+                        f"Not enough stock. Available: {item.get('quantity', 0)}"
+                    )
+                    return
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to check stock: {e}")
                 return
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to check stock: {e}")
-            return
         
         # Build notes
         notes_text = self.adj_notes_text.get("1.0", tk.END).strip()
@@ -975,31 +1113,44 @@ class StockReceivingFrame(ttk.Frame):
         if lot_label and hasattr(self, '_lot_lookup'):
             lot_id = self._lot_lookup.get(lot_label)
         
+        # Build confirmation message
+        action_text = "Add" if is_addition else "Remove"
+        if is_addition:
+            confirm_msg = (
+                f"{action_text} {quantity} units of '{item_name}'\n"
+                f"Reason: {reason}\n\n"
+                f"This will increase inventory"
+            )
+        else:
+            confirm_msg = (
+                f"{action_text} {quantity} units of '{item_name}'\n"
+                f"Reason: {reason}\n\n"
+                f"This will reduce inventory"
+            )
+        
         # Confirm
-        if not messagebox.askyesno(
-            "Confirm Adjustment",
-            f"Remove {quantity} units of '{item_name}'\n"
-            f"Reason: {reason}\n\n"
-            f"This will reduce inventory?"
-        ):
+        if not messagebox.askyesno("Confirm Adjustment", confirm_msg):
             return
         
         # Record adjustment
         try:
+            # Positive for addition, negative for removal
+            quantity_change = quantity if is_addition else -quantity
+            
             movement = record_stock_adjustment(
                 item_id=item_id,
-                quantity_change=-quantity,  # Negative for removal
+                quantity_change=quantity_change,
                 reason=full_reason,
                 user_id=self.user_id,
                 lot_id=lot_id,
-                unit_cost=item.get("cost_price", 0)
+                unit_cost=items_module.get_item(item_id).get("cost_price", 0) if not is_addition else 0
             )
             
             messagebox.showinfo(
                 "Success",
                 f"Adjustment recorded successfully!\n\n"
                 f"Item: {item_name}\n"
-                f"Quantity Removed: {quantity}\n"
+                f"Quantity {action_text.lower()}ed: {quantity}\n"
                 f"Reason: {reason}"
             )
             
@@ -1244,19 +1395,112 @@ class StockReceivingFrame(ttk.Frame):
         if not selection:
             return
         
+        # Save form state for the previously selected item before switching
+        if self.selected_item_id:
+            self._form_state[self.selected_item_id] = {
+                'quantity': self.quantity_var.get(),
+                'cost_price': self.cost_price_var.get(),
+                'selling_price': self.selling_price_var.get(),
+                'supplier': self.supplier_var.get(),
+                'reference': self.reference_var.get(),
+                'expiry_date': self.expiry_date_var.get(),
+                'notes': self.notes_content if hasattr(self, 'notes_content') else "",
+                'notes_indicator': self.notes_indicator_var.get()
+            }
+        
         values = self.items_tree.item(selection[0])["values"]
         self.selected_item_id = values[0]
         item_name = values[1]
         
         # Update item info display
-        self.item_name_var.set(f"📦 {item_name}")
+        self.item_name_var.set(f"{item_name}")
+        
+        # Restore form state for this item if it was previously saved
+        if self.selected_item_id in self._form_state:
+            state = self._form_state[self.selected_item_id]
+            self.quantity_var.set(state['quantity'])
+            self.cost_price_var.set(state['cost_price'])
+            self.selling_price_var.set(state['selling_price'])
+            self.supplier_var.set(state['supplier'])
+            self.reference_var.set(state['reference'])
+            self.expiry_date_var.set(state['expiry_date'])
+            self.notes_content = state['notes']
+            self.notes_indicator_var.set(state['notes_indicator'])
+            try:
+                self._update_total_cost()  # Recalculate total cost with restored values
+            except Exception as e:
+                logger.debug(f"Could not recalculate total cost: {e}")
+                self.total_cost_var.set("--")
+        else:
+            # First time with this item, populate with item master prices
+            self.quantity_var.set("")
+            self.selling_error_var.set("")
+            self.supplier_var.set("")
+            self.reference_var.set("")
+            self.expiry_date_var.set("")
+            self.notes_content = ""
+            self.notes_indicator_var.set("")
+            self.total_cost_var.set("--")
+            
+            # Load master prices from database and populate fields
+            try:
+                from database.init_db import get_connection
+                with get_connection() as conn:
+                    item = conn.execute(
+                        "SELECT selling_price, cost_price, is_special_volume, unit_of_measure FROM items WHERE item_id = ?",
+                        (self.selected_item_id,)
+                    ).fetchone()
+                    
+                    if item:
+                        is_special_volume = item[2]  # is_special_volume
+                        unit_of_measure = item[3]  # unit_of_measure
+                        
+                        # Update unit label for measurable items
+                        if unit_of_measure and unit_of_measure.lower() != "pieces":
+                            self.unit_label_var.set(unit_of_measure)
+                        else:
+                            self.unit_label_var.set("")
+                        
+                        # For special volume items (sold in portions), selling price is optional
+                        # since portions handle their own pricing
+                        if is_special_volume:
+                            self.selling_price_var.set("")  # Clear selling price for portioned items
+                        elif item[0] and item[0] > 0:  # selling_price for regular items
+                            self.selling_price_var.set(f"{item[0]:.2f}")
+                        
+                        # Populate cost price from item master if available (as default for future receives)
+                        if item[1] and item[1] > 0:  # cost_price
+                            self.cost_price_var.set(f"{item[1]:.2f}")
+                            
+                        # Store whether this item is special volume for validation
+                        self._selected_item_is_special_volume = bool(is_special_volume)
+                        
+                        # Update selling price label and enable/disable field based on item type
+                        if self._selected_item_is_special_volume:
+                            self.selling_price_label_var.set(f"Selling Price ({self.currency}):")
+                            self.selling_entry.config(state="disabled")
+                            self.selling_price_var.set("")  # Clear any existing value
+                        else:
+                            self.selling_price_label_var.set(f"Selling Price ({self.currency}):")
+                            self.selling_entry.config(state="normal")
+            except Exception as e:
+                logger.debug(f"Could not load master prices for item {self.selected_item_id}: {e}")
+                self.selling_price_var.set("")
+                self._selected_item_is_special_volume = False
+                self.selling_price_label_var.set(f"Selling Price ({self.currency}):")
+                self.selling_entry.config(state="normal")
+                self.selling_entry.config(state="normal")
         
         # Enable receive button when an item is selected
         try:
-            self.receive_btn.config(state="normal")
-            self.receive_help_var.set("✓ Ready to receive stock")
-        except Exception:
-            pass
+            if self.receive_btn.winfo_exists():
+                self.receive_btn.config(state="normal")
+                self.receive_help_var.set("Ready to receive stock")
+                logger.debug(f"Receive button enabled for item {self.selected_item_id}")
+            else:
+                logger.warning("Receive button widget does not exist")
+        except Exception as e:
+            logger.error(f"Failed to enable receive button: {e}")
         
         # Get stock summary
         try:
@@ -1264,14 +1508,15 @@ class StockReceivingFrame(ttk.Frame):
             self.item_stock_var.set(f"Current Stock: {summary['total_quantity']}")
             self.item_avg_cost_var.set(f"Avg Cost: {self.currency} {summary['average_cost']:.2f}")
             
-            # Pre-fill cost price with last purchase price if available
-            if summary.get('lots') and len(summary['lots']) > 0:
-                last_cost = summary['lots'][-1]['cost_price']
-                self.cost_price_var.set(f"{last_cost:.2f}")
-                logger.debug(f"Pre-filled cost price: {last_cost:.2f} from last purchase")
-            else:
-                # No previous purchases, leave empty for manual entry
-                self.cost_price_var.set("")
+            # Pre-fill cost price with last purchase price if available (only if not already set)
+            if not self.cost_price_var.get():
+                if summary.get('lots') and len(summary['lots']) > 0:
+                    last_cost = summary['lots'][-1]['cost_price']
+                    self.cost_price_var.set(f"{last_cost:.2f}")
+                    logger.debug(f"Pre-filled cost price: {last_cost:.2f} from last purchase")
+                else:
+                    # No previous purchases, leave empty for manual entry
+                    self.cost_price_var.set("")
             
             # Load lots for this item
             self._load_item_lots()
@@ -1306,12 +1551,29 @@ class StockReceivingFrame(ttk.Frame):
                     except:
                         pass
                 
+                # For special volume items, show portion info for both cost and selling price
+                if self._selected_item_is_special_volume:
+                    from modules import portions
+                    item_portions = portions.list_portions(self.selected_item_id, active_only=True)
+                    if item_portions:
+                        selling_display = f"{len(item_portions)} portions"
+                        # Show average cost per portion or first portion cost
+                        avg_cost = sum(float(p.get('cost_price', 0)) for p in item_portions) / len(item_portions) if item_portions else 0
+                        cost_display = f"Avg: {avg_cost:.2f}"
+                    else:
+                        selling_display = "No portions"
+                        cost_display = "-"
+                else:
+                    selling_display = f"{lot.selling_price:.2f}" if lot.selling_price else "-"
+                    cost_display = f"{lot.cost_price:.2f}"
+                
                 self.lots_tree.insert("", tk.END, values=(
                     lot.lot_id,
                     format_date(lot.purchase_date) if lot.purchase_date else "-",
                     lot.quantity_received,
                     lot.quantity_remaining,
-                    f"{lot.cost_price:.2f}",
+                    cost_display,
+                    selling_display,
                     lot.supplier or "-",
                     format_date(lot.expiry_date) if lot.expiry_date else "-"
                 ), tags=tags)
@@ -1331,6 +1593,102 @@ class StockReceivingFrame(ttk.Frame):
         except Exception as e:
             logger.exception(f"Failed to load lots: {e}")
             self.lots_summary_var.set(f"Error loading lots: {e}")
+    
+    def _on_lot_selected_in_table(self, event):
+        """Handle lot selection in the stock lots table."""
+        selection = self.lots_tree.selection()
+        
+        if not selection:
+            # Clear the details panel
+            self.lot_detail_id_var.set("--")
+            self.lot_detail_cost_var.set("--")
+            self.lot_detail_selling_var.set("--")
+            self.lot_detail_qty_var.set("--")
+            self.lot_detail_supplier_var.set("--")
+            self.lot_detail_expiry_var.set("--")
+            # Hide portions frame
+            self.portions_detail_frame.pack_forget()
+            # Show regular details frame
+            self.details_frame.pack(fill=tk.X, pady=(8, 0))
+            return
+        
+        try:
+            # Get the selected row values
+            item_id = self.lots_tree.item(selection[0])["values"]
+            
+            if not item_id or not self.selected_item_id:
+                return
+            
+            # Fetch the full lot details from database
+            lots = get_stock_lots(self.selected_item_id, include_empty=False)
+            
+            # Find the selected lot by lot_id (first column is lot_id)
+            selected_lot_id = item_id[0]  # lot_id is first column
+            
+            selected_lot = None
+            for lot in lots:
+                if lot.lot_id == selected_lot_id:
+                    selected_lot = lot
+                    break
+            
+            if selected_lot:
+                # Update the details panel
+                self.lot_detail_id_var.set(str(selected_lot.lot_id))
+                
+                # For special volume items, show portion breakdown instead of simple pricing
+                if self._selected_item_is_special_volume:
+                    from modules import portions
+                    item_portions = portions.list_portions(self.selected_item_id, active_only=True)
+                    
+                    # Clear portions tree
+                    for item in self.portions_detail_tree.get_children():
+                        self.portions_detail_tree.delete(item)
+                    
+                    # Show portions details
+                    if item_portions:
+                        # Hide regular details frame
+                        self.details_frame.pack_forget()
+                        # Show portions details frame
+                        self.portions_detail_frame.pack(fill=tk.BOTH, expand=True, pady=(8, 0))
+                        
+                        for portion in item_portions:
+                            cost_price = float(portion.get('cost_price', 0))
+                            selling_price = float(portion.get('selling_price', 0))
+                            margin = ((selling_price - cost_price) / selling_price * 100) if selling_price > 0 else 0
+                            
+                            self.portions_detail_tree.insert("", tk.END, values=(
+                                portion['portion_name'],
+                                f"{self.currency} {cost_price:.2f}",
+                                f"{self.currency} {selling_price:.2f}",
+                                f"{margin:.1f}%" if selling_price > 0 else "N/A"
+                            ))
+                        
+                        # Show lot info but minimal pricing
+                        self.lot_detail_cost_var.set(f"Multiple portions - see breakdown below")
+                        self.lot_detail_selling_var.set("Multiple portions - see breakdown below")
+                    else:
+                        # Hide portions frame and show regular details
+                        self.portions_detail_frame.pack_forget()
+                        self.details_frame.pack(fill=tk.X, pady=(8, 0))
+                        self.lot_detail_cost_var.set("Portion-based (no portions set)")
+                        self.lot_detail_selling_var.set("Portion-based (no portions set)")
+                else:
+                    # Hide portions frame for regular items
+                    self.portions_detail_frame.pack_forget()
+                    # Show regular details frame
+                    self.details_frame.pack(fill=tk.X, pady=(8, 0))
+                    self.lot_detail_cost_var.set(f"{self.currency} {selected_lot.cost_price:.2f}")
+                    self.lot_detail_selling_var.set(f"{self.currency} {selected_lot.selling_price:.2f}" if selected_lot.selling_price else "--")
+                
+                self.lot_detail_qty_var.set(str(selected_lot.quantity_remaining))
+                self.lot_detail_supplier_var.set(selected_lot.supplier or "--")
+                self.lot_detail_expiry_var.set(format_date(selected_lot.expiry_date) if selected_lot.expiry_date else "--")
+                
+                logger.debug(f"Selected lot {selected_lot_id}: cost={selected_lot.cost_price}, selling={selected_lot.selling_price}")
+                
+        except Exception as e:
+            logger.exception(f"Failed to display lot details: {e}")
+            self.lot_detail_id_var.set("Error")
     
     def _load_recent_purchases(self):
         """Load recent purchases."""
@@ -1432,13 +1790,13 @@ class StockReceivingFrame(ttk.Frame):
         try:
             qty = int(value)
             if qty <= 0:
-                self.quantity_error_var.set("⚠ Must be > 0")
+                self.quantity_error_var.set("Must be > 0")
             elif qty > 100000:
-                self.quantity_error_var.set("⚠ Unusually high")
+                self.quantity_error_var.set("Unusually high")
             else:
-                self.quantity_error_var.set("✓")
+                self.quantity_error_var.set("")
         except ValueError:
-            self.quantity_error_var.set("⚠ Invalid number")
+            self.quantity_error_var.set("Invalid number")
         
         self._update_total_cost()
     
@@ -1453,17 +1811,43 @@ class StockReceivingFrame(ttk.Frame):
         try:
             cost = float(value)
             if cost < 0:
-                self.cost_error_var.set("⚠ Cannot be negative")
+                self.cost_error_var.set("Cannot be negative")
             elif cost == 0:
-                self.cost_error_var.set("⚠ Warning: Zero cost")
+                self.cost_error_var.set("Warning: Zero cost")
             elif cost > 1000000:
-                self.cost_error_var.set("⚠ Unusually high")
+                self.cost_error_var.set("Unusually high")
             else:
-                self.cost_error_var.set("✓")
+                self.cost_error_var.set("")
         except ValueError:
-            self.cost_error_var.set("⚠ Invalid number")
+            self.cost_error_var.set("Invalid number")
         
         self._update_total_cost()
+    
+    def _validate_selling_price(self):
+        """Validate selling price input in real-time."""
+        value = self.selling_price_var.get().strip()
+        
+        # Skip validation for special volume items (selling price not required)
+        if hasattr(self, '_selected_item_is_special_volume') and self._selected_item_is_special_volume:
+            self.selling_error_var.set("")
+            return
+        
+        if not value:
+            self.selling_error_var.set("Required")
+            return
+        
+        try:
+            price = float(value)
+            if price < 0:
+                self.selling_error_var.set("Cannot be negative")
+            elif price == 0:
+                self.selling_error_var.set("Cannot be zero")
+            elif price > 1000000:
+                self.selling_error_var.set("Unusually high")
+            else:
+                self.selling_error_var.set("")
+        except ValueError:
+            self.selling_error_var.set("Invalid number")
     
     def _update_total_cost(self):
         """Update total cost display."""
@@ -1478,8 +1862,95 @@ class StockReceivingFrame(ttk.Frame):
         except ValueError:
             self.total_cost_var.set("--")
     
+    def _save_form_information(self):
+        """Save the current form information without completing the stock receipt."""
+        if not self.selected_item_id:
+            messagebox.showwarning("Warning", "Please select an item first.")
+            return
+        
+        # Validate required fields
+        quantity_str = self.quantity_var.get().strip()
+        if not quantity_str:
+            messagebox.showerror("Error", "Quantity is required")
+            return
+        
+        try:
+            quantity = int(quantity_str)
+            if quantity <= 0:
+                raise ValueError("Quantity must be positive")
+        except ValueError as e:
+            messagebox.showerror("Error", f"Invalid quantity: {e}")
+            return
+        
+        cost_str = self.cost_price_var.get().strip()
+        if not cost_str:
+            messagebox.showerror("Error", "Cost price is required")
+            return
+        
+        try:
+            cost_price = float(cost_str)
+            if cost_price < 0:
+                raise ValueError("Cost price cannot be negative")
+        except ValueError as e:
+            messagebox.showerror("Error", f"Invalid cost price: {e}")
+            return
+        
+        # Validate selling price - only required for non-special volume items
+        selling_str = self.selling_price_var.get().strip()
+        if not self._selected_item_is_special_volume and not selling_str:
+            messagebox.showerror("Error", "Selling price is required")
+            return
+        
+        selling_price = None
+        if not self._selected_item_is_special_volume and selling_str:
+            try:
+                selling_price = float(selling_str)
+                if selling_price < 0:
+                    raise ValueError("Selling price cannot be negative")
+                if selling_price == 0:
+                    raise ValueError("Selling price cannot be zero")
+            except ValueError as e:
+                messagebox.showerror("Error", f"Invalid selling price: {e}")
+                return
+        
+        # Get optional fields
+        item_name = self.item_name_var.get()
+        supplier = self.supplier_var.get().strip() or "(Not specified)"
+        reference = self.reference_var.get().strip() or "(Not specified)"
+        
+        # Build summary message
+        if selling_price is not None:
+            selling_price_display = f"{self.currency} {selling_price:.2f}"
+        else:
+            selling_price_display = "Not set (portion pricing)"
+        
+        summary = f"""Information Saved:
+
+Item: {item_name}
+Quantity: {quantity}
+Cost Price: {self.currency} {cost_price:.2f}
+Selling Price: {selling_price_display}
+Supplier: {supplier}
+Reference: {reference}
+
+You can now:
+• Continue editing the form
+• Receive this stock by clicking 'Receive Stock'
+• Clear and start with another item"""
+        
+        messagebox.showinfo("Information Saved", summary)
+        
+        # Restore button state after messagebox closes
+        try:
+            if self.receive_btn.winfo_exists():
+                self.receive_btn.config(state="normal")
+        except Exception as e:
+            logger.error(f"Failed to restore button state after save: {e}")
+    
     def _receive_stock(self):
         """Receive stock for the selected item."""
+        logger.debug("Receive stock button clicked")
+        
         current_user = get_username()
         if not permissions.has_permission(current_user, 'receive_stock'):
             messagebox.showerror("Permission Denied",
@@ -1487,36 +1958,67 @@ class StockReceivingFrame(ttk.Frame):
             return
 
         if not self.selected_item_id:
+            logger.debug("No item selected")
             messagebox.showwarning("Warning", "Please select an item first.")
             try:
-                self.receive_btn.config(state="disabled")
-            except Exception:
-                pass
+                if self.receive_btn.winfo_exists():
+                    self.receive_btn.config(state="disabled")
+                    self.receive_help_var.set("<-- Select an item first")
+            except Exception as e:
+                logger.error(f"Failed to disable receive button: {e}")
             return
         
         # Validate inputs
+        quantity_str = self.quantity_var.get().strip()
+        if not quantity_str:
+            messagebox.showerror("Error", "Quantity is required")
+            return
+        
         try:
-            quantity = int(self.quantity_var.get())
+            quantity = int(quantity_str)
             if quantity <= 0:
                 raise ValueError("Quantity must be positive")
         except ValueError as e:
             messagebox.showerror("Error", f"Invalid quantity: {e}")
             return
         
+        cost_str = self.cost_price_var.get().strip()
+        if not cost_str:
+            messagebox.showerror("Error", "Cost price is required")
+            return
+        
         try:
-            cost_price = float(self.cost_price_var.get())
+            cost_price = float(cost_str)
             if cost_price < 0:
                 raise ValueError("Cost price cannot be negative")
         except ValueError as e:
             messagebox.showerror("Error", f"Invalid cost price: {e}")
             return
         
+        # Get selling price - only required for non-special volume items
+        selling_str = self.selling_price_var.get().strip()
+        if not self._selected_item_is_special_volume and not selling_str:
+            messagebox.showerror("Error", "Selling price is required")
+            return
+        
+        selling_price = None
+        if not self._selected_item_is_special_volume and selling_str:
+            try:
+                selling_price = float(selling_str)
+                if selling_price < 0:
+                    raise ValueError("Selling price cannot be negative")
+                if selling_price == 0:
+                    raise ValueError("Selling price cannot be zero")
+            except ValueError as e:
+                messagebox.showerror("Error", f"Invalid selling price: {e}")
+                return
+        
         # Get optional fields
-        supplier = self.supplier_var.get().strip() or None
-        reference = self.reference_var.get().strip() or None
-        purchase_date = self.purchase_date_var.get().strip() or None
-        expiry_date = self.expiry_date_var.get().strip() or None
-        notes = self.notes_content.strip() or None
+        supplier = self.supplier_var.get().strip() or "(Not specified)"
+        reference = self.reference_var.get().strip() or "(Not specified)"
+        purchase_date = self.purchase_date_var.get().strip()
+        expiry_date = self.expiry_date_var.get().strip()
+        notes = self.notes_content if hasattr(self, 'notes_content') else ""
         
         # Validate dates using flexible parser
         if purchase_date:
@@ -1540,12 +2042,15 @@ class StockReceivingFrame(ttk.Frame):
                 return
         
         # Confirm
-        item_name = self.item_name_var.get().replace("📦 ", "")
+        item_name = self.item_name_var.get()
+        unit = self.unit_label_var.get() or "units"
+        if selling_price is not None:
+            confirm_msg = f"Receive {quantity} {unit} of '{item_name}'\nat {self.currency} {cost_price:.2f} each?\n\nTotal Cost: {self.currency} {quantity * cost_price:.2f}\nSelling Price: {self.currency} {selling_price:.2f} per unit"
+        else:
+            confirm_msg = f"Receive {quantity} {unit} of '{item_name}'\nat {self.currency} {cost_price:.2f} each?\n\nTotal Cost: {self.currency} {quantity * cost_price:.2f}\nSelling Price: Not set (portion pricing)"
         if not messagebox.askyesno(
             "Confirm Stock Receipt",
-            f"Receive {quantity} units of '{item_name}'\n"
-            f"at {self.currency} {cost_price:.2f} each?\n\n"
-            f"Total: {self.currency} {quantity * cost_price:.2f}"
+            confirm_msg
         ):
             return
         
@@ -1560,25 +2065,20 @@ class StockReceivingFrame(ttk.Frame):
                 expiry_date=expiry_date,
                 notes=notes,
                 user_id=self.user_id,
-                purchase_date=purchase_date
+                purchase_date=purchase_date,
+                selling_price=selling_price
             )
             
-            messagebox.showinfo(
-                "Success",
-                f"Stock received successfully!\n\n"
-                f"Lot ID: {lot.lot_id}\n"
-                f"Quantity: {quantity}\n"
-                f"Cost: {self.currency} {cost_price:.2f}"
-            )
+            if selling_price is not None:
+                success_msg = f"Stock received successfully!\n\nLot ID: {lot.lot_id}\nQuantity: {quantity} {unit}\nCost: {self.currency} {cost_price:.2f}\nSelling Price: {self.currency} {selling_price:.2f}"
+            else:
+                success_msg = f"Stock received successfully!\n\nLot ID: {lot.lot_id}\nQuantity: {quantity} {unit}\nCost: {self.currency} {cost_price:.2f}\nSelling Price: Not set (portion pricing)"
             
-            # Store last received item for quick "Receive More" action
-            self._last_received_item_id = self.selected_item_id
+            messagebox.showinfo("Success", success_msg)
             
-            # Show "Receive More" button
-            try:
-                self.receive_more_btn.pack(side=tk.LEFT, padx=(8, 0))
-            except Exception:
-                pass
+            # Clear saved form state for this item since receipt is complete
+            if self.selected_item_id in self._form_state:
+                del self._form_state[self.selected_item_id]
             
             # Refresh displays but keep the selected item
             saved_item_id = self.selected_item_id
@@ -1604,11 +2104,18 @@ class StockReceivingFrame(ttk.Frame):
         self.quantity_var.set("")
         # Don't clear cost_price - it may be pre-filled from last purchase
         # self.cost_price_var.set("")
+        self.selling_price_var.set("")
+        self.selling_error_var.set("")
         self.supplier_var.set("")
         self.reference_var.set("")
         
         self.purchase_date_var.set(format_date(datetime.now()))
         self.expiry_date_var.set("")
+        
+        # Reset selling price field state
+        self.selling_price_label_var.set(f"Selling Price ({self.currency}):")
+        self.selling_entry.config(state="normal")
+        self._selected_item_is_special_volume = False
         
         # Clear notes content and indicator
         try:
@@ -1617,30 +2124,6 @@ class StockReceivingFrame(ttk.Frame):
         except Exception:
             pass
         self.total_cost_var.set("--")
-    
-    def _receive_more_same(self):
-        """Quick action to receive more stock of the last received item."""
-        if not self._last_received_item_id:
-            messagebox.showinfo("No Recent Receipt", "Receive stock once first to use this feature.")
-            return
-        
-        # Select the last received item
-        for item in self.items_tree.get_children():
-            if self.items_tree.item(item)["values"][0] == self._last_received_item_id:
-                self.items_tree.selection_set(item)
-                self.items_tree.see(item)
-                self._on_item_select(None)
-                # Focus on quantity field for quick entry
-                try:
-                    self.quantity_var.set("")
-                    # Find the quantity entry widget and focus it
-                    for child in self.winfo_children():
-                        if isinstance(child, ttk.Entry):
-                            child.focus_set()
-                            break
-                except Exception:
-                    pass
-                break
     
     def _refresh_all(self):
         """Refresh all displays."""
@@ -1776,7 +2259,7 @@ class StockReceivingFrame(ttk.Frame):
                     preview = lines[0] if lines else ""
                     if len(preview) > 30:
                         preview = preview[:27] + "..."
-                    self.notes_indicator_var.set(f"✓ {preview}")
+                    self.notes_indicator_var.set(f"{preview}")
                 else:
                     self.notes_indicator_var.set("")
                 
@@ -1883,9 +2366,9 @@ class StockReceivingFrame(ttk.Frame):
                         logger.debug("Item list shown for Receive Stock tab")
                     except Exception as e:
                         logger.error(f"Failed to show item list: {e}")
-                # Bind Ctrl+S to receive stock
-                self.bind_all("<Control-s>", lambda e: self._receive_stock())
-                self.bind_all("<Control-S>", lambda e: self._receive_stock())
+                # Bind Ctrl+S to save information
+                self.bind_all("<Control-s>", lambda e: self._save_form_information())
+                self.bind_all("<Control-S>", lambda e: self._save_form_information())
             elif selected == TabIndex.LOTS:
                 # Show item list for Stock Lots tab so user can select items
                 if not self._item_list_visible:

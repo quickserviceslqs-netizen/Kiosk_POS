@@ -16,8 +16,9 @@ import logging
 from modules import items
 from modules import vat_rates
 from modules import units_of_measure as uom
-from utils.images import validate_image_path, load_thumbnail
+from utils.quantity_display import format_item_quantity_display
 from utils.csv_io import export_inventory_csv, import_inventory_csv
+from utils.inventory_notifications import subscribe_to_inventory_changes, unsubscribe_from_inventory_changes
 
 
 def _get_tc():
@@ -96,6 +97,10 @@ class InventoryFrame(ttk.Frame):
         self.stock_var = tk.StringVar(value="All")
         self.loading_var = tk.StringVar()
         self._build_ui()
+        
+        # Subscribe to inventory change notifications
+        subscribe_to_inventory_changes(self._on_inventory_changed)
+        self.bind("<Destroy>", lambda _e: unsubscribe_from_inventory_changes(self._on_inventory_changed))
 
     def _build_ui(self) -> None:
         # Action.TButton and Primary.TButton styles are configured in theme.py
@@ -611,34 +616,14 @@ class InventoryFrame(ttk.Frame):
                 cost_per_unit = row["cost_price"]
                 price_per_unit = row["selling_price"]
             
-            # For fractional sales items, show available volume/weight/length instead of just container count
-            qty_display = row["quantity"]
-            if row.get("is_special_volume"):
-                unit_size = float(row.get("unit_size_ml") or 1)
-                # total in small units (e.g., ml, g, cm)
-                try:
-                    total_small = row["quantity"] * unit_size * conv_factor
-                except Exception:
-                    total_small = row["quantity"] * unit_size
-                # Choose small unit abbreviation
-                if "mill" in base_unit:
-                    small_abbr = "ml"
-                elif "gram" in base_unit:
-                    small_abbr = "g"
-                elif "cent" in base_unit:
-                    small_abbr = "cm"
-                else:
-                    small_abbr = base_unit or "units"
-
-                # If we know a large unit abbreviation (abbr), show large unit when appropriate
-                if abbr:
-                    if total_small >= conv_factor:
-                        qty_display = f"{total_small/conv_factor:.1f} {abbr}"
-                    else:
-                        qty_display = f"{int(total_small)} {small_abbr}"
-                else:
-                    # Fallback: show package count
-                    qty_display = f"{row['quantity']}"
+            # Use shared quantity display utility for consistency
+            qty_display = format_item_quantity_display(
+                quantity=row["quantity"],
+                is_special_volume=bool(row.get("is_special_volume")),
+                unit_of_measure=unit,
+                unit_size_ml=float(row.get("unit_size_ml") or 1),
+                has_variants=False  # Inventory shows individual items, not aggregated variants
+            )
             
             tree.insert(
                 "",
@@ -943,33 +928,14 @@ class InventoryFrame(ttk.Frame):
                 price_per_unit = row["selling_price"]
             
             # For fractional sales items, show available volume/weight/length instead of just container count
-            qty_display = row["quantity"]
-            if row.get("is_special_volume"):
-                unit_size = float(row.get("unit_size_ml") or 1)
-                # total in small units (e.g., ml, g, cm)
-                try:
-                    total_small = row["quantity"] * unit_size * conv_factor
-                except Exception:
-                    total_small = row["quantity"] * unit_size
-                # Choose small unit abbreviation
-                if "mill" in base_unit:
-                    small_abbr = "ml"
-                elif "gram" in base_unit:
-                    small_abbr = "g"
-                elif "cent" in base_unit:
-                    small_abbr = "cm"
-                else:
-                    small_abbr = base_unit or "units"
-                
-                # If we know a large unit abbreviation (abbr), show large unit when appropriate
-                if abbr:
-                    if total_small >= conv_factor:
-                        qty_display = f"{total_small/conv_factor:.1f} {abbr}"
-                    else:
-                        qty_display = f"{int(total_small)} {small_abbr}"
-                else:
-                    # Fallback: show package count
-                    qty_display = f"{row['quantity']}"
+            # Use shared quantity display utility for consistency
+            qty_display = format_item_quantity_display(
+                quantity=row["quantity"],
+                is_special_volume=bool(row.get("is_special_volume")),
+                unit_of_measure=unit,
+                unit_size_ml=float(row.get("unit_size_ml") or 1),
+                has_variants=False
+            )
             
             tree.insert(
                 "",
@@ -1015,6 +981,27 @@ class InventoryFrame(ttk.Frame):
         if hasattr(self, 'preview_label') and self.preview_label:
             self._update_preview()
         self._update_low_stock_label()
+
+    def _on_inventory_changed(self, change_type: str, item_id: int, quantity_change: float, **kwargs):
+        """Handle inventory change notifications."""
+        try:
+            if not getattr(self, 'winfo_exists', lambda: True)() or not self.winfo_exists():
+                from utils.inventory_notifications import unsubscribe_from_inventory_changes
+                unsubscribe_from_inventory_changes(self._on_inventory_changed)
+                return
+            
+            print(f"🔄 Inventory: {change_type} for item {item_id}, qty change: {quantity_change}")
+            
+            # Refresh the inventory display
+            self.refresh()
+            
+        except tk.TclError:
+            # Widget destroyed
+            try:
+                from utils.inventory_notifications import unsubscribe_from_inventory_changes
+                unsubscribe_from_inventory_changes(self._on_inventory_changed)
+            except Exception:
+                pass
 
     def _check_admin(self, permission_key: str = 'edit_inventory') -> bool:
         """Check if current user has the required inventory permission."""

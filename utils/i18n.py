@@ -243,19 +243,83 @@ def get_currency_code() -> str:
 
 def get_default_currency_symbol_for_code(code: str) -> str:
     """Get the default currency symbol for a given currency code."""
-    # Fast lookup table — covers the currencies offered in the setup wizard
+    # Comprehensive currency symbol mapping covering major world currencies
     _SYMBOL_MAP: dict = {
-        'USD': '$',   'CAD': 'CA$', 'AUD': 'A$',  'NZD': 'NZ$',
-        'EUR': '\u20ac',  # €
-        'GBP': '\u00a3',  # £
-        'JPY': '\u00a5',  # ¥
-        'CNY': '\u00a5',  # ¥
-        'KES': 'KSh', 'ZAR': 'R',   'NGN': '\u20a6',  # ₦
-        'GHS': 'GH\u20b5',  # GH₵
-        'INR': '\u20b9',  # ₹
-        'BRL': 'R$',  'MXN': 'MX$', 'SGD': 'S$',  'HKD': 'HK$',
-        'CHF': 'Fr',  'SEK': 'kr',  'NOK': 'kr',  'DKK': 'kr',
-        'AED': 'AED', 'SAR': '\u0631.\u0633',
+        # Major World Currencies
+        'USD': '$',     'EUR': '€',     'GBP': '£',     'JPY': '¥',
+        'CNY': '¥',     'INR': '₹',     'KRW': '₩',     'RUB': '₽',
+        
+        # Dollar Family
+        'CAD': 'C$',    'AUD': 'A$',    'NZD': 'NZ$',   'HKD': 'HK$',
+        'SGD': 'S$',    'TWD': 'NT$',   'BRL': 'R$',    'MXN': 'MX$',
+        
+        # European Currencies  
+        'CHF': 'CHF',   'SEK': 'kr',    'NOK': 'kr',    'DKK': 'kr',
+        'PLN': 'zł',    'CZK': 'Kč',    'HUF': 'Ft',    'RON': 'lei',
+        'BGN': 'лв',    'HRK': 'kn',    'ISK': 'kr',    'TRY': '₺',
+        
+        # Asian Currencies
+        'THB': '฿',     'PHP': '₱',     'MYR': 'RM',    'IDR': 'Rp',
+        'VND': '₫',     'KHR': '៛',     'LAK': '₭',     'MMK': 'K',
+        'BDT': '৳',     'PKR': '₨',     'LKR': '₨',     'NPR': '₨',
+        'AFN': '؋',     'IRR': '﷼',     'ILS': '₪',     'JOD': 'JD',
+        'KWD': 'KD',    'BHD': 'BD',    'QAR': 'QR',    'AED': 'AED',
+        'SAR': 'SR',    'OMR': 'RO',    'YER': 'YER',   'LBP': 'LBP',
+        'SYP': 'SYP',   'IQD': 'IQD',   
+        
+        # African Currencies
+        'ZAR': 'R',     'NGN': '₦',     'GHS': 'GH₵',   'KES': 'KSh',
+        'TZS': 'TSh',   'UGX': 'USh',   'RWF': 'FRw',   'ETB': 'Br',
+        'EGP': '£',     'MAD': 'DH',    'TND': 'DT',    'DZD': 'DA',
+        'LYD': 'LD',    'SDG': 'SDG',   'SOS': 'S',     'DJF': 'Fdj',
+        'ERN': 'Nfk',   'MWK': 'MK',    'ZMW': 'ZK',    'BWP': 'P',
+        'SZL': 'L',     'LSL': 'L',     'NAD': 'N$',    'AOA': 'Kz',
+        'MZN': 'MT',    'MGA': 'Ar',    'KMF': 'CF',    'SCR': '₨',
+        'MUR': '₨',     'MVR': 'Rf',    
+        
+        # Central & South American Currencies
+        'ARS': 'AR$',   'CLP': 'CL$',   'COP': 'CO$',   'PEN': 'S/',
+        'UYU': '$U',    'PYG': '₲',     'BOB': 'Bs',    'VES': 'Bs',
+        'GYD': 'G$',    'SRD': 'SR$',   'TTD': 'TT$',   
+        
+        # Central American & Caribbean
+        'MXP': '$',     'GTQ': 'Q',     'BZD': 'BZ$',   'HNL': 'L',
+        'NIO': 'C$',    'CRC': '₡',     'PAB': 'B/.',   'JMD': 'J$',
+        'HTG': 'G',     'DOP': 'RD$',   'CUP': '₱',     'BSD': 'B$',
+        'BBD': 'Bds$',  'XCD': 'EC$',   
+        
+        # Pacific & Other Regions  
+        'FJD': 'FJ$',   'TOP': 'T$',    'WST': 'WS$',   'VUV': 'VT',
+        'PGK': 'K',     'SBD': 'SI$',   'NCL': 'F',     'XPF': 'F',
+        
+        # Uncommon but Valid Currencies
+        'ALL': 'L',     'AMD': '֏',     'AZN': '₼',     'BAM': 'KM',
+        'BYN': 'Br',    'GEL': '₾',     'KGS': 'с',     'KZT': '₸',
+        'MDL': 'L',     'MKD': 'ден',   'RSD': 'дин',   'TJS': 'SM',
+        'TMT': 'T',     'UAH': '₴',     'UZS': 'soʻm',  
+        
+        # Additional Coverage
+        'AWG': 'ƒ',     'ANG': 'ƒ',     'BMD': 'BD$',   'KYD': 'CI$',
+        'XOF': 'CFA',   'XAF': 'FCFA',  'XPF': 'CFP',   'BTN': 'Nu',
+        'BND': 'B$',    'MOP': 'MOP$',  'LRD': 'L$',    'SLE': 'Le',
+        
+        # Previously Missing Currencies - Wave 2
+        'ARS': 'AR$',   'BIF': 'FBu',   'BOV': 'BOV',   'CDF': 'FC',
+        'CHE': 'CHE',   'CHW': 'CHW',   'CLF': 'CLF',   'COP': 'CO$',
+        'COU': 'COU',   'CUC': 'CUC$',  'CVE': 'CVE',   'FKP': '£',
+        'GIP': '£',     'GMD': 'D',     'GNF': 'FG',    'KPW': '₩',
+        'MNT': '₮',     'MRU': 'UM',    'MXV': 'MXV',   'SHP': '£',
+        'SLL': 'Le',    'SSP': '£',     'STN': 'Db',    'SVC': '₡',
+        'USN': 'US$',   'UYI': 'UYI',   'UYW': 'UYW',   'VED': 'Bs',
+        'ZWL': 'Z$',
+        
+        # Special Drawing Rights & Commodities  
+        'XDR': 'XDR',   'XAG': 'XAG',   'XAU': 'XAU',   'XPD': 'XPD',
+        'XPT': 'XPT',   'XSU': 'XSU',   'XUA': 'XUA',
+        
+        # Bond & Testing Units
+        'XBA': 'XBA',   'XBB': 'XBB',   'XBC': 'XBC',   'XBD': 'XBD',
+        'XTS': 'XTS',   'XXX': 'XXX',
     }
     upper = code.strip().upper()
     if upper in _SYMBOL_MAP:

@@ -15,6 +15,7 @@ from modules.inventory_costing import (
     create_stock_lot, StockLot, get_stock_lots, 
     MovementType, migrate_existing_inventory_to_lots
 )
+from utils.inventory_notifications import notify_inventory_changed
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,8 @@ def receive_stock(
     notes: Optional[str] = None,
     user_id: Optional[int] = None,
     variant_id: Optional[int] = None,
-    purchase_date: Optional[str] = None
+    purchase_date: Optional[str] = None,
+    selling_price: Optional[float] = None
 ) -> StockLot:
     """Receive stock for an item, creating a new stock lot.
     
@@ -71,6 +73,7 @@ def receive_stock(
         user_id: User receiving the stock
         variant_id: Optional variant ID if receiving for a specific variant
         purchase_date: Purchase date (defaults to today)
+        selling_price: Optional lot-specific selling price
         
     Returns:
         Created StockLot object
@@ -115,7 +118,39 @@ def receive_stock(
         reference_number=reference_number,
         expiry_date=expiry_date,
         notes=notes,
-        user_id=user_id
+        user_id=user_id,
+        selling_price=selling_price
+    )
+    
+    # Update item master prices if provided (bidirectional sync)
+    # When receiving stock with explicit pricing, update the item master data
+    if selling_price or cost_price:
+        with get_connection() as conn:
+            update_fields = []
+            update_values = []
+            
+            if selling_price and selling_price > 0:
+                update_fields.append("selling_price = ?")
+                update_values.append(selling_price)
+            
+            if cost_price > 0:
+                update_fields.append("cost_price = ?")
+                update_values.append(cost_price)
+            
+            if update_fields:
+                update_values.append(item_id)
+                update_sql = f"UPDATE items SET {', '.join(update_fields)} WHERE item_id = ?"
+                conn.execute(update_sql, update_values)
+                conn.commit()
+                logger.debug(f"Updated item {item_id} master prices from stock receiving")
+    
+    # Notify subscribers of inventory change
+    notify_inventory_changed(
+        change_type="received",
+        item_id=item_id,
+        quantity_change=quantity,
+        variant_id=variant_id,
+        lot_id=lot.lot_id
     )
     
     logger.info(
@@ -143,6 +178,7 @@ def receive_stock_batch(
             - variant_id (optional)
             - expiry_date (optional)
             - notes (optional)
+            - selling_price (optional)
         supplier: Supplier for all items
         reference_number: Reference number for the batch
         user_id: User receiving the stock
@@ -165,7 +201,8 @@ def receive_stock_batch(
                 notes=item.get("notes"),
                 user_id=user_id,
                 variant_id=item.get("variant_id"),
-                purchase_date=purchase_date
+                purchase_date=purchase_date,
+                selling_price=item.get("selling_price")
             )
             lots.append(lot)
         except Exception as e:

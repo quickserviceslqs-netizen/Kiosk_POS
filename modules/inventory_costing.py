@@ -51,6 +51,7 @@ class StockLot:
     quantity_received: int = 0
     quantity_remaining: int = 0
     cost_price: float = 0.0
+    selling_price: Optional[float] = None  # Lot-specific selling price
     supplier: Optional[str] = None
     reference_number: Optional[str] = None
     expiry_date: Optional[str] = None
@@ -131,7 +132,8 @@ def create_stock_lot(
     reference_number: Optional[str] = None,
     expiry_date: Optional[str] = None,
     notes: Optional[str] = None,
-    user_id: Optional[int] = None
+    user_id: Optional[int] = None,
+    selling_price: Optional[float] = None
 ) -> StockLot:
     """Create a new stock lot and record the purchase movement.
     
@@ -146,6 +148,7 @@ def create_stock_lot(
         expiry_date: Expiry date for perishables
         notes: Additional notes
         user_id: ID of user creating the lot
+        selling_price: Optional lot-specific selling price
         
     Returns:
         Created StockLot object
@@ -161,11 +164,11 @@ def create_stock_lot(
                 """
                 INSERT INTO stock_lots 
                 (item_id, variant_id, purchase_date, quantity_received, quantity_remaining,
-                 cost_price, supplier, reference_number, expiry_date, notes, created_by)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 cost_price, selling_price, supplier, reference_number, expiry_date, notes, created_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (item_id, variant_id, purchase_date, quantity, quantity, 
-                 cost_price, supplier, reference_number, expiry_date, notes, user_id)
+                 cost_price, selling_price, supplier, reference_number, expiry_date, notes, user_id)
             )
             lot_id = cursor.lastrowid
             
@@ -207,6 +210,7 @@ def create_stock_lot(
                 quantity_received=quantity,
                 quantity_remaining=quantity,
                 cost_price=cost_price,
+                selling_price=selling_price,
                 supplier=supplier,
                 reference_number=reference_number,
                 expiry_date=expiry_date,
@@ -264,6 +268,7 @@ def get_stock_lots(
                 quantity_received=row["quantity_received"],
                 quantity_remaining=row["quantity_remaining"],
                 cost_price=row["cost_price"],
+                selling_price=row["selling_price"],
                 supplier=row["supplier"],
                 reference_number=row["reference_number"],
                 expiry_date=row["expiry_date"],
@@ -302,6 +307,75 @@ def get_lot_by_id(lot_id: int) -> Optional[StockLot]:
             created_by=row["created_by"],
             created_at=row["created_at"]
         )
+
+
+def get_effective_selling_price(
+    item_id: int,
+    variant_id: Optional[int] = None
+) -> Tuple[float, float]:
+    """Get the effective selling price for an item based on stock lots and costing method.
+    
+    The selling price is determined by:
+    - Preferred Lot: If an item has a preferred lot set, always use that lot's selling price
+    - FIFO: Uses the oldest lot's selling price (first lot to be sold)
+    - LIFO: Uses the newest lot's selling price (last lot received)
+    - WAC: Calculates weighted average selling price across all lots
+    
+    Args:
+        item_id: Item ID to get selling price for
+        variant_id: Optional variant ID
+        
+    Returns:
+        Tuple of (effective_price, min_price, max_price) where:
+        - effective_price: Price to use for sales
+        - min_price: Minimum price across all lots
+        - max_price: Maximum price across all lots
+    """
+    # Get all available stock lots for this item
+    lots = get_stock_lots(item_id, variant_id=variant_id, include_empty=False)
+    
+    if not lots:
+        # No stock lots, return 0
+        return (0.0, 0.0, 0.0)
+    
+    # Check if there's a preferred lot set for this item
+    preferred_lot_id = get_preferred_lot(item_id)
+    
+    if preferred_lot_id:
+        # Use preferred lot if it exists and has a selling price
+        for lot in lots:
+            if lot.lot_id == preferred_lot_id:
+                effective_price = lot.selling_price or 0.0
+                logger.debug(f"Using preferred lot {preferred_lot_id} with selling price {effective_price}")
+                break
+        else:
+            # Preferred lot not found, fall through to costing method
+            effective_price = None
+    else:
+        effective_price = None
+    
+    # If no preferred lot, use costing method
+    if effective_price is None:
+        method = get_costing_method()
+        
+        if method == CostingMethod.FIFO:
+            # FIFO: Use the oldest (first) lot's selling price
+            effective_price = lots[0].selling_price or 0.0
+        elif method == CostingMethod.LIFO:
+            # LIFO: Use the newest (last) lot's selling price
+            effective_price = lots[-1].selling_price or 0.0
+        else:  # WAC (Weighted Average Cost)
+            # Calculate weighted average selling price
+            total_cost = sum(lot.quantity_remaining * (lot.selling_price or 0.0) for lot in lots)
+            total_quantity = sum(lot.quantity_remaining for lot in lots)
+            effective_price = total_cost / total_quantity if total_quantity > 0 else 0.0
+    
+    # Get min and max prices across all lots
+    prices = [lot.selling_price for lot in lots if lot.selling_price]
+    min_price = min(prices) if prices else 0.0
+    max_price = max(prices) if prices else 0.0
+    
+    return (effective_price, min_price, max_price)
 
 
 # =============================================================================
@@ -1111,3 +1185,77 @@ def get_item_cost_price(item_id: int, variant_id: Optional[int] = None) -> float
         ).fetchone()
         
         return result["cost_price"] if result else 0.0
+
+
+def set_item_preferred_lot(item_id: int, lot_id: int) -> bool:
+    """Set the preferred lot for pricing an item.
+    
+    This saves which lot should be used for determining the item's pricing
+    in the POS system. Useful for items with multiple stock lots where you
+    want to prioritize a specific lot.
+    
+    Args:
+        item_id: Item ID
+        lot_id: Lot ID to set as preferred
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        with get_connection() as conn:
+            # Check if the lot exists and belongs to this item
+            lot = conn.execute(
+                "SELECT lot_id FROM stock_lots WHERE lot_id = ? AND item_id = ?",
+                (lot_id, item_id)
+            ).fetchone()
+            
+            if not lot:
+                logger.warning(f"Lot {lot_id} not found for item {item_id}")
+                return False
+            
+            # Update the items table with the preferred lot
+            conn.execute(
+                "UPDATE items SET preferred_lot_id = ? WHERE item_id = ?",
+                (lot_id, item_id)
+            )
+            conn.commit()
+            
+            logger.info(f"Set preferred lot {lot_id} for item {item_id}")
+            
+            # Notify subscribers that the item's pricing has changed
+            try:
+                from utils.inventory_notifications import notify_inventory_changed
+                notify_inventory_changed('price_changed', item_id, 0.0, lot_id=lot_id)
+            except ImportError:
+                pass  # Notification system not available
+            
+            return True
+            
+    except Exception as e:
+        logger.error(f"Failed to set preferred lot: {e}")
+        return False
+
+
+def get_preferred_lot(item_id: int) -> Optional[int]:
+    """Get the preferred lot ID for an item.
+    
+    Args:
+        item_id: Item ID
+        
+    Returns:
+        Lot ID if a preferred lot is set, None otherwise
+    """
+    try:
+        with get_connection() as conn:
+            result = conn.execute(
+                "SELECT preferred_lot_id FROM items WHERE item_id = ?",
+                (item_id,)
+            ).fetchone()
+            
+            if result and result[0]:
+                return result[0]
+            return None
+            
+    except Exception as e:
+        logger.error(f"Failed to get preferred lot: {e}")
+        return None

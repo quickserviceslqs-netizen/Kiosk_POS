@@ -8,10 +8,14 @@ from modules import items
 from modules import portions
 from modules import units_of_measure as uom
 from modules import permissions
+from modules.inventory_costing import get_effective_selling_price
 from ui.checkout import CheckoutDialog
 from utils.cart_pubsub import subscribe_cart_changed, unsubscribe_cart_changed, notify_cart_changed
+from utils.quantity_display import format_item_quantity_display
+from utils.currency_notifications import format_currency_amount
 from utils.i18n import get_currency_symbol
 from utils.images import load_thumbnail
+from utils.inventory_notifications import subscribe_to_inventory_changes, unsubscribe_from_inventory_changes
 from utils.security import (
     get_cart_vat_enabled,
     get_cart_discount_enabled,
@@ -42,6 +46,11 @@ class PosFrame(ttk.Frame):
         self.subtotal_var = tk.StringVar(value="0.00")
         self.change_var = tk.StringVar(value="0.00")
         self.currency_symbol = get_currency_symbol()
+        
+        # Subscribe to currency change notifications
+        from utils.currency_notifications import subscribe_to_currency_changes
+        subscribe_to_currency_changes(self._on_currency_changed)
+        
         self._build_ui()
         # Populate once on startup; further refreshes are debounced.
         self._refresh_items()
@@ -64,6 +73,10 @@ class PosFrame(ttk.Frame):
         # Subscribe to cart change notifications to refresh view when cart is mutated elsewhere
         subscribe_cart_changed(self._refresh_cart)
         self.bind("<Destroy>", lambda _e: unsubscribe_cart_changed(self._refresh_cart))
+        
+        # Subscribe to inventory change notifications
+        subscribe_to_inventory_changes(self._on_inventory_changed)
+        self.bind("<Destroy>", lambda _e: unsubscribe_from_inventory_changes(self._on_inventory_changed))
 
     def _on_cart_settings_changed(self) -> None:
         """Refresh cart UI when cart settings change.
@@ -76,6 +89,8 @@ class PosFrame(ttk.Frame):
                 # Widget has been destroyed; ensure we're unsubscribed
                 try:
                     unsubscribe_cart_settings(self._on_cart_settings_changed)
+                    from utils.currency_notifications import unsubscribe_from_currency_changes
+                    unsubscribe_from_currency_changes(self._on_currency_changed)
                 except Exception:
                     pass
                 return
@@ -85,11 +100,59 @@ class PosFrame(ttk.Frame):
             print(f"Error refreshing cart: {e}")
             try:
                 unsubscribe_cart_settings(self._on_cart_settings_changed)
+                from utils.currency_notifications import unsubscribe_from_currency_changes
+                unsubscribe_from_currency_changes(self._on_currency_changed)
             except Exception:
                 pass
         except Exception as e:
             print(f"Error refreshing cart: {e}")
 
+    def _on_currency_changed(self, currency_code: str, currency_symbol: str):
+        """Handle currency change notifications."""
+        try:
+            if not getattr(self, 'winfo_exists', lambda: True)() or not self.winfo_exists():
+                from utils.currency_notifications import unsubscribe_from_currency_changes
+                unsubscribe_from_currency_changes(self._on_currency_changed)
+                return
+            
+            # Update cached currency symbol
+            self.currency_symbol = currency_symbol
+            print(f"🔄 POS: Currency updated to {currency_code} ({currency_symbol})")
+            
+            # Refresh the UI to show new currency
+            self._refresh_items()
+            self._refresh_cart()
+            
+        except tk.TclError:
+            # Widget destroyed
+            try:
+                from utils.currency_notifications import unsubscribe_from_currency_changes
+                unsubscribe_from_currency_changes(self._on_currency_changed)
+            except Exception:
+                pass
+    
+    def _on_inventory_changed(self, change_type: str, item_id: int, quantity_change: float, **kwargs):
+        """Handle inventory change notifications."""
+        try:
+            if not getattr(self, 'winfo_exists', lambda: True)() or not self.winfo_exists():
+                from utils.inventory_notifications import unsubscribe_from_inventory_changes
+                unsubscribe_from_inventory_changes(self._on_inventory_changed)
+                return
+            
+            print(f"🔄 POS: Inventory changed - {change_type} for item {item_id}, qty change: {quantity_change}")
+            
+            # Refresh items to show updated quantities or prices
+            self._refresh_items()
+            
+        except tk.TclError:
+            # Widget destroyed
+            try:
+                from utils.inventory_notifications import unsubscribe_from_inventory_changes
+                unsubscribe_from_inventory_changes(self._on_inventory_changed)
+            except Exception:
+                pass
+        except Exception as e:
+            print(f"Error updating currency in POS: {e}")
 
 
     def _build_ui(self) -> None:
@@ -361,7 +424,15 @@ class PosFrame(ttk.Frame):
             is_special = row.get("is_special_volume", 0)
             unit_size = float(row.get("unit_size_ml") or 1)  # Size in base units (e.g., 1 = 1L)
             cost = row["cost_price"] if isinstance(row["cost_price"], (int, float)) else 0.0
-            price = row["selling_price"] if isinstance(row["selling_price"], (int, float)) else 0.0
+            
+            # Get effective selling price from stock lots (lot-based pricing)
+            try:
+                effective_price, min_price, max_price = get_effective_selling_price(row["item_id"])
+            except Exception:
+                # Fallback to item-level price if stock lots not available
+                effective_price = row["selling_price"] if isinstance(row["selling_price"], (int, float)) else 0.0
+                min_price = effective_price
+                max_price = effective_price
             
             # Use pre-fetched batch map; fall back to individual query if map lookup misses
             has_variants_flag = _has_variants_map.get(row["item_id"], variants.has_variants(row["item_id"]))
@@ -389,7 +460,14 @@ class PosFrame(ttk.Frame):
                                 continue
                             v_name = f"{row.get('name')} — {v.get('variant_name')}"
                             price_display = f"{self.currency_symbol} {v['selling_price']:.2f}"
-                            qty_display = str(v.get('quantity', 0))
+                            # For individual variants, show their specific quantity
+                            qty_display = format_item_quantity_display(
+                                quantity=v.get('quantity', 0),
+                                is_special_volume=bool(is_special),
+                                unit_of_measure=unit,
+                                unit_size_ml=unit_size,
+                                has_variants=False
+                            )
                             self.items_list.insert("", tk.END, iid=f"variant-{v['variant_id']}", values=(v_name, price_display, qty_display))
                         # skip inserting parent row
                         continue
@@ -407,50 +485,39 @@ class PosFrame(ttk.Frame):
                 else:
                     price_display = "Variants available"
             else:
-                # Price per large unit = bulk price / package_size
+                # Price per large unit = effective price / package_size
                 if unit_size > 0:
-                    price_per_unit = price / unit_size
+                    price_per_unit = effective_price / unit_size
                 else:
-                    price_per_unit = price
+                    price_per_unit = effective_price
 
                 # Always show price per large unit (e.g., per L/kg/m or per pcs)
                 suffix = abbr or unit or "unit"
                 price_display = f"{self.currency_symbol} {price_per_unit:.2f}/{suffix}"
 
-            # Handle quantity display for items with variants
+            # Handle quantity display using shared utility
             if has_variants_flag:
-                # Sum quantities across all active variants
-                total_variant_qty = sum(v["quantity"] for v in variant_list if v.get("is_active", 1))
-                qty_display = f"{total_variant_qty} (variants)"
-            elif is_special:
-                try:
-                    unit_lower = unit.lower()
-                    # Use unit_size and conv_factor to compute small unit total
-                    total_small = row["quantity"] * unit_size * conv_factor
-                    # Liters -> ml/L
-                    if unit_lower in ("litre", "liter", "liters", "litres", "l"):
-                        if total_small >= 1000:
-                            qty_display = f"{total_small / 1000:.1f} L"
-                        else:
-                            qty_display = f"{total_small:.0f} ml"
-                    # Kilograms -> g/kg
-                    elif unit_lower in ("kilogram", "kilograms", "kg", "kgs"):
-                        if total_small >= 1000:
-                            qty_display = f"{total_small / 1000:.1f} kg"
-                        else:
-                            qty_display = f"{total_small:.0f} g"
-                    # Meters -> cm/m
-                    elif unit_lower in ("meter", "meters", "metre", "metres", "m"):
-                        if total_small >= 100:
-                            qty_display = f"{total_small / 100:.1f} m"
-                        else:
-                            qty_display = f"{total_small:.0f} cm"
-                    else:
-                        qty_display = str(row["quantity"])
-                except Exception:
-                    qty_display = str(row["quantity"])
+                # For catalog-only parents, variants are shown individually above
+                if not row.get("is_catalog_only"):
+                    # Sum quantities across all active variants for parent display
+                    variant_quantities = [v["quantity"] for v in variant_list if v.get("is_active", 1)]
+                    qty_display = format_item_quantity_display(
+                        quantity=row["quantity"],
+                        is_special_volume=bool(is_special),
+                        unit_of_measure=unit,
+                        unit_size_ml=unit_size,
+                        has_variants=True,
+                        variant_quantities=variant_quantities
+                    )
+                # catalog-only parents skip this insertion
             else:
-                qty_display = str(row["quantity"])
+                qty_display = format_item_quantity_display(
+                    quantity=row["quantity"],
+                    is_special_volume=bool(is_special),
+                    unit_of_measure=unit,
+                    unit_size_ml=unit_size,
+                    has_variants=False
+                )
             
             self.items_list.insert("", tk.END, iid=str(row["item_id"]), values=(row["name"], price_display, qty_display))
         self._update_item_preview()
@@ -570,8 +637,17 @@ class PosFrame(ttk.Frame):
         unit_of_measure = fresh.get("unit_of_measure", "pieces")
         unit_size = float(fresh.get("unit_size_ml") or 1)  # Size in base units (e.g., 20 = 20 liters)
         
-        # Use stored price per smallest unit (e.g., price per ml)
-        price_per_small = float(fresh.get("selling_price_per_unit") or fresh.get("price_per_ml") or 0)
+        # Get effective selling price from stock lots (respecting preferred lot)
+        try:
+            effective_price, _, _ = get_effective_selling_price(fresh["item_id"])
+        except Exception:
+            effective_price = float(fresh.get("selling_price") or 0)
+        
+        # Calculate price per base unit from effective price
+        price_per_base = effective_price / unit_size if unit_size > 0 else effective_price
+        
+        # Calculate price per small unit
+        price_per_small = price_per_base / multiplier if multiplier > 0 else price_per_base
         stock_containers = float(fresh.get("quantity", 0) or 0)  # Number of containers
         
         # Determine conversion and display units
@@ -629,6 +705,8 @@ class PosFrame(ttk.Frame):
             
             def add_preset(portion):
                 portion_amount = portion.get("portion_amount", portion.get("portion_ml", 0))
+                # Use the price set for this portion
+                portion_price = float(portion.get("selling_price", 0))
                 if portion_amount > available_small:
                     messagebox.showerror("Insufficient Stock", f"Not enough stock for {portion['portion_name']}")
                     return
@@ -636,17 +714,20 @@ class PosFrame(ttk.Frame):
                 self._add_special_sale(
                     fresh, 
                     portion_amount, 
-                    portion["selling_price"] / portion_amount if portion_amount > 0 else 0,  # Price per small unit
+                    price_per_small,  # Price per small unit (for cost calculation)
                     small_unit, 
                     multiplier,
                     preset_name=portion["portion_name"],
-                    preset_price=portion["selling_price"],
+                    preset_price=portion_price,
                     portion_id=portion["portion_id"]
                 )
                 dialog.destroy()
             
             for i, portion in enumerate(preset_portions):
-                btn_text = f"{portion['portion_name']}\n{self.currency_symbol} {portion['selling_price']:.0f}"
+                portion_amount = portion.get("portion_amount", portion.get("portion_ml", 0))
+                # Use the price set for this portion
+                portion_price = float(portion.get("selling_price", 0))
+                btn_text = f"{portion['portion_name']}\n{self.currency_symbol} {portion_price:.2f}"
                 btn = ttk.Button(
                     portions_frame, 
                     text=btn_text,
@@ -769,6 +850,13 @@ class PosFrame(ttk.Frame):
         
         # Item not in cart, add new entry
         cart_id = self._next_cart_id()
+        
+        # Get effective selling price from stock lots
+        try:
+            effective_price, _, _ = get_effective_selling_price(item["item_id"])
+        except Exception:
+            effective_price = item["selling_price"] if isinstance(item["selling_price"], (int, float)) else 0.0
+        
         self.cart.append(
             {
                 "cart_id": cart_id,
@@ -799,14 +887,22 @@ class PosFrame(ttk.Frame):
             total_price = qty_small * price_per_unit
             effective_price_per_unit = price_per_unit
         
-        # Use stored cost_price_per_unit if available, otherwise calculate
-        cost_per_unit = item.get("cost_price_per_unit")
-        if cost_per_unit is None:
-            try:
-                unit_size = float(item.get("unit_size_ml", 1) or 1)
-                cost_per_unit = float(item.get("cost_price", 0)) / (unit_size * multiplier)
-            except Exception:
+        # Calculate cost per unit - use portion cost if available
+        if portion_id:
+            from modules import portions
+            portion = portions.get_portion(portion_id)
+            if portion and portion.get("cost_price"):
+                cost_per_unit = float(portion["cost_price"]) / qty_small if qty_small > 0 else 0
+            else:
                 cost_per_unit = 0.0
+        else:
+            cost_per_unit = item.get("cost_price_per_unit")
+            if cost_per_unit is None:
+                try:
+                    unit_size = float(item.get("unit_size_ml", 1) or 1)
+                    cost_per_unit = float(item.get("cost_price", 0)) / (unit_size * multiplier)
+                except Exception:
+                    cost_per_unit = 0.0
 
         # Display name: use preset name if available
         if preset_name:

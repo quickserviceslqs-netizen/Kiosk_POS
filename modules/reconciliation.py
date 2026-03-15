@@ -90,10 +90,23 @@ def create_reconciliation_session(
     """Create a new reconciliation session and return the session ID."""
     # Get sales data for the period
     sales_data = get_sales_by_payment_method_for_period(start_date, end_date)
-    total_system_sales = sum(entry['total_sales'] for entry in sales_data)
-
+    
     with get_connection() as conn:
-        cursor = conn.execute(
+        cursor = conn.cursor()
+        
+        # Get all unique payment methods that have ever been used (not just in this period)
+        cursor.execute(
+            "SELECT DISTINCT COALESCE(payment_method, 'Cash') as payment_method FROM sale_payments ORDER BY payment_method"
+        )
+        all_payment_methods = [row[0] for row in cursor.fetchall()]
+        
+        # Create a map of payment method -> sales data for quick lookup
+        sales_data_map = {entry['payment_method']: entry['total_sales'] for entry in sales_data}
+        
+        # Calculate total system sales (only from actual sales in the period)
+        total_system_sales = sum(entry['total_sales'] for entry in sales_data)
+
+        cursor.execute(
             """
             INSERT INTO reconciliation_sessions
             (reconciliation_date, period_type, start_date, end_date,
@@ -105,15 +118,16 @@ def create_reconciliation_session(
         )
         session_id = cursor.lastrowid
 
-        # Create entries for each payment method
-        for entry in sales_data:
-            conn.execute(
+        # Create entries for ALL payment methods (even those with zero sales in this period)
+        for payment_method in all_payment_methods:
+            sales_amount = sales_data_map.get(payment_method, 0.0)
+            cursor.execute(
                 """
                 INSERT INTO reconciliation_entries
                 (session_id, payment_method, system_amount, actual_amount, variance)
                 VALUES (?, ?, ?, 0, ?)
                 """,
-                (session_id, entry['payment_method'], entry['total_sales'], -entry['total_sales'])
+                (session_id, payment_method, sales_amount, -sales_amount)
             )
 
         conn.commit()

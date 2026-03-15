@@ -93,6 +93,7 @@ def create_portion(
     selling_price: float,
     cost_price: float = 0,
     sort_order: int = 0,
+    lot_id: Optional[int] = None,
 ) -> dict:
     """Create a new preset portion for an item.
     
@@ -103,14 +104,15 @@ def create_portion(
         selling_price: Selling price for this portion
         cost_price: Cost price for this portion
         sort_order: Display order
+        lot_id: Optional lot ID to base pricing on
     """
     with get_connection() as conn:
         conn.row_factory = sqlite3.Row
         conn.execute(
             """INSERT INTO item_portions 
-               (item_id, portion_name, portion_ml, selling_price, cost_price, sort_order)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (item_id, portion_name, portion_amount, selling_price, cost_price, sort_order),
+               (item_id, portion_name, portion_ml, selling_price, cost_price, sort_order, lot_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (item_id, portion_name, portion_amount, selling_price, cost_price, sort_order, lot_id),
         )
         conn.commit()
         row = conn.execute(
@@ -134,7 +136,7 @@ def update_portion(portion_id: int, **fields) -> Optional[dict]:
     if "portion_amount" in fields:
         fields["portion_ml"] = fields.pop("portion_amount")
     
-    allowed = {"portion_name", "portion_ml", "selling_price", "cost_price", "is_active", "sort_order"}
+    allowed = {"portion_name", "portion_ml", "selling_price", "cost_price", "is_active", "sort_order", "lot_id"}
     fields = {k: v for k, v in fields.items() if k in allowed}
     
     if not fields:
@@ -206,7 +208,7 @@ def has_portions(item_id: int) -> bool:
         return row[0] > 0 if row else False
 
 
-def create_default_portions(item_id: int, price_per_base: float = 0, cost_per_base: float = 0, unit_of_measure: str = None) -> List[dict]:
+def create_default_portions(item_id: int, price_per_base: float = 0, cost_per_base: float = 0, unit_of_measure: str = None, lot_id: Optional[int] = None) -> List[dict]:
     """Create default preset portions for an item based on its unit of measure.
     
     Args:
@@ -214,6 +216,7 @@ def create_default_portions(item_id: int, price_per_base: float = 0, cost_per_ba
         price_per_base: Price per base unit (L, kg, m). If 0, will try to get from item.
         cost_per_base: Cost per base unit. If 0, will try to get from item.
         unit_of_measure: Override the unit of measure (use this instead of fetching from DB).
+        lot_id: Optional lot ID to associate with the created portions.
     
     Creates appropriate portions based on item's unit of measure:
         - Liters: 1/4L, 1/2L, 3/4L, 1L
@@ -242,44 +245,136 @@ def create_default_portions(item_id: int, price_per_base: float = 0, cost_per_ba
     # Define portions based on unit type
     if small_unit == "ml":
         # Liquid portions
-        portions = [
-            {"name": f"1/4 {base_unit} (250{small_unit})", "amount": 250, "factor": 0.25},
-            {"name": f"1/2 {base_unit} (500{small_unit})", "amount": 500, "factor": 0.5},
-            {"name": f"3/4 {base_unit} (750{small_unit})", "amount": 750, "factor": 0.75},
-            {"name": f"1 {base_unit} (1000{small_unit})", "amount": 1000, "factor": 1.0},
-        ]
+        if base_unit != small_unit:
+            # Base unit is different (e.g., L), create fractional portions
+            portions = [
+                {"name": f"1/4 {base_unit} (250{small_unit})", "amount": 250, "factor": 0.25},
+                {"name": f"1/2 {base_unit} (500{small_unit})", "amount": 500, "factor": 0.5},
+                {"name": f"3/4 {base_unit} (750{small_unit})", "amount": 750, "factor": 0.75},
+                {"name": f"1 {base_unit} (1000{small_unit})", "amount": 1000, "factor": 1.0},
+            ]
+        else:
+            # Base unit is same as small unit (e.g., ml), create absolute portions
+            portions = [
+                {"name": f"250{small_unit}", "amount": 250, "factor": 0.25},
+                {"name": f"500{small_unit}", "amount": 500, "factor": 0.5},
+                {"name": f"750{small_unit}", "amount": 750, "factor": 0.75},
+                {"name": f"1000{small_unit}", "amount": 1000, "factor": 1.0},
+            ]
     elif small_unit == "g":
         # Weight portions
-        portions = [
-            {"name": f"250{small_unit}", "amount": 250, "factor": 0.25},
-            {"name": f"500{small_unit}", "amount": 500, "factor": 0.5},
-            {"name": f"750{small_unit}", "amount": 750, "factor": 0.75},
-            {"name": f"1{base_unit} (1000{small_unit})", "amount": 1000, "factor": 1.0},
-        ]
+        if base_unit != small_unit:
+            # Base unit is different (e.g., kg), create fractional portions
+            portions = [
+                {"name": f"250{small_unit}", "amount": 250, "factor": 0.25},
+                {"name": f"500{small_unit}", "amount": 500, "factor": 0.5},
+                {"name": f"750{small_unit}", "amount": 750, "factor": 0.75},
+                {"name": f"1{base_unit} (1000{small_unit})", "amount": 1000, "factor": 1.0},
+            ]
+        else:
+            # Base unit is same as small unit (e.g., g), create absolute portions
+            portions = [
+                {"name": f"250{small_unit}", "amount": 250, "factor": 0.25},
+                {"name": f"500{small_unit}", "amount": 500, "factor": 0.5},
+                {"name": f"750{small_unit}", "amount": 750, "factor": 0.75},
+                {"name": f"1000{small_unit}", "amount": 1000, "factor": 1.0},
+            ]
     elif small_unit == "cm":
         # Length portions
-        portions = [
-            {"name": f"25{small_unit}", "amount": 25, "factor": 0.25},
-            {"name": f"50{small_unit}", "amount": 50, "factor": 0.5},
-            {"name": f"75{small_unit}", "amount": 75, "factor": 0.75},
-            {"name": f"1{base_unit} (100{small_unit})", "amount": 100, "factor": 1.0},
-        ]
+        if base_unit != small_unit:
+            # Base unit is different (e.g., m), create fractional portions
+            portions = [
+                {"name": f"25{small_unit}", "amount": 25, "factor": 0.25},
+                {"name": f"50{small_unit}", "amount": 50, "factor": 0.5},
+                {"name": f"75{small_unit}", "amount": 75, "factor": 0.75},
+                {"name": f"1{base_unit} (100{small_unit})", "amount": 100, "factor": 1.0},
+            ]
+        else:
+            # Base unit is same as small unit (e.g., cm), create absolute portions
+            portions = [
+                {"name": f"25{small_unit}", "amount": 25, "factor": 0.25},
+                {"name": f"50{small_unit}", "amount": 50, "factor": 0.5},
+                {"name": f"75{small_unit}", "amount": 75, "factor": 0.75},
+                {"name": f"100{small_unit}", "amount": 100, "factor": 1.0},
+            ]
     elif small_unit == "oz":
-        # Pound portions (imperial weight)
-        portions = [
-            {"name": "4oz", "amount": 4, "factor": 0.25},
-            {"name": "8oz (1/2 lb)", "amount": 8, "factor": 0.5},
-            {"name": "12oz (3/4 lb)", "amount": 12, "factor": 0.75},
-            {"name": "1lb (16oz)", "amount": 16, "factor": 1.0},
-        ]
+        # Weight portions (imperial)
+        if base_unit == "oz":
+            # Base unit is ounces
+            portions = [
+                {"name": "4oz", "amount": 4, "factor": 0.25},
+                {"name": "8oz", "amount": 8, "factor": 0.5},
+                {"name": "12oz", "amount": 12, "factor": 0.75},
+                {"name": "16oz", "amount": 16, "factor": 1.0},
+            ]
+        else:
+            # Base unit is pounds
+            portions = [
+                {"name": "4oz", "amount": 4, "factor": 0.25},
+                {"name": "8oz (1/2 lb)", "amount": 8, "factor": 0.5},
+                {"name": "12oz (3/4 lb)", "amount": 12, "factor": 0.75},
+                {"name": "1lb (16oz)", "amount": 16, "factor": 1.0},
+            ]
     elif small_unit == "fl oz":
-        # Gallon portions (imperial volume)
-        portions = [
-            {"name": "1 quart (32 fl oz)", "amount": 32, "factor": 0.25},
-            {"name": "1/2 gal (64 fl oz)", "amount": 64, "factor": 0.5},
-            {"name": "3 quarts (96 fl oz)", "amount": 96, "factor": 0.75},
-            {"name": "1 gallon", "amount": 128, "factor": 1.0},
-        ]
+        # Volume portions (imperial fluid ounces)
+        if base_unit == "fl oz":
+            # Base unit is fluid ounces
+            portions = [
+                {"name": "8fl oz", "amount": 8, "factor": 0.25},
+                {"name": "16fl oz", "amount": 16, "factor": 0.5},
+                {"name": "24fl oz", "amount": 24, "factor": 0.75},
+                {"name": "32fl oz", "amount": 32, "factor": 1.0},
+            ]
+        elif base_unit == "pt":
+            # Base unit is pint (16 fl oz)
+            portions = [
+                {"name": "4fl oz", "amount": 4, "factor": 0.25},
+                {"name": "8fl oz (1/2 pt)", "amount": 8, "factor": 0.5},
+                {"name": "12fl oz (3/4 pt)", "amount": 12, "factor": 0.75},
+                {"name": "1pt (16fl oz)", "amount": 16, "factor": 1.0},
+            ]
+        elif base_unit == "qt":
+            # Base unit is quart (32 fl oz)
+            portions = [
+                {"name": "8fl oz", "amount": 8, "factor": 0.25},
+                {"name": "16fl oz (1/2 qt)", "amount": 16, "factor": 0.5},
+                {"name": "24fl oz (3/4 qt)", "amount": 24, "factor": 0.75},
+                {"name": "1qt (32fl oz)", "amount": 32, "factor": 1.0},
+            ]
+        else:
+            # Base unit is gallon (128 fl oz)
+            portions = [
+                {"name": "1 quart (32 fl oz)", "amount": 32, "factor": 0.25},
+                {"name": "1/2 gal (64 fl oz)", "amount": 64, "factor": 0.5},
+                {"name": "3 quarts (96 fl oz)", "amount": 96, "factor": 0.75},
+                {"name": "1 gallon (128fl oz)", "amount": 128, "factor": 1.0},
+            ]
+    elif small_unit == "in":
+        # Length portions (imperial)
+        if base_unit == "in":
+            # Base unit is inches
+            portions = [
+                {"name": "3in", "amount": 3, "factor": 0.25},
+                {"name": "6in", "amount": 6, "factor": 0.5},
+                {"name": "9in", "amount": 9, "factor": 0.75},
+                {"name": "12in (1ft)", "amount": 12, "factor": 1.0},
+            ]
+        elif base_unit == "ft":
+            # Base unit is feet (12 inches)
+            portions = [
+                {"name": "3in", "amount": 3, "factor": 0.25},
+                {"name": "6in (1/2 ft)", "amount": 6, "factor": 0.5},
+                {"name": "9in (3/4 ft)", "amount": 9, "factor": 0.75},
+                {"name": "1ft (12in)", "amount": 12, "factor": 1.0},
+            ]
+        else:
+            # Base unit is yard (36 inches)
+            portions = [
+                {"name": "9in (1/4 yd)", "amount": 9, "factor": 0.25},
+                {"name": "18in (1/2 yd)", "amount": 18, "factor": 0.5},
+                {"name": "27in (3/4 yd)", "amount": 27, "factor": 0.75},
+                {"name": "1yd (36in)", "amount": 36, "factor": 1.0},
+            ]
     else:
         # Generic portions
         portions = [
@@ -299,6 +394,7 @@ def create_default_portions(item_id: int, price_per_base: float = 0, cost_per_ba
                 selling_price=round(price_per_base * p["factor"], 2),
                 cost_price=round(cost_per_base * p["factor"], 2) if cost_per_base else 0,
                 sort_order=i,
+                lot_id=lot_id,
             )
             created.append(portion)
         except sqlite3.IntegrityError:

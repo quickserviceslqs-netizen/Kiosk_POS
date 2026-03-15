@@ -21,17 +21,6 @@ def get_username() -> str:
     return 'Unknown'
 
 
-def get_currency_code():
-    """Return the configured ISO 4217 currency code (e.g., 'USD', 'KES')."""
-    from database.init_db import get_connection
-    with get_connection() as conn:
-        cursor = conn.execute("SELECT value FROM settings WHERE key = 'currency_code'")
-        row = cursor.fetchone()
-        if row:
-            return row['value'] if isinstance(row, dict) else row[0]
-        return "USD"
-
-
 def get_cart_vat_enabled():
     """Return True if VAT calculation is enabled for cart."""
     from database.init_db import get_connection

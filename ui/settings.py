@@ -3,6 +3,7 @@ from tkinter import ttk, messagebox
 from database.init_db import get_connection
 import pycountry
 from utils.i18n import get_default_currency_symbol_for_code
+from utils.currency_notifications import set_currency_settings, subscribe_to_currency_changes, unsubscribe_from_currency_changes
 
 class CurrencySettingsFrame(ttk.Frame):
     def __init__(self, parent):
@@ -46,81 +47,8 @@ class CurrencySettingsFrame(ttk.Frame):
                 currency = pycountry.currencies.get(alpha_3=code)
                 if currency:
                     # Try to get symbol from pycountry, fallback to common symbols
-                    symbol = getattr(currency, 'symbol', None)
-                    if not symbol:
-                        # Common currency symbols mapping
-                        symbol_map = {
-                            'USD': '$',
-                            'EUR': '€',
-                            'GBP': '£',
-                            'JPY': '¥',
-                            'KES': 'KSh',
-                            'CAD': 'C$',
-                            'AUD': 'A$',
-                            'CHF': 'CHF',
-                            'CNY': '¥',
-                            'INR': '₹',
-                            'BRL': 'R$',
-                            'ZAR': 'R',
-                            'MXN': '$',
-                            'SGD': 'S$',
-                            'HKD': 'HK$',
-                            'NZD': 'NZ$',
-                            'SEK': 'kr',
-                            'NOK': 'kr',
-                            'DKK': 'kr',
-                            'PLN': 'zł',
-                            'CZK': 'Kč',
-                            'HUF': 'Ft',
-                            'ILS': '₪',
-                            'RUB': '₽',
-                            'TRY': '₺',
-                            'KRW': '₩',
-                            'THB': '฿',
-                            'MYR': 'RM',
-                            'PHP': '₱',
-                            'IDR': 'Rp',
-                            'VND': '₫',
-                            'EGP': '£',
-                            'SAR': '﷼',
-                            'AED': 'د.إ',
-                            'QAR': '﷼',
-                            'KWD': 'د.ك',
-                            'BHD': '.د.ب',
-                            'OMR': '﷼',
-                            'JOD': 'د.ا',
-                            'LBP': 'ل.ل',
-                            'JMD': 'J$',
-                            'TTD': 'TT$',
-                            'BBD': 'Bds$',
-                            'BSD': 'B$',
-                            'KYD': 'CI$',
-                            'ANG': 'ƒ',
-                            'AWG': 'ƒ',
-                            'BMD': 'BD$',
-                            'BTN': 'Nu.',
-                            'MNT': '₮',
-                            'KPW': '₩',
-                            'LAK': '₭',
-                            'MOP': 'MOP$',
-                            'MVR': 'Rf',
-                            'NPR': '₨',
-                            'PKR': '₨',
-                            'SCR': '₨',
-                            'LKR': '₨',
-                            'TWD': 'NT$',
-                            'BND': 'B$',
-                            'FJD': 'FJ$',
-                            'PGK': 'K',
-                            'SBD': 'SI$',
-                            'TOP': 'T$',
-                            'VUV': 'VT',
-                            'WST': 'WS$',
-                            'XAF': 'FCFA',
-                            'XOF': 'CFA',
-                            'XPF': 'CFP',
-                        }
-                        symbol = symbol_map.get(code, '$')  # Default to $ if not found
+                    # Use the comprehensive currency symbol mapping from utils.i18n
+                    symbol = get_default_currency_symbol_for_code(code)
                     self.symbol_var.set(symbol)
             except Exception:
                 pass  # Keep current symbol if lookup fails
@@ -167,16 +95,14 @@ class CurrencySettingsFrame(ttk.Frame):
             messagebox.showerror("Error", "Currency symbol cannot be empty.")
             return
         
-        with get_connection() as conn:
-            # store both modern and legacy keys, update existing symbol entry
-            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", ("currency_code", code))
-            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", ("currency_symbol", symbol))
-            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", ("currency", code))
-            conn.commit()
-        
-        messagebox.showinfo("Saved", f"Currency set to {code} ({symbol})")
-        # Stay on the currency settings page and refresh the displayed value
-        self.load_currency()
+        try:
+            # Use the centralized currency setting system (handles encoding and notifications)
+            set_currency_settings(code, symbol)
+            messagebox.showinfo("Saved", f"Currency set to {code} ({symbol})")
+            # Refresh the displayed value
+            self.load_currency()
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to save currency settings: {e}")
 
     def _go_home(self):
         root = self.winfo_toplevel()

@@ -6,10 +6,12 @@ from tkinter import ttk, messagebox, filedialog
 from typing import Optional, Dict, Any
 import logging
 from modules import items
+from modules.portions import get_unit_info_from_name
 from utils import set_window_icon
 from utils.validation import ValidationError, validate_numeric, validate_integer
 from utils.i18n import get_currency_symbol
 from utils.theme import get_status_color
+from modules.inventory_costing import get_effective_selling_price, get_stock_lots, get_costing_method, CostingMethod, get_preferred_lot
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +27,7 @@ class SimplifiedItemDialog:
         self.fields: Dict[str, Any] = {}
         self.dialog: Optional[tk.Toplevel] = None
         self.trace_ids: Dict[str, str] = {}  # Store trace IDs for cleanup
+        self.selected_lot_id: Optional[int] = None  # Track selected lot for pricing
 
     def show(self) -> None:
         """Show the item dialog."""
@@ -131,6 +134,10 @@ class SimplifiedItemDialog:
         self.fields["base_price"] = tk.StringVar(value="")
         self.fields["cost_price"] = tk.StringVar(value="")
         self.fields["item_type"] = tk.StringVar(value="discrete")  # discrete or measurable
+        
+        # Master pricing fields - these can be edited independently from lot prices
+        self.master_selling_price_var = tk.StringVar(value="")
+        self.master_cost_price_var = tk.StringVar(value="")
 
         # Unit fields
         self.fields["unit_of_measure"] = tk.StringVar(value=self.existing.get("unit_of_measure", "pieces") if self.existing else "pieces")
@@ -151,9 +158,18 @@ class SimplifiedItemDialog:
             self._populate_fields_from_existing()
 
     def _populate_fields_from_existing(self) -> None:
-        """Populate form fields from existing item data."""
+        """Populate form fields from existing item data and stock receiving data."""
         if not self.existing:
             return
+
+        # Populate master pricing fields from the actual item database values
+        master_selling = self.existing.get("selling_price", 0)
+        master_cost = self.existing.get("cost_price", 0)
+        
+        if master_selling:
+            self.master_selling_price_var.set(f"{master_selling:.2f}")
+        if master_cost:
+            self.master_cost_price_var.set(f"{master_cost:.2f}")
 
         # Determine item type based on existing data
         if self.existing.get("is_special_volume"):
@@ -166,9 +182,34 @@ class SimplifiedItemDialog:
                 self.fields["base_price"].set(f"{self.existing['selling_price_per_unit']:.2f}")
         else:
             self.fields["item_type"].set("discrete")
-            self.fields["base_price"].set(f"{self.existing.get('selling_price', 0):.2f}")
+            # Get selling price from stock lots (stock receiving data)
+            try:
+                effective_price, _, _ = get_effective_selling_price(self.existing.get("item_id"))
+                if effective_price > 0:
+                    self.fields["base_price"].set(f"{effective_price:.2f}")
+                else:
+                    # Fallback to item-level price if no stock lots
+                    self.fields["base_price"].set(f"{self.existing.get('selling_price', 0):.2f}")
+            except Exception:
+                # Fallback to item-level price if any error
+                self.fields["base_price"].set(f"{self.existing.get('selling_price', 0):.2f}")
 
-        self.fields["cost_price"].set(f"{self.existing.get('cost_price', 0):.2f}")
+        # Get cost price from stock receiving (stock lots)
+        try:
+            lots = get_stock_lots(self.existing.get("item_id"), include_empty=False)
+            if lots:
+                # Use weighted average cost from all available lots
+                total_cost = sum(lot.cost_price * lot.quantity_remaining for lot in lots)
+                total_qty = sum(lot.quantity_remaining for lot in lots)
+                avg_cost = total_cost / total_qty if total_qty > 0 else 0
+                self.fields["cost_price"].set(f"{avg_cost:.2f}")
+            else:
+                # No lots available
+                self.fields["cost_price"].set("--")
+        except Exception:
+            # Fallback if any error
+            self.fields["cost_price"].set("--")
+
         self.fields["package_size"].set(str(self.existing.get("unit_size_ml", 1)))
 
     def _build_basic_info_tab(self, parent: ttk.Frame) -> None:
@@ -394,112 +435,154 @@ class SimplifiedItemDialog:
 
         # Pricing explanation
         pricing_info = ttk.Label(scrollable_frame,
-            text="Set prices for your item. The system will automatically calculate unit prices.",
+            text="Stock prices are based on real costs and selling prices from Stock Receiving. The highlighted lot is currently being used for pricing.",
             font=("Segoe UI", 9), wraplength=600, justify=tk.LEFT)
         pricing_info.grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=(10, 15), padx=10)
         self.pricing_widgets.append(pricing_info)
         row += 1
 
-        # Base selling price
-        price_label = ttk.Label(scrollable_frame, text="Selling Price *", font=("Segoe UI", 10, "bold"))
-        price_label.grid(row=row, column=0, sticky=tk.W, pady=5, padx=10)
-        self.pricing_widgets.append(price_label)
-        price_frame = ttk.Frame(scrollable_frame)
-        price_frame.grid(row=row, column=1, sticky=tk.EW, pady=5, padx=(0, 10))
-        self.pricing_widgets.append(price_frame)
-        ttk.Label(price_frame, text=f"{self.currency_symbol}", font=("Segoe UI", 9)).pack(side=tk.LEFT)
-        base_price_entry = ttk.Entry(price_frame, textvariable=self.fields["base_price"], width=20)
-        base_price_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self.fields["price_unit_label"] = ttk.Label(price_frame, text="(per piece)", font=("Segoe UI", 8))
-        self.fields["price_unit_label"].pack(side=tk.RIGHT, padx=(10, 0))
-        self.error_labels["base_price"] = ttk.Label(scrollable_frame, text="", foreground=self.clr_err, font=("Segoe UI", 8))
-        self.error_labels["base_price"].grid(row=row+1, column=1, sticky=tk.W, padx=(0, 10))
-        self.pricing_widgets.append(self.error_labels["base_price"])
-        def validate_base_price(*_):
-            value = self.fields["base_price"].get().strip()
-            try:
-                v = float(value)
-                if v < 0:
-                    self.error_labels["base_price"].config(text="Must be >= 0")
-                else:
-                    self.error_labels["base_price"].config(text="")
-            except Exception:
-                if value:
-                    self.error_labels["base_price"].config(text="Invalid number")
-                else:
-                    self.error_labels["base_price"].config(text="Required")
-        self.trace_ids["base_price"] = self.fields["base_price"].trace_add("write", validate_base_price)
-        validate_base_price()
-        row += 2
-
-        # Cost price with guidance for new items
-        cost_label = ttk.Label(scrollable_frame, text="Estimated Cost Price", font=("Segoe UI", 9))
-        cost_label.grid(row=row, column=0, sticky=tk.W, pady=5, padx=10)
-        self.pricing_widgets.append(cost_label)
-        cost_frame = ttk.Frame(scrollable_frame)
-        cost_frame.grid(row=row, column=1, sticky=tk.EW, pady=5, padx=(0, 10))
-        self.pricing_widgets.append(cost_frame)
-        ttk.Label(cost_frame, text=f"{self.currency_symbol}", font=("Segoe UI", 9)).pack(side=tk.LEFT)
-        cost_price_entry = ttk.Entry(cost_frame, textvariable=self.fields["cost_price"], width=20, state="normal" if self.is_admin else "readonly")
-        cost_price_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self.fields["cost_unit_label"] = ttk.Label(cost_frame, text="(per unit)", font=("Segoe UI", 8))
-        self.fields["cost_unit_label"].pack(side=tk.RIGHT, padx=(10, 0))
-        self.error_labels["cost_price"] = ttk.Label(scrollable_frame, text="", foreground=self.clr_err, font=("Segoe UI", 8))
-        self.error_labels["cost_price"].grid(row=row+1, column=1, sticky=tk.W, padx=(0, 10))
-        self.pricing_widgets.append(self.error_labels["cost_price"])
-        row += 2
-        
-        # Cost price guidance text
-        cost_info = ttk.Label(scrollable_frame,
-            text="💡 Tip: Actual costs are tracked per stock lot via Stock Receiving. This is an estimated cost for profit margin display.",
-            font=("Segoe UI", 8), wraplength=500)
-        cost_info.grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 10), padx=10)
-        self.pricing_widgets.append(cost_info)
-        row += 1
-        
-        def validate_cost_price(*_):
-            value = self.fields["cost_price"].get().strip()
-            try:
-                v = float(value)
-                if v < 0:
-                    self.error_labels["cost_price"].config(text="Must be >= 0")
-                else:
-                    self.error_labels["cost_price"].config(text="")
-            except Exception:
-                if value:
-                    self.error_labels["cost_price"].config(text="Invalid number")
-                else:
-                    self.error_labels["cost_price"].config(text="")
-        self.trace_ids["cost_price"] = self.fields["cost_price"].trace_add("write", validate_cost_price)
-        validate_cost_price()
-
-        # Profit margin display
-        profit_margin_label = ttk.Label(scrollable_frame, text="Profit Margin", font=("Segoe UI", 9))
-        profit_margin_label.grid(row=row, column=0, sticky=tk.W, pady=5, padx=10)
-        self.pricing_widgets.append(profit_margin_label)
-        self.fields["profit_margin"] = ttk.Label(scrollable_frame, text="--", font=("Segoe UI", 9, "bold"), foreground=self.clr_ok)
-        self.fields["profit_margin"].grid(row=row, column=1, sticky=tk.W, pady=5, padx=(0, 10))
-        self.pricing_widgets.append(self.fields["profit_margin"])
+        # ===== ITEM MASTER PRICING SECTION =====
+        master_pricing_label = ttk.Label(scrollable_frame, text="Item Master Pricing", font=("Segoe UI", 10, "bold"))
+        master_pricing_label.grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=(15, 10), padx=10)
+        self.pricing_widgets.append(master_pricing_label)
         row += 1
 
-        # Auto-calculate profit margin
-        def update_profit_margin(*args):
-            try:
-                sell = float(self.fields["base_price"].get() or 0)
-                cost = float(self.fields["cost_price"].get() or 0)
-                if sell > 0 and cost > 0:
-                    margin = ((sell - cost) / sell) * 100
-                    color = self.clr_ok if margin >= 20 else (self.clr_warn if margin >= 0 else self.clr_err)
-                    self.fields["profit_margin"].config(text=f"{margin:.1f}%", foreground=color)
-                elif sell > 0:
-                    self.fields["profit_margin"].config(text="--", foreground=get_status_color("text_light"))
-                else:
-                    self.fields["profit_margin"].config(text="--", foreground=get_status_color("text_light"))
-            except ValueError:
-                self.fields["profit_margin"].config(text="--", foreground=get_status_color("text_light"))
+        # Check if this is a special volume item
+        is_special_volume = self.existing.get("is_special_volume", False) if self.existing else False
 
-        self.trace_ids["base_price_profit"] = self.fields["base_price"].trace_add("write", update_profit_margin)
-        self.trace_ids["cost_price_profit"] = self.fields["cost_price"].trace_add("write", update_profit_margin)
+        # Master Selling Price (only show for regular items)
+        if not is_special_volume:
+            ttk.Label(scrollable_frame, text="Selling Price (Item Level):", font=("Segoe UI", 9)).grid(row=row, column=0, sticky=tk.W, padx=10, pady=5)
+            master_selling_entry = ttk.Entry(scrollable_frame, textvariable=self.master_selling_price_var, width=20)
+            master_selling_entry.grid(row=row, column=1, sticky=tk.W, padx=10, pady=5)
+            self.pricing_widgets.append(master_selling_entry)
+            row += 1
+
+        # Master Cost Price
+        ttk.Label(scrollable_frame, text="Cost Price (Item Level):", font=("Segoe UI", 9)).grid(row=row, column=0, sticky=tk.W, padx=10, pady=5)
+        master_cost_entry = ttk.Entry(scrollable_frame, textvariable=self.master_cost_price_var, width=20)
+        master_cost_entry.grid(row=row, column=1, sticky=tk.W, padx=10, pady=5)
+        self.pricing_widgets.append(master_cost_entry)
+        row += 1
+
+        # Info about master pricing
+        if is_special_volume:
+            pricing_info_text = "Portion-based items use individual portion prices. Master cost price applies as a default."
+        else:
+            pricing_info_text = "These prices apply to the item when no stock lots are available. Lot-specific prices override these values."
+        
+        master_pricing_info = ttk.Label(scrollable_frame,
+            text=pricing_info_text,
+            font=("Segoe UI", 8, "italic"), wraplength=500, justify=tk.LEFT, foreground=get_status_color("text_light"))
+        master_pricing_info.grid(row=row, column=0, columnspan=2, sticky=tk.W, padx=10, pady=(0, 10))
+        self.pricing_widgets.append(master_pricing_info)
+        row += 1
+
+        # Stock Lots Information Section
+        # Stock Lots Information Section
+        if self.existing and self.existing.get("item_id"):
+            # Determine current lot based on preferred lot or costing method
+            current_lot_id = None
+            try:
+                lots = get_stock_lots(self.existing.get("item_id"), include_empty=False)
+                
+                # First check if there's a preferred lot set
+                preferred_lot_id = get_preferred_lot(self.existing.get("item_id"))
+                if preferred_lot_id:
+                    current_lot_id = preferred_lot_id
+                elif lots:
+                    # Otherwise use costing method
+                    method = get_costing_method()
+                    if method == CostingMethod.FIFO:
+                        current_lot_id = lots[0].lot_id  # First (oldest) lot
+                    elif method == CostingMethod.LIFO:
+                        current_lot_id = lots[-1].lot_id  # Last (newest) lot
+                    # WAC doesn't use specific lot, but we'll mark all as contributors
+            except Exception as e:
+                logger.error(f"Error determining current lot: {e}")
+            
+            # Costing method label
+            try:
+                method = get_costing_method()
+                method_label = ttk.Label(scrollable_frame, text=f"Costing Method: {method.value}", font=("Segoe UI", 9, "bold"))
+                method_label.grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=(15, 5), padx=10)
+                self.pricing_widgets.append(method_label)
+                row += 1
+            except Exception:
+                pass
+            
+            # Lot Selection
+            ttk.Label(scrollable_frame, text="Preferred Lot:", font=("Segoe UI", 9, "bold")).grid(row=row, column=0, sticky=tk.W, padx=10, pady=(10, 5))
+            
+            # Create lot selection dropdown
+            self.preferred_lot_var = tk.StringVar()
+            lot_options = []
+            
+            # Add available lots to dropdown
+            if lots:
+                for lot in lots:
+                    lot_options.append(f"Lot {lot.lot_id} - {lot.purchase_date or 'No Date'} (Qty: {lot.quantity_remaining})")
+            
+            preferred_lot_combo = ttk.Combobox(scrollable_frame, textvariable=self.preferred_lot_var, values=lot_options, state="readonly", width=40)
+            preferred_lot_combo.grid(row=row, column=1, sticky=tk.W, padx=10, pady=(10, 5))
+            self.pricing_widgets.append(preferred_lot_combo)
+            
+            # Set current selection
+            current_preferred = get_preferred_lot(self.existing.get("item_id"))
+            if current_preferred and lots:
+                for i, lot in enumerate(lots):
+                    if lot.lot_id == current_preferred:
+                        self.preferred_lot_var.set(f"Lot {lot.lot_id} - {lot.purchase_date or 'No Date'} (Qty: {lot.quantity_remaining})")
+                        # Update master prices for the selected lot
+                        self._update_master_prices_for_lot(lot)
+                        break
+            elif lots:
+                # If no preferred lot is set, select the first lot by default
+                first_lot = lots[0]
+                self.preferred_lot_var.set(f"Lot {first_lot.lot_id} - {first_lot.purchase_date or 'No Date'} (Qty: {first_lot.quantity_remaining})")
+                # Auto-set the first lot as preferred
+                from modules.inventory_costing import set_item_preferred_lot
+                set_item_preferred_lot(self.existing.get("item_id"), first_lot.lot_id)
+                self.selected_lot_id = first_lot.lot_id
+                # Update master prices for the selected lot
+                self._update_master_prices_for_lot(first_lot)
+            
+            # Bind selection change
+            preferred_lot_combo.bind("<<ComboboxSelected>>", self._on_preferred_lot_changed)
+            
+            row += 1
+            
+            lots_label = ttk.Label(scrollable_frame, text="Stock Lots Details", font=("Segoe UI", 9))
+            lots_label.grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 10), padx=10)
+            self.pricing_widgets.append(lots_label)
+            row += 1
+
+            # Get stock lots for this item
+            try:
+                lots = get_stock_lots(self.existing.get("item_id"), include_empty=False)
+                if lots:
+                    # Check if this is a special volume item
+                    is_special_volume = self.existing.get("is_special_volume", False)
+                    
+                    if is_special_volume:
+                        # For special volume items, show portion breakdown instead of regular lots
+                        self._build_portion_lots_table(scrollable_frame, row)
+                        row += 2  # Account for table and info label
+                    else:
+                        # For regular items, show the standard lots table
+                        self._build_regular_lots_table(scrollable_frame, lots, current_lot_id, row)
+                        row += 2  # Account for table and label
+                else:
+                    no_lots_label = ttk.Label(scrollable_frame, text="No stock lots available", font=("Segoe UI", 9), foreground=get_status_color("text_light"))
+                    no_lots_label.grid(row=row, column=0, columnspan=2, sticky=tk.W, padx=10)
+                    self.pricing_widgets.append(no_lots_label)
+                    row += 1
+            except Exception as e:
+                logger.error(f"Error loading stock lots: {e}")
+                error_label = ttk.Label(scrollable_frame, text="Error loading stock lot details", font=("Segoe UI", 9), foreground="red")
+                error_label.grid(row=row, column=0, columnspan=2, sticky=tk.W, padx=10)
+                self.pricing_widgets.append(error_label)
+                row += 1
 
         # Configure grid weights
         scrollable_frame.columnconfigure(1, weight=1)
@@ -541,6 +624,241 @@ class SimplifiedItemDialog:
 
         # Force a geometry update so canvases receive the configure event
         self.dialog.update_idletasks()
+
+    def _refresh_portion_table(self):
+        """Refresh the portion table when the selected lot changes."""
+        # This is a simplified refresh - in a real implementation, we'd need to 
+        # track which widgets belong to the portion table and replace them
+        # For now, we'll just log that a refresh is needed
+        logger.debug("Portion table refresh requested - rebuilding would be needed here")
+        
+        # TODO: Implement actual portion table refresh by:
+        # 1. Finding and destroying existing portion table widgets
+        # 2. Rebuilding the portion table with the new selected lot
+        # This would require more complex widget management
+
+    def _build_regular_lots_table(self, scrollable_frame, lots, current_lot_id, row):
+        """Build the standard lots table for regular items."""
+        # Create treeview for lots
+        lots_frame = ttk.Frame(scrollable_frame)
+        lots_frame.grid(row=row, column=0, columnspan=2, sticky=tk.EW, padx=10, pady=(0, 10))
+        self.pricing_widgets.append(lots_frame)
+
+        # Treeview columns
+        columns = ("current", "lot_id", "date", "qty", "cost", "selling", "margin")
+        lots_tree = ttk.Treeview(lots_frame, columns=columns, show="headings", height=min(len(lots) + 1, 8), selectmode="browse")
+        
+        # Store reference to allow selection handling
+        self.lots_tree = lots_tree
+        
+        # Define column headings and widths
+        lots_tree.heading("current", text="Current")
+        lots_tree.heading("lot_id", text="Lot ID")
+        lots_tree.heading("date", text="Received")
+        lots_tree.heading("qty", text="Qty")
+        lots_tree.heading("cost", text="Cost/Unit")
+        lots_tree.heading("selling", text="Selling/Unit")
+        lots_tree.heading("margin", text="Margin %")
+
+        lots_tree.column("current", width=60, anchor=tk.CENTER)
+        lots_tree.column("lot_id", width=60, anchor=tk.CENTER)
+        lots_tree.column("date", width=100, anchor=tk.CENTER)
+        lots_tree.column("qty", width=60, anchor=tk.E)
+        lots_tree.column("cost", width=100, anchor=tk.E)
+        lots_tree.column("selling", width=100, anchor=tk.E)
+        lots_tree.column("margin", width=70, anchor=tk.E)
+
+        # Add scrollbars
+        v_scroll = ttk.Scrollbar(lots_frame, orient=tk.VERTICAL, command=lots_tree.yview)
+        h_scroll = ttk.Scrollbar(lots_frame, orient=tk.HORIZONTAL, command=lots_tree.xview)
+        lots_tree.configure(yscroll=v_scroll.set, xscroll=h_scroll.set)
+
+        # Grid layout for tree and scrollbars
+        lots_tree.grid(row=0, column=0, sticky=tk.NSEW)
+        v_scroll.grid(row=0, column=1, sticky=tk.NS)
+        h_scroll.grid(row=1, column=0, sticky=tk.EW)
+
+        lots_frame.columnconfigure(0, weight=1)
+        lots_frame.rowconfigure(0, weight=1)
+
+        # Populate lots
+        for i, lot in enumerate(lots):
+            margin = ""
+            if lot.selling_price and lot.cost_price:
+                margin_pct = ((lot.selling_price - lot.cost_price) / lot.selling_price) * 100
+                margin = f"{margin_pct:.1f}%"
+
+            # Mark current lot
+            is_current = "✓" if lot.lot_id == current_lot_id else ""
+            
+            iid = lots_tree.insert("", tk.END, values=(
+                is_current,
+                lot.lot_id,
+                lot.purchase_date or "",
+                lot.quantity_remaining,
+                f"{self.currency_symbol} {lot.cost_price:.2f}" if lot.cost_price else "--",
+                f"{self.currency_symbol} {lot.selling_price:.2f}" if lot.selling_price else "--",
+                margin
+            ))
+            
+            # Highlight current lot row
+            if lot.lot_id == current_lot_id:
+                lots_tree.item(iid, tags=("current_lot",))
+        
+        # Configure tag for current lot
+        lots_tree.tag_configure("current_lot", background="#c8e6c9", foreground="#1b5e20")
+        
+        # Configure selection styling for better visibility
+        style = ttk.Style()
+        style.configure("Treeview", rowheight=25)
+        
+        # Bind double-click to select lot
+        lots_tree.bind("<Double-1>", lambda e: self._on_lot_selected(lots_tree))
+        
+        # If there's a preferred lot set, move it to the top and auto-select it
+        if current_lot_id:
+            preferred_lot_id = get_preferred_lot(self.existing.get("item_id"))
+            logger.debug(f"Pricing init: current_lot_id={current_lot_id}, preferred_lot_id={preferred_lot_id}")
+            if preferred_lot_id:
+                logger.info(f"Pricing init: Moving preferred lot {preferred_lot_id} to top")
+                # Find the preferred lot in the tree
+                for item_id in lots_tree.get_children():
+                    values = lots_tree.item(item_id)['values']
+                    logger.debug(f"Pricing init: Checking tree item, values[1]={values[1] if len(values) > 1 else 'N/A'}")
+                    if len(values) > 1 and values[1] == preferred_lot_id:
+                        logger.info(f"Pricing init: Found preferred lot {preferred_lot_id} in tree, moving to top")
+                        # Remove from current position
+                        lots_tree.delete(item_id)
+                        # Reinsert at top
+                        new_id = lots_tree.insert("", 0, values=values)
+                        lots_tree.item(new_id, tags=("current_lot",))
+                        # Store the selected lot
+                        self.selected_lot_id = preferred_lot_id
+                        logger.info(f"Pricing init: Auto-set self.selected_lot_id={preferred_lot_id}")
+                        # Update label
+                        qty = values[3]
+                        cost = values[4]
+                        selling = values[5]
+                        margin = values[6]
+                        status_text = f"Selected: Lot {preferred_lot_id} | Qty: {qty} | Cost: {cost} | Selling: {selling} | Margin: {margin}"
+                        if hasattr(self, 'selected_lot_label'):
+                            self.selected_lot_label.config(text=status_text, foreground=get_status_color("success"))
+                        break
+            else:
+                logger.debug(f"Pricing init: No preferred lot found, current_lot_id from method")
+        else:
+            logger.debug(f"Pricing init: current_lot_id is None")
+        
+        # Add double-click binding to handle lot selection
+        lots_tree.bind("<Double-1>", lambda e: self._on_lot_selected(lots_tree))
+        # Add single-click binding to show lot master data
+        lots_tree.bind("<Button-1>", lambda e: self._on_lot_clicked(lots_tree))
+        
+        # Add a label to show selected lot
+        selected_lot_label = ttk.Label(scrollable_frame, text="(Double-click a lot to select)", font=("Segoe UI", 8, "italic"), foreground=get_status_color("text_light"))
+        selected_lot_label.grid(row=row+1, column=0, columnspan=2, sticky=tk.W, padx=10, pady=(5, 0))
+        self.selected_lot_label = selected_lot_label
+        self.pricing_widgets.append(selected_lot_label)
+
+    def _build_portion_lots_table(self, scrollable_frame, row):
+        """Build the portion breakdown table for special volume items."""
+        from modules import portions
+        
+        # Store the container frame and row for refreshing
+        self.portions_container_frame = scrollable_frame
+        self.portions_table_row = row
+        
+        # Get the selected lot ID from the dropdown
+        selected_lot_str = self.preferred_lot_var.get()
+        selected_lot_id = None
+        if selected_lot_str:
+            import re
+            match = re.match(r"Lot (\d+)", selected_lot_str)
+            if match:
+                selected_lot_id = int(match.group(1))
+        
+        # Get portions for this item, filtered by selected lot if one is selected
+        item_portions = portions.list_portions(self.existing.get("item_id"), active_only=True)
+        
+        if selected_lot_id:
+            # Filter portions by the selected lot
+            item_portions = [p for p in item_portions if p.get('lot_id') == selected_lot_id]
+        
+        if not item_portions:
+            self.portions_no_data_label = ttk.Label(scrollable_frame, text="No portions configured for selected lot", font=("Segoe UI", 9), foreground=get_status_color("text_light"))
+            self.portions_no_data_label.grid(row=row, column=0, columnspan=2, sticky=tk.W, padx=10)
+            self.pricing_widgets.append(self.portions_no_data_label)
+            # Clear any existing table references
+            self.portions_frame = None
+            self.portions_tree = None
+            return
+        
+        # Clear any existing no data label
+        if hasattr(self, 'portions_no_data_label') and self.portions_no_data_label:
+            self.portions_no_data_label.destroy()
+            self.portions_no_data_label = None
+        
+        # Create treeview for portions
+        self.portions_frame = ttk.Frame(scrollable_frame)
+        self.portions_frame.grid(row=row, column=0, columnspan=2, sticky=tk.EW, padx=10, pady=(0, 10))
+        self.pricing_widgets.append(self.portions_frame)
+
+        # Treeview columns for portions
+        columns = ("portion_name", "lot_id", "cost_price", "selling_price", "margin")
+        self.portions_tree = ttk.Treeview(self.portions_frame, columns=columns, show="headings", height=min(len(item_portions) + 1, 8), selectmode="browse")
+        
+        # Define column headings and widths
+        self.portions_tree.heading("portion_name", text="Portion Name")
+        self.portions_tree.heading("lot_id", text="Lot")
+        self.portions_tree.heading("cost_price", text=f"Cost Price ({self.currency_symbol})")
+        self.portions_tree.heading("selling_price", text=f"Selling Price ({self.currency_symbol})")
+        self.portions_tree.heading("margin", text="Margin (%)")
+
+        self.portions_tree.column("portion_name", width=120, anchor=tk.W)
+        self.portions_tree.column("lot_id", width=80, anchor=tk.CENTER)
+        self.portions_tree.column("cost_price", width=100, anchor=tk.E)
+        self.portions_tree.column("selling_price", width=100, anchor=tk.E)
+        self.portions_tree.column("margin", width=80, anchor=tk.E)
+
+        # Add scrollbars
+        v_scroll = ttk.Scrollbar(self.portions_frame, orient=tk.VERTICAL, command=self.portions_tree.yview)
+        h_scroll = ttk.Scrollbar(self.portions_frame, orient=tk.HORIZONTAL, command=self.portions_tree.xview)
+        self.portions_tree.configure(yscroll=v_scroll.set, xscroll=h_scroll.set)
+
+        # Grid layout for tree and scrollbars
+        self.portions_tree.grid(row=0, column=0, sticky=tk.NSEW)
+        v_scroll.grid(row=0, column=1, sticky=tk.NS)
+        h_scroll.grid(row=1, column=0, sticky=tk.EW)
+
+        self.portions_frame.columnconfigure(0, weight=1)
+        self.portions_frame.rowconfigure(0, weight=1)
+
+        # Populate portions
+        for portion in item_portions:
+            cost_price = float(portion.get('cost_price', 0))
+            selling_price = float(portion.get('selling_price', 0))
+            margin = ((selling_price - cost_price) / selling_price * 100) if selling_price > 0 else 0
+            lot_id = portion.get('lot_id', '')
+            lot_display = f"Lot {lot_id}" if lot_id else "No Lot"
+            
+            self.portions_tree.insert("", tk.END, values=(
+                portion['portion_name'],
+                lot_display,
+                f"{self.currency_symbol} {cost_price:.2f}",
+                f"{self.currency_symbol} {selling_price:.2f}",
+                f"{margin:.1f}%" if selling_price > 0 else "N/A"
+            ))
+        
+        # Configure selection styling for better visibility
+        style = ttk.Style()
+        style.configure("Treeview", rowheight=25)
+        
+        # Add info label for portions
+        portions_info_label = ttk.Label(scrollable_frame, 
+            text="Portion-based pricing: Each portion has individual cost and selling prices. When a lot is selected, only portions for that lot are shown.",
+            font=("Segoe UI", 8, "italic"), foreground=get_status_color("text_light"))
+        portions_info_label.grid(row=row+1, column=0, columnspan=2, sticky=tk.W, padx=10, pady=(5, 0))
+        self.pricing_widgets.append(portions_info_label)
 
     def _build_advanced_tab(self, parent: ttk.Frame) -> None:
         """Build the advanced settings tab."""
@@ -696,10 +1014,18 @@ class SimplifiedItemDialog:
         # Update unit of measure list based on item type
         if hasattr(self, 'unit_combo'):
             new_units = self._get_unit_list()
-            self.unit_combo['values'] = new_units
             current_unit = self.fields["unit_of_measure"].get()
-            # If current unit is not valid for this item type, reset to first option
-            if current_unit not in new_units and new_units:
+            
+            # For existing items, preserve the saved unit by adding it to the list if needed
+            if self.existing and current_unit and current_unit not in new_units:
+                # Add the existing unit to the list so user can see it's selected
+                new_units = list(new_units) + [current_unit]
+                new_units = sorted(set(new_units), key=str.lower)  # Remove duplicates and sort
+            
+            self.unit_combo['values'] = new_units
+            
+            # For new items, reset to first option if current isn't valid
+            if not self.existing and current_unit not in new_units and new_units:
                 self.fields["unit_of_measure"].set(new_units[0])
                 self._on_unit_change()
 
@@ -751,17 +1077,18 @@ class SimplifiedItemDialog:
         unit = self.fields["unit_of_measure"].get().lower()
         item_type = self.fields["item_type"].get()
 
-        # Set default package sizes for common units
+        # Autofill package size based on unit multiplier
         if item_type == "measurable":
-            if "liter" in unit or "l" == unit or "litre" in unit:
-                if not self.fields["package_size"].get() or self.fields["package_size"].get() == "1":
-                    self.fields["package_size"].set("1000")  # 1000ml per liter
-            elif "kilo" in unit or "kg" in unit:
-                if not self.fields["package_size"].get() or self.fields["package_size"].get() == "1":
-                    self.fields["package_size"].set("1000")  # 1000g per kg
-            elif "meter" in unit or "m" == unit or "metre" in unit:
-                if not self.fields["package_size"].get() or self.fields["package_size"].get() == "1":
-                    self.fields["package_size"].set("100")  # 100cm per meter
+            try:
+                # Get unit info to extract the multiplier
+                unit_info = get_unit_info_from_name(unit)
+                multiplier = unit_info.get("multiplier", 1)
+                
+                # Always set package_size to the multiplier when unit changes
+                # This ensures accurate conversion factors for different units
+                self.fields["package_size"].set(str(multiplier))
+            except Exception as e:
+                logger.debug(f"Error getting unit info: {e}")
 
         self._on_item_type_change()
 
@@ -779,6 +1106,7 @@ class SimplifiedItemDialog:
         current_unit = self.fields["unit_of_measure"].get() if "unit_of_measure" in self.fields else None
         
         # Open management dialog with current unit
+        from ui.manage_portions import ManagePortionsDialog
         ManagePortionsDialog(self.parent, self.existing['item_id'], unit_of_measure=current_unit)
 
     def _on_variants_change(self) -> None:
@@ -829,6 +1157,264 @@ class SimplifiedItemDialog:
         except Exception:
             logger.exception('Error toggling variant tabs')
 
+    def _on_lot_selected(self, lots_tree) -> None:
+        """Handle lot double-click selection and move to top."""
+        # Get the item that was clicked
+        selection = lots_tree.selection()
+        if not selection:
+            logger.debug("_on_lot_selected: No selection found")
+            return
+        
+        selected_item_id = selection[0]
+        values = lots_tree.item(selected_item_id)['values']
+        logger.debug(f"_on_lot_selected: values length={len(values)}, values={values}")
+        
+        # values: (current, lot_id, date, qty, cost, selling, margin)
+        if len(values) > 1:
+            lot_id = values[1]
+            logger.info(f"_on_lot_selected: Lot {lot_id} selected (storing in self.selected_lot_id)")
+            qty = values[3]
+            cost_str = values[4]
+            selling_str = values[5]
+            margin = values[6]
+            
+            # Store the selected lot_id for saving
+            self.selected_lot_id = lot_id
+            logger.info(f"_on_lot_selected: Stored self.selected_lot_id={lot_id} for persistence")
+            
+            # Update master pricing fields with lot's prices
+            try:
+                # Parse cost price (remove currency symbol and spaces)
+                if cost_str and cost_str != "--":
+                    cost_price = float(str(cost_str).replace(self.currency_symbol, "").replace(" ", "").strip())
+                    self.master_cost_price_var.set(f"{cost_price:.2f}")
+                    logger.debug(f"_on_lot_selected: Updated master cost price to {cost_price}")
+                
+                # Parse selling price (remove currency symbol and spaces)
+                if selling_str and selling_str != "--":
+                    selling_price = float(str(selling_str).replace(self.currency_symbol, "").replace(" ", "").strip())
+                    self.master_selling_price_var.set(f"{selling_price:.2f}")
+                    logger.debug(f"_on_lot_selected: Updated master selling price to {selling_price}")
+            except (ValueError, AttributeError) as e:
+                logger.warning(f"_on_lot_selected: Could not parse prices from lot data: {e}")
+            
+            # Remove the item from its current position
+            lots_tree.delete(selected_item_id)
+            
+            # Reinsert it at the top (index 0)
+            new_id = lots_tree.insert("", 0, values=values)
+            
+            # Apply green highlight to the moved item
+            lots_tree.item(new_id, tags=("current_lot",))
+            
+            # Select the moved item
+            lots_tree.selection_set(new_id)
+            
+            # Update the label to show selected lot details
+            status_text = f"Selected: Lot {lot_id} | Qty: {qty} | Cost: {cost} | Selling: {selling} | Margin: {margin}"
+            if hasattr(self, 'selected_lot_label'):
+                self.selected_lot_label.config(text=status_text, foreground=get_status_color("success"))
+            
+            logger.debug(f"Lot selected and moved to top: {lot_id} - Qty: {qty}, Cost: {cost}, Selling: {selling}")
+
+    def _on_lot_clicked(self, lots_tree) -> None:
+        """Handle lot click to show its master pricing data."""
+        selection = lots_tree.selection()
+        if not selection:
+            self.selected_lot_id = None
+            return
+        
+        try:
+            selected_item_id = selection[0]
+            values = lots_tree.item(selected_item_id)['values']
+            
+            # values: (current, lot_id, date, qty, cost, selling, margin)
+            if len(values) > 5:
+                lot_id = values[1]
+                cost_str = values[4]  # Cost value as formatted string
+                selling_str = values[5]  # Selling value as formatted string
+                
+                # Store the selected lot ID for saving
+                self.selected_lot_id = lot_id
+                logger.debug(f"_on_lot_clicked: Stored self.selected_lot_id = {lot_id}")
+                
+                # Parse the values (they might have currency symbols)
+                try:
+                    # Remove currency symbols and parse
+                    cost_value = float(str(cost_str).replace(self.currency_symbol, "").replace(" ", "").strip())
+                    self.master_cost_price_var.set(f"{cost_value:.2f}")
+                except (ValueError, AttributeError):
+                    pass
+                
+                try:
+                    if selling_str and selling_str != "--":
+                        selling_value = float(str(selling_str).replace(self.currency_symbol, "").replace(" ", "").strip())
+                        self.master_selling_price_var.set(f"{selling_value:.2f}")
+                except (ValueError, AttributeError):
+                    pass
+                
+                logger.debug(f"_on_lot_clicked: Lot {lot_id} selected - cost={cost_str}, selling={selling_str}")
+                
+        except Exception as e:
+            logger.debug(f"_on_lot_clicked: Error updating master prices: {e}")
+
+    def _on_preferred_lot_changed(self, event=None) -> None:
+        """Handle preferred lot selection change."""
+        selection = self.preferred_lot_var.get()
+        
+        if not self.existing or not self.existing.get("item_id") or not selection:
+            return
+        
+        try:
+            # Extract lot_id from selection string "Lot {lot_id} - ..."
+            import re
+            match = re.match(r"Lot (\d+)", selection)
+            if match:
+                lot_id = int(match.group(1))
+                from modules.inventory_costing import set_item_preferred_lot
+                set_item_preferred_lot(self.existing.get("item_id"), lot_id)
+                self.selected_lot_id = lot_id
+                logger.info(f"Set preferred lot {lot_id} for item {self.existing.get('item_id')}")
+                
+                # Update master pricing fields with the selected lot's prices
+                if hasattr(self, 'master_cost_price_var') and hasattr(self, 'master_selling_price_var'):
+                    from modules.inventory_costing import get_stock_lots
+                    lots = get_stock_lots(self.existing.get("item_id"))
+                    selected_lot = next((lot for lot in lots if lot.lot_id == lot_id), None)
+                    if selected_lot:
+                        self._update_master_prices_for_lot(selected_lot)
+                
+                # Update the lots tree to reflect the new preferred lot
+                if hasattr(self, 'lots_tree') and self.lots_tree:
+                    # Clear existing current markers
+                    for item_id in self.lots_tree.get_children():
+                        self.lots_tree.item(item_id, tags=())
+                    
+                    # Mark the new preferred lot
+                    for item_id in self.lots_tree.get_children():
+                        values = self.lots_tree.item(item_id)['values']
+                        if len(values) > 1 and values[1] == lot_id:
+                            self.lots_tree.item(item_id, tags=("current_lot",))
+                            break
+                
+                # Refresh the portion table if this is a special volume item
+                if self.existing.get("is_special_volume", False):
+                    self._refresh_portion_table()
+        except Exception as e:
+            logger.error(f"Error updating preferred lot: {e}")
+
+    def _update_master_prices_for_lot(self, lot) -> None:
+        """Update master pricing fields with the selected lot's prices."""
+        if not lot:
+            return
+        
+        try:
+            # Update cost price
+            if hasattr(self, 'master_cost_price_var'):
+                self.master_cost_price_var.set(f"{lot.cost_price:.2f}")
+            
+            # Update selling price if available (only for regular items)
+            if hasattr(self, 'master_selling_price_var') and lot.selling_price:
+                self.master_selling_price_var.set(f"{lot.selling_price:.2f}")
+            
+            logger.debug(f"Updated master prices for lot {lot.lot_id}: cost={lot.cost_price}, selling={lot.selling_price}")
+        except Exception as e:
+            logger.error(f"Error updating master prices for lot {lot.lot_id}: {e}")
+
+    def _refresh_portion_table(self):
+        """Refresh the portion table based on current lot selection."""
+        if not hasattr(self, 'portions_container_frame') or not self.portions_container_frame:
+            return  # Table not built yet
+        
+        from modules import portions
+        
+        # Get the selected lot ID from the dropdown
+        selected_lot_str = self.preferred_lot_var.get()
+        selected_lot_id = None
+        if selected_lot_str:
+            import re
+            match = re.match(r"Lot (\d+)", selected_lot_str)
+            if match:
+                selected_lot_id = int(match.group(1))
+        
+        # Get portions for this item, filtered by selected lot if one is selected
+        item_portions = portions.list_portions(self.existing.get("item_id"), active_only=True)
+        
+        if selected_lot_id:
+            # Filter portions by the selected lot
+            item_portions = [p for p in item_portions if p.get('lot_id') == selected_lot_id]
+        
+        # Clear existing table if it exists
+        if hasattr(self, 'portions_frame') and self.portions_frame:
+            self.portions_frame.destroy()
+            self.portions_frame = None
+            self.portions_tree = None
+        
+        # Clear existing no data label if it exists
+        if hasattr(self, 'portions_no_data_label') and self.portions_no_data_label:
+            self.portions_no_data_label.destroy()
+            self.portions_no_data_label = None
+        
+        if not item_portions:
+            self.portions_no_data_label = ttk.Label(self.portions_container_frame, text="No portions configured for selected lot", font=("Segoe UI", 9), foreground=get_status_color("text_light"))
+            self.portions_no_data_label.grid(row=self.portions_table_row, column=0, columnspan=2, sticky=tk.W, padx=10)
+            self.pricing_widgets.append(self.portions_no_data_label)
+            return
+        
+        # Create treeview for portions
+        self.portions_frame = ttk.Frame(self.portions_container_frame)
+        self.portions_frame.grid(row=self.portions_table_row, column=0, columnspan=2, sticky=tk.EW, padx=10, pady=(0, 10))
+        self.pricing_widgets.append(self.portions_frame)
+
+        # Treeview columns for portions
+        columns = ("portion_name", "lot_id", "cost_price", "selling_price", "margin")
+        self.portions_tree = ttk.Treeview(self.portions_frame, columns=columns, show="headings", height=min(len(item_portions) + 1, 8), selectmode="browse")
+        
+        # Define column headings and widths
+        self.portions_tree.heading("portion_name", text="Portion Name")
+        self.portions_tree.heading("lot_id", text="Lot")
+        self.portions_tree.heading("cost_price", text=f"Cost Price ({self.currency_symbol})")
+        self.portions_tree.heading("selling_price", text=f"Selling Price ({self.currency_symbol})")
+        self.portions_tree.heading("margin", text="Margin (%)")
+
+        self.portions_tree.column("portion_name", width=120, anchor=tk.W)
+        self.portions_tree.column("lot_id", width=80, anchor=tk.CENTER)
+        self.portions_tree.column("cost_price", width=100, anchor=tk.E)
+        self.portions_tree.column("selling_price", width=100, anchor=tk.E)
+        self.portions_tree.column("margin", width=80, anchor=tk.E)
+
+        # Add scrollbars
+        v_scroll = ttk.Scrollbar(self.portions_frame, orient=tk.VERTICAL, command=self.portions_tree.yview)
+        h_scroll = ttk.Scrollbar(self.portions_frame, orient=tk.HORIZONTAL, command=self.portions_tree.xview)
+        self.portions_tree.configure(yscroll=v_scroll.set, xscroll=h_scroll.set)
+
+        # Grid layout for tree and scrollbars
+        self.portions_tree.grid(row=0, column=0, sticky=tk.NSEW)
+        v_scroll.grid(row=0, column=1, sticky=tk.NS)
+        h_scroll.grid(row=1, column=0, sticky=tk.EW)
+
+        self.portions_frame.columnconfigure(0, weight=1)
+        self.portions_frame.rowconfigure(0, weight=1)
+
+        # Populate portions
+        for portion in item_portions:
+            cost_price = float(portion.get('cost_price', 0))
+            selling_price = float(portion.get('selling_price', 0))
+            margin = ((selling_price - cost_price) / selling_price * 100) if selling_price > 0 else 0
+            lot_id = portion.get('lot_id', '')
+            lot_display = f"Lot {lot_id}" if lot_id else "No Lot"
+            
+            self.portions_tree.insert("", tk.END, values=(
+                portion['portion_name'],
+                lot_display,
+                f"{self.currency_symbol} {cost_price:.2f}",
+                f"{self.currency_symbol} {selling_price:.2f}",
+                f"{margin:.1f}%" if selling_price > 0 else "N/A"
+            ))
+        
+        # Configure selection styling for better visibility
+        style = ttk.Style()
+        style.configure("Treeview", rowheight=25)
 
     def _on_save(self) -> None:
         """Save the item with validation."""
@@ -865,6 +1451,41 @@ class SimplifiedItemDialog:
                 # Create or update item
                 if self.existing:
                     items.update_item(self.existing["item_id"], **item_data)
+                    
+                    # Update selected lot's selling price if a lot was clicked and price was edited
+                    if hasattr(self, 'selected_lot_id') and self.selected_lot_id:
+                        master_selling_str = self.master_selling_price_var.get().strip()
+                        if master_selling_str:
+                            try:
+                                new_selling_price = float(master_selling_str)
+                                # Update the specific lot's selling_price in database
+                                from database.init_db import get_connection
+                                with get_connection() as conn:
+                                    conn.execute(
+                                        "UPDATE stock_lots SET selling_price = ? WHERE lot_id = ? AND item_id = ?",
+                                        (new_selling_price, self.selected_lot_id, self.existing["item_id"])
+                                    )
+                                    conn.commit()
+                                logger.info(f"_on_save: Updated lot {self.selected_lot_id} selling_price to {new_selling_price}")
+                            except (ValueError, Exception) as e:
+                                logger.warning(f"_on_save: Could not update lot selling price: {e}")
+                    
+                    # Save the selected lot preference if applicable
+                    logger.info(f"_on_save: Item {self.existing['item_id']} updated, checking for selected lot preference...")
+                    logger.info(f"_on_save: hasattr(self, 'selected_lot_id')={hasattr(self, 'selected_lot_id')}, selected_lot_id value={getattr(self, 'selected_lot_id', 'ATTR_NOT_FOUND')}")
+                    
+                    if hasattr(self, 'selected_lot_id') and self.selected_lot_id:
+                        try:
+                            # Update the item's preferred lot using the inventory_costing module
+                            from modules.inventory_costing import set_item_preferred_lot
+                            logger.info(f"_on_save: Calling set_item_preferred_lot(item_id={self.existing['item_id']}, lot_id={self.selected_lot_id})")
+                            result = set_item_preferred_lot(self.existing["item_id"], self.selected_lot_id)
+                            logger.info(f"_on_save: set_item_preferred_lot returned {result}")
+                            logger.debug(f"Saved preferred lot {self.selected_lot_id} for item {self.existing['item_id']}")
+                        except (ImportError, AttributeError):
+                            # Function doesn't exist yet, just log for now
+                            logger.debug(f"Selected lot: {self.selected_lot_id} (preference saving not yet implemented)")
+                    
                     messagebox.showinfo("Success", "Item updated successfully")
                 else:
                     # Filter out keys that are not accepted by create_item signature
@@ -887,44 +1508,95 @@ class SimplifiedItemDialog:
             # Surface validation errors next to fields
             error_msg = str(e)
             if "name" in error_msg.lower():
-                self.error_labels["name"].config(text=error_msg)
+                if "name" in self.error_labels and self.error_labels["name"]:
+                    self.error_labels["name"].config(text=error_msg)
+                else:
+                    messagebox.showerror("Validation Error", error_msg)
             elif "price" in error_msg.lower() or "selling" in error_msg.lower():
-                self.error_labels["base_price"].config(text=error_msg)
+                if "base_price" in self.error_labels and self.error_labels["base_price"]:
+                    self.error_labels["base_price"].config(text=error_msg)
+                else:
+                    messagebox.showerror("Validation Error", error_msg)
             elif "cost" in error_msg.lower():
-                self.error_labels["cost_price"].config(text=error_msg)
+                if "cost_price" in self.error_labels and self.error_labels["cost_price"]:
+                    self.error_labels["cost_price"].config(text=error_msg)
+                else:
+                    messagebox.showerror("Validation Error", error_msg)
             elif "quantity" in error_msg.lower():
-                self.error_labels["quantity"].config(text=error_msg)
+                if "quantity" in self.error_labels and self.error_labels["quantity"]:
+                    self.error_labels["quantity"].config(text=error_msg)
+                else:
+                    messagebox.showerror("Validation Error", error_msg)
             elif "barcode" in error_msg.lower():
-                self.error_labels["barcode"].config(text=error_msg)
+                if "barcode" in self.error_labels and self.error_labels["barcode"]:
+                    self.error_labels["barcode"].config(text=error_msg)
+                else:
+                    messagebox.showerror("Validation Error", error_msg)
             elif "category" in error_msg.lower():
-                self.error_labels["category"].config(text=error_msg)
+                if "category" in self.error_labels and self.error_labels["category"]:
+                    self.error_labels["category"].config(text=error_msg)
+                else:
+                    messagebox.showerror("Validation Error", error_msg)
             elif "vat" in error_msg.lower():
-                self.error_labels["vat_rate"].config(text=error_msg)
+                if "vat_rate" in self.error_labels and self.error_labels["vat_rate"]:
+                    self.error_labels["vat_rate"].config(text=error_msg)
+                else:
+                    messagebox.showerror("Validation Error", error_msg)
             elif "unit" in error_msg.lower():
-                self.error_labels["unit_of_measure"].config(text=error_msg)
+                if "unit_of_measure" in self.error_labels and self.error_labels["unit_of_measure"]:
+                    self.error_labels["unit_of_measure"].config(text=error_msg)
+                else:
+                    messagebox.showerror("Validation Error", error_msg)
             elif "package" in error_msg.lower() or "size" in error_msg.lower():
-                self.error_labels["package_size"].config(text=error_msg)
+                if "package_size" in self.error_labels and self.error_labels["package_size"]:
+                    self.error_labels["package_size"].config(text=error_msg)
+                else:
+                    messagebox.showerror("Validation Error", error_msg)
             elif "threshold" in error_msg.lower():
-                self.error_labels["low_stock_threshold"].config(text=error_msg)
+                if "low_stock_threshold" in self.error_labels and self.error_labels["low_stock_threshold"]:
+                    self.error_labels["low_stock_threshold"].config(text=error_msg)
+                else:
+                    messagebox.showerror("Validation Error", error_msg)
             else:
                 messagebox.showerror("Validation Error", error_msg)
         except ValueError as e:
             # Surface value errors next to fields
             error_msg = str(e)
             if "name" in error_msg.lower():
-                self.error_labels["name"].config(text="Invalid name")
+                if "name" in self.error_labels and self.error_labels["name"]:
+                    self.error_labels["name"].config(text="Invalid name")
+                else:
+                    messagebox.showerror("Invalid Input", f"Please check your input values: {e}")
             elif "price" in error_msg.lower() or "selling" in error_msg.lower():
-                self.error_labels["base_price"].config(text="Invalid price")
+                if "base_price" in self.error_labels and self.error_labels["base_price"]:
+                    self.error_labels["base_price"].config(text="Invalid price")
+                else:
+                    messagebox.showerror("Invalid Input", f"Please check your input values: {e}")
             elif "cost" in error_msg.lower():
-                self.error_labels["cost_price"].config(text="Invalid cost")
+                if "cost_price" in self.error_labels and self.error_labels["cost_price"]:
+                    self.error_labels["cost_price"].config(text="Invalid cost")
+                else:
+                    messagebox.showerror("Invalid Input", f"Please check your input values: {e}")
             elif "quantity" in error_msg.lower():
-                self.error_labels["quantity"].config(text="Invalid quantity")
+                if "quantity" in self.error_labels and self.error_labels["quantity"]:
+                    self.error_labels["quantity"].config(text="Invalid quantity")
+                else:
+                    messagebox.showerror("Invalid Input", f"Please check your input values: {e}")
             elif "vat" in error_msg.lower():
-                self.error_labels["vat_rate"].config(text="Invalid VAT rate")
+                if "vat_rate" in self.error_labels and self.error_labels["vat_rate"]:
+                    self.error_labels["vat_rate"].config(text="Invalid VAT rate")
+                else:
+                    messagebox.showerror("Invalid Input", f"Please check your input values: {e}")
             elif "threshold" in error_msg.lower():
-                self.error_labels["low_stock_threshold"].config(text="Invalid threshold")
+                if "low_stock_threshold" in self.error_labels and self.error_labels["low_stock_threshold"]:
+                    self.error_labels["low_stock_threshold"].config(text="Invalid threshold")
+                else:
+                    messagebox.showerror("Invalid Input", f"Please check your input values: {e}")
             elif "package" in error_msg.lower():
-                self.error_labels["package_size"].config(text="Invalid package size")
+                if "package_size" in self.error_labels and self.error_labels["package_size"]:
+                    self.error_labels["package_size"].config(text="Invalid package size")
+                else:
+                    messagebox.showerror("Invalid Input", f"Please check your input values: {e}")
             else:
                 messagebox.showerror("Invalid Input", f"Please check your input values: {e}")
         except Exception as e:
@@ -990,8 +1662,20 @@ class SimplifiedItemDialog:
                 "cost_price_per_unit": None,
             })
         else:
-            base_price = validate_numeric(self.fields["base_price"].get(), 0)
-            cost_price = validate_numeric(self.fields["cost_price"].get(), 0) if self.is_admin else 0
+            # Check if master pricing was explicitly set/edited  
+            master_selling_str = self.master_selling_price_var.get().strip()
+            master_cost_str = self.master_cost_price_var.get().strip()
+            
+            # Use master prices if explicitly set, otherwise use base_price/cost_price from stock
+            if master_selling_str:
+                base_price = validate_numeric(master_selling_str, 0)
+            else:
+                base_price = validate_numeric(self.fields["base_price"].get(), 0)
+                
+            if master_cost_str:
+                cost_price = validate_numeric(master_cost_str, 0) if self.is_admin else 0
+            else:
+                cost_price = validate_numeric(self.fields["cost_price"].get(), 0) if self.is_admin else 0
 
             # Warn if cost > selling (but don't block - it might be intentional for promos)
             if cost_price > 0 and base_price > 0 and base_price < cost_price:
@@ -1019,9 +1703,11 @@ class SimplifiedItemDialog:
                 package_size = validate_integer(self.fields["package_size"].get(), 1)
                 unit_multiplier = items._get_unit_multiplier(unit)
 
+                # For special volume items, don't set item-level prices since pricing is per portion
+                # Use master prices as defaults/fallbacks only
                 data.update({
-                    "selling_price": base_price * package_size,  # Total package price
-                    "cost_price": cost_price * package_size if cost_price > 0 else 0,
+                    "selling_price": 0,  # Special volume items don't use item-level selling price
+                    "cost_price": 0,  # Special volume items don't use item-level cost price
                     "is_special_volume": 1,
                     "unit_size_ml": package_size,
                     "price_per_ml": base_price / unit_multiplier,  # Price per smallest unit
@@ -1139,8 +1825,10 @@ class ManagePortionsDialog:
         set_window_icon(self.top)
         self.top.transient(parent)
         self.top.grab_set()
-        self.top.columnconfigure(0, weight=1)
-        self.top.rowconfigure(0, weight=1)
+        self.top.columnconfigure(0, weight=1)  # Tree column expands
+        self.top.columnconfigure(1, weight=0)  # Scrollbar column doesn't expand
+        self.top.rowconfigure(0, weight=1)    # Tree row expands
+        self.top.rowconfigure(1, weight=0)    # Button row doesn't expand
         
         # Get unit info for this item - use provided unit or fetch from database
         from modules import portions
@@ -1155,34 +1843,52 @@ class ManagePortionsDialog:
         self.tree = ttk.Treeview(self.top, columns=cols, show="headings", selectmode="browse")
         self.tree.heading("portion_name", text="Name")
         self.tree.heading("portion_amount", text=f"Amount ({self.small_unit})")
-        self.tree.heading("selling_price", text="Price")
+        self.tree.heading("selling_price", text="Selling Price")
         self.tree.heading("cost_price", text="Cost")
         self.tree.heading("is_active", text="Active")
-        self.tree.column("portion_name", width=200)
-        self.tree.column("portion_amount", width=100, anchor=tk.CENTER)
-        self.tree.column("selling_price", width=100, anchor=tk.E)
-        self.tree.column("cost_price", width=100, anchor=tk.E)
-        self.tree.column("is_active", width=60, anchor=tk.CENTER)
+        # Set column widths to fit without horizontal scrollbar
+        self.tree.column("portion_name", width=150, minwidth=100)
+        self.tree.column("portion_amount", width=80, minwidth=80, anchor=tk.CENTER)
+        self.tree.column("selling_price", width=80, minwidth=80, anchor=tk.E)
+        self.tree.column("cost_price", width=80, minwidth=80, anchor=tk.E)
+        self.tree.column("is_active", width=60, minwidth=60, anchor=tk.CENTER)
         self.tree.grid(row=0, column=0, sticky=tk.NSEW, padx=10, pady=(10, 0))
         
-        # Scrollbar
+        # Scrollbar (vertical only, positioned correctly)
         scrollbar = ttk.Scrollbar(self.top, orient=tk.VERTICAL, command=self.tree.yview)
-        scrollbar.grid(row=0, column=1, sticky=tk.NS, pady=(10, 0))
+        scrollbar.grid(row=0, column=1, sticky=tk.NS, pady=(10, 0), padx=(0, 10))
         self.tree.configure(yscrollcommand=scrollbar.set)
 
-        # Buttons
+        # Buttons - arrange in two rows for better visibility (using grid for consistency)
         btn_frame = ttk.Frame(self.top)
         btn_frame.grid(row=1, column=0, columnspan=2, sticky=tk.EW, padx=10, pady=10)
-        ttk.Button(btn_frame, text="Add", command=self._add).pack(side=tk.LEFT, padx=4)
-        ttk.Button(btn_frame, text="Edit", command=self._edit).pack(side=tk.LEFT, padx=4)
-        ttk.Button(btn_frame, text="Delete", command=self._delete).pack(side=tk.LEFT, padx=4)
-        ttk.Button(btn_frame, text="Toggle Active", command=self._toggle_active).pack(side=tk.LEFT, padx=4)
-        ttk.Button(btn_frame, text="Create Defaults", command=self._create_defaults).pack(side=tk.LEFT, padx=4)
-        ttk.Button(btn_frame, text="Close", command=self.top.destroy).pack(side=tk.RIGHT)
+        btn_frame.columnconfigure(0, weight=1)  # Allow buttons to expand
+        
+        # First row of buttons
+        first_row = ttk.Frame(btn_frame)
+        first_row.grid(row=0, column=0, sticky=tk.EW, pady=(0, 5))
+        first_row.columnconfigure(0, weight=1)  # Add, Edit, Delete, Toggle Active
+        first_row.columnconfigure(1, weight=1)
+        first_row.columnconfigure(2, weight=1)
+        first_row.columnconfigure(3, weight=1)
+        first_row.columnconfigure(4, weight=1)  # Close button
+        ttk.Button(first_row, text="Add", command=self._add).grid(row=0, column=0, padx=4, sticky=tk.EW)
+        ttk.Button(first_row, text="Edit", command=self._edit).grid(row=0, column=1, padx=4, sticky=tk.EW)
+        ttk.Button(first_row, text="Delete", command=self._delete).grid(row=0, column=2, padx=4, sticky=tk.EW)
+        ttk.Button(first_row, text="Toggle Active", command=self._toggle_active).grid(row=0, column=3, padx=4, sticky=tk.EW)
+        ttk.Button(first_row, text="Close", command=self.top.destroy).grid(row=0, column=4, padx=4, sticky=tk.EW)
+        
+        # Second row of buttons
+        second_row = ttk.Frame(btn_frame)
+        second_row.grid(row=1, column=0, sticky=tk.EW)
+        second_row.columnconfigure(0, weight=1)  # Create Defaults
+        second_row.columnconfigure(1, weight=1)  # Clear Portions
+        ttk.Button(second_row, text="Create Defaults", command=self._create_defaults).grid(row=0, column=0, padx=4, sticky=tk.EW)
+        ttk.Button(second_row, text="Clear Portions", command=self._clear_portions).grid(row=0, column=1, padx=4, sticky=tk.EW)
 
         # Set minimum size
         self.top.update_idletasks()
-        self.top.minsize(600, 300)
+        self.top.minsize(700, 350)
         
         self._refresh()
 
@@ -1224,9 +1930,15 @@ class ManagePortionsDialog:
         for i in self.tree.get_children():
             self.tree.delete(i)
         from modules import portions
-        rows = portions.list_portions(self.item_id, active_only=False)
+        with portions.get_connection() as conn:
+            conn.row_factory = __import__('sqlite3').Row
+            # Select only the columns we need to avoid unwanted columns in display
+            query = """SELECT portion_id, portion_name, portion_ml, selling_price, cost_price, is_active 
+                       FROM item_portions WHERE item_id = ? ORDER BY sort_order, portion_ml"""
+            rows = conn.execute(query, (self.item_id,)).fetchall()
+        
         for r in rows:
-            amount = r.get("portion_amount", r.get("portion_ml", 0))
+            amount = r["portion_ml"]
             self.tree.insert("", tk.END, iid=str(r["portion_id"]), values=(
                 r["portion_name"], 
                 f"{amount:.0f}" if amount == int(amount) else f"{amount:.2f}",
@@ -1371,3 +2083,31 @@ class ManagePortionsDialog:
             self._refresh()
         except Exception as e:
             messagebox.showerror("Error", f"Failed to create default portions: {e}")
+
+    def _clear_portions(self) -> None:
+        """Clear all portions for this item."""
+        if not messagebox.askyesno(
+            "Confirm Clear Portions",
+            "This will DELETE ALL portions for this item.\n\nThis action cannot be undone.\n\nContinue?"
+        ):
+            return
+        
+        try:
+            from modules import portions
+            # Get all portions for this item
+            all_portions = portions.list_portions(self.item_id, active_only=False)
+            
+            if not all_portions:
+                messagebox.showinfo("No Portions", "This item has no portions to clear")
+                return
+            
+            # Delete each portion
+            deleted_count = 0
+            for portion in all_portions:
+                if portions.delete_portion(portion["portion_id"]):
+                    deleted_count += 1
+            
+            messagebox.showinfo("Success", f"Deleted {deleted_count} portion(s)")
+            self._refresh()
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to clear portions: {e}")

@@ -145,6 +145,12 @@ class StockReconciliationUI(ttk.Frame):
             self._show_manage()
         elif view == "reconcile":
             self._show_reconcile()
+            # Update date format in real time when switching to reconcile view
+            self._update_stock_date_range_label()
+            # Update item counts when switching to reconcile view
+            self._update_items_count_label()
+            if self.instr_label:
+                self._update_instr_label()
 
     def _handle_action(self, action: str) -> None:
         if action == "reconcile":
@@ -557,18 +563,28 @@ class StockReconciliationUI(ttk.Frame):
             else f"{self.current_session.status.title()} (ID #{self.current_session.session_id})"
 
         period_label = self.current_session.period_type.title()
-        range_label = (f"{self.current_session.start_date} → {self.current_session.end_date}"
-                       if self.current_session.start_date
-                       else self.current_session.reconciliation_date)
+        
+        # Format dates according to system date format
+        if self.current_session.start_date:
+            start_formatted = format_date(parse_date_flexible(self.current_session.start_date))
+            end_formatted = format_date(parse_date_flexible(self.current_session.end_date))
+            range_label = f"{start_formatted} → {end_formatted}"
+        else:
+            range_label = self.current_session.reconciliation_date
 
         ttk.Label(info_frame, text=f"Period: {period_label}"
                   ).grid(row=0, column=0, sticky=tk.W, padx=(0, 20))
-        ttk.Label(info_frame, text=f"Range: {range_label}"
-                  ).grid(row=0, column=1, sticky=tk.W, padx=(0, 20))
+        
+        # Store label reference for dynamic updates
+        self.stock_recon_date_range_label = ttk.Label(info_frame, text="")
+        self.stock_recon_date_range_label.grid(row=0, column=1, sticky=tk.W, padx=(0, 20))
+        self._update_stock_date_range_label()
+        
         ttk.Label(info_frame, text=f"Status: {status_text}"
                   ).grid(row=0, column=2, sticky=tk.W, padx=(0, 20))
-        ttk.Label(info_frame, text=f"Items: {len(self.current_session.entries)}"
-                  ).grid(row=0, column=3, sticky=tk.W)
+        # Store items count label for dynamic updates
+        self.stock_items_label = ttk.Label(info_frame, text="")
+        self.stock_items_label.grid(row=0, column=3, sticky=tk.W)
 
         # Search / filter bar
         filter_frame = ttk.Frame(frame)
@@ -590,16 +606,16 @@ class StockReconciliationUI(ttk.Frame):
 
         # Instruction banner
         if self.current_session.status == "draft":
-            counted = sum(1 for e in self.current_session.entries if e.actual_closing > 0)
-            total = len(self.current_session.entries)
-            instr_frame = ttk.Frame(frame, style="Card.TLabelframe")
-            instr_frame.pack(fill=tk.X, pady=(0, 5))
-            instr_text = (f"📋  {total} items loaded.  "
-                         f"Double-click the 'Actual Count' column to enter your physical stock counts.  "
-                         f"({counted}/{total} counted)")
-            ttk.Label(instr_frame, text=instr_text,
+            self.instr_frame = ttk.Frame(frame, style="Card.TLabelframe")
+            self.instr_frame.pack(fill=tk.X, pady=(0, 5))
+            # Store label reference for dynamic updates
+            self.instr_label = ttk.Label(self.instr_frame, text="",
                       font=("Segoe UI", 10), foreground=get_status_color("info"),
-                      padding=(8, 6)).pack(fill=tk.X)
+                      padding=(8, 6))
+            self.instr_label.pack(fill=tk.X)
+        else:
+            self.instr_label = None
+            self.instr_frame = None
 
         # Main table
         cols = ("item", "opening", "received", "pos_sales", "other_out",
@@ -636,6 +652,11 @@ class StockReconciliationUI(ttk.Frame):
 
         # Load data
         self._load_recon_data()
+
+        # Update display labels after tree is fully loaded
+        self._update_items_count_label()
+        if self.instr_label:
+            self._update_instr_label()
 
         # Tip
         ttk.Label(frame, text="💡 Double-click the 'Actual Count' column to enter physical counts",
@@ -691,6 +712,29 @@ class StockReconciliationUI(ttk.Frame):
             filter_text=self._search_var.get(),
             variance_only=self._show_variance_only.get(),
         )
+        # Update item counts and instruction text after filtering
+        self._update_items_count_label()
+        if self.instr_label:
+            self._update_instr_label()
+
+    def _update_items_count_label(self) -> None:
+        """Update the items count label with current filtered item count."""
+        if not hasattr(self, 'stock_items_label') or not self.stock_items_label:
+            return
+        item_count = len(self.recon_tree.get_children())
+        self.stock_items_label.config(text=f"Items: {item_count}")
+
+    def _update_instr_label(self) -> None:
+        """Update the instruction banner with current counted/total items."""
+        if not self.instr_label or not self.current_session:
+            return
+        # Count items with actual_closing > 0
+        counted = sum(1 for e in self.current_session.entries if e.actual_closing > 0)
+        total = len(self.current_session.entries)
+        instr_text = (f"📋  {total} items loaded.  "
+                     f"Double-click the 'Actual Count' column to enter your physical stock counts.  "
+                     f"({counted}/{total} counted)")
+        self.instr_label.config(text=instr_text)
 
     def _on_double_click(self, event) -> None:
         region = self.recon_tree.identify_region(event.x, event.y)
@@ -767,6 +811,9 @@ class StockReconciliationUI(ttk.Frame):
                         break
 
                 self._update_summary()
+                # Update instruction label when item count changes
+                if self.instr_label:
+                    self._update_instr_label()
             except ValueError:
                 messagebox.showerror("Invalid Input", "Please enter a valid number.")
             finally:
@@ -775,6 +822,21 @@ class StockReconciliationUI(ttk.Frame):
         entry.bind("<Return>", lambda e: save())
         entry.bind("<Escape>", lambda e: entry.destroy())
         entry.bind("<FocusOut>", lambda e: save())
+
+    def _update_stock_date_range_label(self) -> None:
+        """Update the date range label with current system date format (real-time response)."""
+        if not hasattr(self, 'stock_recon_date_range_label') or not self.current_session:
+            return
+        
+        # Format dates according to system date format (respects real-time changes)
+        if self.current_session.start_date:
+            start_formatted = format_date(parse_date_flexible(self.current_session.start_date))
+            end_formatted = format_date(parse_date_flexible(self.current_session.end_date))
+            range_label = f"{start_formatted} → {end_formatted}"
+        else:
+            range_label = self.current_session.reconciliation_date
+        
+        self.stock_recon_date_range_label.config(text=f"Range: {range_label}")
 
     def _update_summary(self) -> None:
         """Update the summary bar."""

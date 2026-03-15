@@ -40,7 +40,8 @@ from modules.reconciliation_core import (
     add_variance_explanation_to_db,  # Added for persisting in-memory explanations
     save_reconciliation_session,  # Added for saving sessions
     delete_reconciliation_session,  # Added for deleting sessions
-    get_reconciliation_explanations  # Added for getting explanations from DB
+    get_reconciliation_explanations,  # Added for getting explanations from DB
+    get_reconciliation_sessions  # Added for loading sessions via service layer
 )
 from utils.theme import get_theme_colors, apply_theme_to_root, get_status_color
 from utils.app_config import get_or_create_config
@@ -51,6 +52,81 @@ from utils.i18n import get_currency_symbol
 from modules import permissions
 
 logger = logging.getLogger(__name__)
+
+
+def generate_session_display_name(session: ReconciliationSession, for_list: bool = False) -> str:
+    """
+    Generate a human-readable display name for a reconciliation session.
+
+    Args:
+        session: The reconciliation session object
+        for_list: If True, generate a shorter name suitable for session lists
+
+    Returns:
+        A descriptive session name
+    """
+    if session.session_id is None:
+        return "Draft - Unsaved Session"
+
+    # Format the reconciliation date
+    try:
+        formatted_date = format_date(session.date)
+    except:
+        formatted_date = session.date
+
+    # Get status with better formatting
+    status_map = {
+        'draft': 'Draft',
+        'completed': 'Completed',
+        'approved': 'Approved',
+        'rejected': 'Rejected'
+    }
+    status_display = status_map.get(session.status.lower(), session.status.title())
+
+    # Format period type
+    period_display = session.period_type.title()
+
+    if for_list:
+        # Shorter format for session lists: "Mar 14, 2026 - Daily (Draft)"
+        return f"{formatted_date} - {period_display} ({status_display})"
+    else:
+        # Full format for session details: "Daily Reconciliation - March 14, 2026 (Draft)"
+        return f"{period_display} Reconciliation - {formatted_date} ({status_display})"
+
+
+def generate_session_list_name(session_id: int, reconciliation_date: str, period_type: str, status: str) -> str:
+    """
+    Generate a display name for sessions in lists from database fields.
+
+    Args:
+        session_id: The session ID
+        reconciliation_date: The reconciliation date string
+        period_type: The period type (daily, weekly, etc.)
+        status: The session status
+
+    Returns:
+        A descriptive session name for lists
+    """
+    # Format the reconciliation date
+    try:
+        formatted_date = format_date(reconciliation_date)
+    except:
+        formatted_date = reconciliation_date
+
+    # Get status with better formatting
+    status_map = {
+        'draft': 'Draft',
+        'completed': 'Completed',
+        'approved': 'Approved',
+        'rejected': 'Rejected'
+    }
+    status_display = status_map.get(status.lower(), status.title())
+
+    # Format period type
+    period_display = period_type.title()
+
+    # Format: "Mar 14, 2026 - Daily (Draft)"
+    return f"{formatted_date} - {period_display} ({status_display})"
 
 
 class ComprehensiveReconciliationUI(ttk.Frame):
@@ -69,6 +145,12 @@ class ComprehensiveReconciliationUI(ttk.Frame):
         self.currency_symbol = get_currency_symbol()
         self.current_session: Optional[ReconciliationSession] = None
         self.on_home = on_home
+        
+        # Track sessions that have been marked for review in this app session
+        self.marked_sessions_set: set = set()
+        
+        # Track the currently open dialog to prevent multiple dialogs at once
+        self.current_dialog: Optional[tk.Toplevel] = None
 
         # Get database path from config
         app_dir = Path(__file__).parent.parent
@@ -104,7 +186,7 @@ class ComprehensiveReconciliationUI(ttk.Frame):
         nav_options = [
             ("create", "Create Session"),
             ("manage", "Manage Sessions"),
-            ("reconcile", "Save Data"),
+            ("reconcile", "🔄 Refresh Data"),
             ("save_draft", "💾 Save as Draft"),
             ("complete", "✅ Complete Reconciliation")
         ]
@@ -126,6 +208,10 @@ class ComprehensiveReconciliationUI(ttk.Frame):
         # Content area - use a container to hold cached view frames
         self.content_container = ttk.Frame(main_container)
         self.content_container.pack(fill=tk.BOTH, expand=True)
+        
+        # Configure grid for proper expansion
+        self.content_container.grid_rowconfigure(0, weight=1)
+        self.content_container.grid_columnconfigure(0, weight=1)
 
         # Cache for view frames to avoid recreating them
         self.view_frames = {}
@@ -174,22 +260,8 @@ class ComprehensiveReconciliationUI(ttk.Frame):
             elif view == "manage":
                 self.view_frames[view] = self._show_manage_sessions()
             elif view == "reconcile":
-                # Save current work before showing reconciliation view
-                if self.current_session and self.current_session.session_id is None:
-                    # New unsaved session - save it first
-                    try:
-                        session_id = self._save_new_session_to_database()
-                        self.current_session.session_id = session_id
-                    except Exception as e:
-                        messagebox.showerror("Save Error", f"Failed to save session: {str(e)}")
-                        return
-                elif self.current_session and self.current_session.session_id is not None:
-                    # Existing session - save current changes
-                    try:
-                        self._save_session()
-                    except Exception as e:
-                        messagebox.showerror("Save Error", f"Failed to save changes: {str(e)}")
-                        return
+                # No automatic saving when switching to reconcile view
+                # Users must explicitly save as draft or complete reconciliation
                 self.view_frames[view] = self._show_reconciliation()
         else:
             # Refresh data for existing views if needed
@@ -198,9 +270,10 @@ class ComprehensiveReconciliationUI(ttk.Frame):
             elif view == "reconcile":
                 self._load_session_data()
                 self._update_totals()
+                self._update_recon_date_range_label()  # Update date format in real time
         
         # Show the cached view
-        self.view_frames[view].grid(row=0, column=0, sticky=tk.NSEW)
+        self.view_frames[view].grid(row=0, column=0, sticky=tk.NSEW, padx=0, pady=0)
         self.current_view_frame = self.view_frames[view]
 
     def _handle_nav_action(self, action: str) -> None:
@@ -211,30 +284,33 @@ class ComprehensiveReconciliationUI(ttk.Frame):
             self._complete_reconciliation()
 
     def _show_reconcile_status_dialog(self) -> None:
-        """Save current reconciliation data and refresh the view."""
+        """Refresh current reconciliation data and update the view without saving."""
         if not self.current_session:
             messagebox.showerror("No Session", "No active reconciliation session.")
             return
 
         try:
-            # Save current session (which refreshes cash_out from expenses)
-            if self.current_session.session_id is None:
-                # New unsaved session - save it first
-                session_id = self._save_new_session_to_database()
-                self.current_session.session_id = session_id
-            else:
-                # Existing session - save current changes
-                self._save_session()
+            # Refresh cash_out from current expenses (without saving to database)
+            from modules.expenses import get_expenses_total_by_payment_method
+            expenses_by_method = get_expenses_total_by_payment_method(
+                self.current_session.start_date,
+                self.current_session.end_date
+            )
+
+            # Update items with current expense values (in memory only)
+            for item in self.current_session.items:
+                item.cash_out = expenses_by_method.get(item.payment_method, 0.0)
+                item.update_variance()
 
             # Refresh the current view to show updated calculations
             if self.current_view == "reconcile":
                 self._load_session_data()
                 self._update_totals()
-            
-            messagebox.showinfo("Success", "Reconciliation data saved and refreshed successfully!")
+
+            messagebox.showinfo("Success", "Reconciliation data refreshed successfully!")
 
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to save data: {str(e)}")
+            messagebox.showerror("Error", f"Failed to refresh data: {str(e)}")
 
     def _show_create_session(self) -> ttk.Frame:
         """Show session creation interface."""
@@ -316,11 +392,11 @@ class ComprehensiveReconciliationUI(ttk.Frame):
         self.quick_date_var = tk.StringVar(value="30 Days")
         self.session_count_var = tk.StringVar(value="Loading sessions...")
 
-        # Initialize date range to last 30 days
+        # Initialize date range - start empty to show all sessions by default
         today = datetime.now().date()
         last_30_days = today - timedelta(days=30)
-        self.from_date_var = tk.StringVar(value=format_date(last_30_days))
-        self.to_date_var = tk.StringVar(value=format_date(today))
+        self.from_date_var = tk.StringVar(value="")  # Empty by default to show all sessions
+        self.to_date_var = tk.StringVar(value="")
 
         # Sessions list
         list_frame = ttk.LabelFrame(frame, text="All Sessions", padding=10)
@@ -382,7 +458,7 @@ class ComprehensiveReconciliationUI(ttk.Frame):
         columns = ("session_id", "date", "period", "status", "total_system", "total_variance", "total_explained", "reviewed")
         self.sessions_tree = ttk.Treeview(list_frame, columns=columns, show='headings', height=20)
 
-        self.sessions_tree.heading("session_id", text="Session ID")
+        self.sessions_tree.heading("session_id", text="Session Name")
         self.sessions_tree.heading("date", text="Date")
         self.sessions_tree.heading("period", text="Period")
         self.sessions_tree.heading("status", text="Status")
@@ -512,30 +588,52 @@ class ComprehensiveReconciliationUI(ttk.Frame):
         if not item:
             return
 
-        session_id = self.sessions_tree.item(item)['values'][0]
+        session_id = int(self.sessions_tree.item(item)['tags'][0])
         self._show_session_details_dialog(session_id)
 
     def _show_session_details_dialog(self, session_id: int) -> None:
         """Show a beautiful dialog with session details and management options."""
+        # Close any existing open dialog
+        if self.current_dialog is not None and self.current_dialog.winfo_exists():
+            self.current_dialog.destroy()
+            self.current_dialog = None
+        
         # Load session data
         session = get_reconciliation_session(session_id)
         if not session:
             messagebox.showerror("Error", "Session not found.")
             return
 
-        # Get reviewed status
+        # Get reviewed status based on session status
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        cursor.execute("SELECT reviewed FROM reconciliation_sessions WHERE session_id = ?", (session_id,))
-        reviewed_row = cursor.fetchone()
-        is_reviewed = reviewed_row[0] if reviewed_row else 0
+        cursor.execute("SELECT status FROM reconciliation_sessions WHERE session_id = ?", (session_id,))
+        status_row = cursor.fetchone()
+        db_status = (status_row[0] if status_row else 'draft').lower()
+        is_completed = db_status == 'completed'
+        # Reviewed means: either status is 'approved'/'rejected' OR session was marked in this session
+        # (rejected sessions ARE reviewed - they've been finalized after review)
+        is_reviewed = db_status in ('approved', 'rejected') or session_id in self.marked_sessions_set
         conn.close()
+        
+        # DEBUG: Log the status for troubleshooting
+        logger.info(f"Session {session_id} dialog: db_status='{db_status}', is_completed={is_completed}, is_reviewed={is_reviewed}")
 
         # Create dialog
         dialog = tk.Toplevel(self)
         dialog.title(f"Session {session_id} - Details & Management")
         dialog.geometry("900x700")
         dialog.resizable(True, True)
+        
+        # Store reference to current dialog
+        self.current_dialog = dialog
+        
+        # Clean up reference when dialog is closed
+        def on_dialog_close():
+            if self.current_dialog is dialog:
+                self.current_dialog = None
+            dialog.destroy()
+        dialog.protocol("WM_DELETE_WINDOW", on_dialog_close)
 
         # Set the app icon
         set_window_icon(dialog)
@@ -562,34 +660,61 @@ class ComprehensiveReconciliationUI(ttk.Frame):
         left_buttons = ttk.Frame(top_buttons_frame)
         left_buttons.pack(side=tk.LEFT)
 
-        # Mark button (always present)
-        is_completed = session.status.lower() == 'completed'
-        mark_btn = ttk.Button(left_buttons, text="✅ Mark as Reviewed",
-                              command=lambda: self._mark_session_reviewed_from_dialog(session_id, dialog))
+        # Mark button (always present) - Info/Orange color
+        mark_btn = tk.Button(left_buttons, text="✅ Mark as Reviewed",
+                            command=lambda: self._mark_session_reviewed_from_dialog(session_id, dialog),
+                            bg="#FF9800", fg="white", relief=tk.RAISED, padx=10, pady=5,
+                            font=("Segoe UI", 9), cursor="hand2",
+                            disabledforeground="#999999")
         mark_btn.pack(side=tk.LEFT, padx=(0, 10))
 
-        # Approve/Reject (visible next to Mark; disabled until reviewed)
-        approve_btn = ttk.Button(left_buttons, text="✅ Approve",
-                                 command=lambda: self._approve_session_from_dialog(session_id, dialog))
+        # Approve button - Green/Success color
+        approve_btn = tk.Button(left_buttons, text="✅ Approve",
+                               command=lambda: self._approve_session_from_dialog(session_id, dialog),
+                               bg="#4CAF50", fg="white", relief=tk.RAISED, padx=10, pady=5,
+                               font=("Segoe UI", 9), cursor="hand2",
+                               disabledforeground="#999999")
         approve_btn.pack(side=tk.LEFT, padx=(0, 10))
 
-        reject_btn = ttk.Button(left_buttons, text="❌ Reject",
-                                command=lambda: self._reject_session_from_dialog(session_id, dialog))
+        # Reject button - Red/Danger color
+        reject_btn = tk.Button(left_buttons, text="❌ Reject",
+                              command=lambda: self._reject_session_from_dialog(session_id, dialog),
+                              bg="#F44336", fg="white", relief=tk.RAISED, padx=10, pady=5,
+                              font=("Segoe UI", 9), cursor="hand2",
+                              disabledforeground="#999999")
         reject_btn.pack(side=tk.LEFT, padx=(0, 10))
 
         # If session isn't completed, disable mark and show explanation
         if not is_completed:
             mark_btn.config(state="disabled")
             ttk.Label(left_buttons, text="Only completed sessions can be reviewed", foreground=get_status_color('danger')).pack(side=tk.LEFT, padx=(10, 0))
-
-        # Set initial states based on reviewed flag
-        if is_reviewed:
+        
+        # If session is already finalized (approved or rejected), disable all action buttons
+        elif db_status in ('approved', 'rejected'):
+            mark_btn.config(state="disabled")
+            mark_btn.config(text="❌ Finalized" if db_status == 'rejected' else "✅ Approved")
+            approve_btn.config(state="disabled")
+            reject_btn.config(state="disabled")
+            status_text = f"Session {db_status.title()} - No further changes allowed" 
+            ttk.Label(left_buttons, text=status_text, foreground=get_status_color('danger')).pack(side=tk.LEFT, padx=(10, 0))
+        
+        # Set initial states based on reviewed flag (for in-progress sessions)
+        elif is_reviewed:
             mark_btn.config(text="✅ Reviewed", state="disabled")
             approve_btn.config(state="normal")
             reject_btn.config(state="normal")
         else:
-            approve_btn.config(state="disabled")
-            reject_btn.config(state="disabled")
+            # For completed sessions, automatically enable Approve/Reject buttons
+            # without requiring the "Mark as Reviewed" step on reopening
+            if is_completed:
+                # Check if this is a new open (buttons haven't been marked yet in this session)
+                # Auto-enable for QOL - user doesn't need to explicitly mark
+                mark_btn.config(state="normal")
+                approve_btn.config(state="normal")
+                reject_btn.config(state="normal")
+            else:
+                approve_btn.config(state="disabled")
+                reject_btn.config(state="disabled")
 
         # Store references for updating after marking reviewed
         dialog.mark_button = mark_btn
@@ -604,8 +729,13 @@ class ComprehensiveReconciliationUI(ttk.Frame):
         ttk.Button(right_buttons, text="🗑️ Delete Session",
                   command=lambda: self._delete_session_from_dialog(session_id, dialog)).pack(side=tk.RIGHT, padx=(10, 0))
 
-        ttk.Button(right_buttons, text="✏️ Edit Session",
-                  command=lambda: self._edit_session_from_dialog(session_id, dialog)).pack(side=tk.RIGHT, padx=(10, 0))
+        edit_btn = ttk.Button(right_buttons, text="✏️ Edit Session",
+                  command=lambda: self._edit_session_from_dialog(session_id, dialog))
+        edit_btn.pack(side=tk.RIGHT, padx=(10, 0))
+        
+        # Disable edit button if session is already approved or rejected
+        if db_status in ('approved', 'rejected'):
+            edit_btn.config(state="disabled")
 
         # Main container with scrollbar
         main_frame = ttk.Frame(dialog)
@@ -636,7 +766,7 @@ class ComprehensiveReconciliationUI(ttk.Frame):
         ttk.Label(info_frame, text=str(session.session_id)).grid(row=0, column=1, sticky=tk.W, padx=(0, 20))
 
         ttk.Label(info_frame, text="Date:", font=("Segoe UI", 10, "bold")).grid(row=0, column=2, sticky=tk.W, padx=(0, 10))
-        ttk.Label(info_frame, text=session.reconciliation_date).grid(row=0, column=3, sticky=tk.W, padx=(0, 20))
+        ttk.Label(info_frame, text=format_date(session.reconciliation_date)).grid(row=0, column=3, sticky=tk.W, padx=(0, 20))
 
         ttk.Label(info_frame, text="Period:", font=("Segoe UI", 10, "bold")).grid(row=0, column=4, sticky=tk.W, padx=(0, 10))
         ttk.Label(info_frame, text=session.period_type.title()).grid(row=0, column=5, sticky=tk.W)
@@ -843,40 +973,40 @@ class ComprehensiveReconciliationUI(ttk.Frame):
             messagebox.showerror("Error", f"Failed to export session: {str(e)}")
 
     def _mark_session_reviewed_from_dialog(self, session_id: int, dialog: tk.Toplevel) -> None:
-        """Mark session as reviewed from the dialog."""
+        """Mark session as reviewed from the dialog - enables Approve/Reject and disables itself."""
         try:
             # Verify session is completed before marking
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             cursor.execute("SELECT status FROM reconciliation_sessions WHERE session_id = ?", (session_id,))
             status_row = cursor.fetchone()
-            if not status_row or (status_row[0] or '').lower() != 'completed':
-                conn.close()
+            db_status = (status_row[0] if status_row else 'draft').lower()
+            conn.close()
+            
+            if db_status != 'completed':
                 messagebox.showwarning("Not Allowed", "Only sessions with status 'Completed' can be marked as reviewed.")
                 return
 
-            # Update the session status to reviewed (only after validation)
-            cursor.execute("""
-                UPDATE reconciliation_sessions
-                SET reviewed = 1, reviewed_at = ?
-                WHERE session_id = ?
-            """, (datetime.now().isoformat(), session_id))
+            # Add to marked sessions so it remembers when dialog is reopened
+            self.marked_sessions_set.add(session_id)
 
-            conn.commit()
-            conn.close()
-
-            # Update the UI to enable Approve/Reject and mark the session as reviewed
+            # Update the UI immediately to show the action is taken
             try:
+                # Disable Mark button and change label
                 dialog.mark_button.config(text="✅ Reviewed", state="disabled")
+                
+                # Enable Approve/Reject buttons
                 dialog.approve_button.config(state="normal")
                 dialog.reject_button.config(state="normal")
+                
+                # Update reviewed status in UI
                 dialog.reviewed_label.config(text="Yes", foreground=get_status_color("success"))
+                
+                messagebox.showinfo("Success", "Session marked for review.\n\nNow select an action:\n✅ Approve or ❌ Reject")
             except Exception as e:
-                # Log a warning but do NOT close the dialog; keep it open for next steps
                 logger.warning(f"Failed to update dialog UI after marking reviewed: {e}")
 
-            # Refresh the sessions list and keep the dialog focused
-            self._load_sessions_list()
+            # Keep the dialog focused
             try:
                 dialog.lift()
                 dialog.focus_force()
@@ -926,12 +1056,46 @@ class ComprehensiveReconciliationUI(ttk.Frame):
     def _approve_session_from_dialog(self, session_id: int, dialog: tk.Toplevel) -> None:
         """Approve session from the dialog."""
         try:
+            # Check current status to prevent duplicate approval
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("SELECT status FROM reconciliation_sessions WHERE session_id = ?", (session_id,))
+            status_row = cursor.fetchone()
+            current_status = (status_row[0] if status_row else 'draft').lower()
+            conn.close()
+            
+            # Prevent approval if already approved or rejected
+            if current_status in ('approved', 'rejected'):
+                messagebox.showwarning("Not Allowed", f"Session already has status '{current_status.title()}'. Cannot approve again.")
+                return
+            
+            # Status should be 'completed' or 'draft' for approval to work
+            # (We allow 'completed' because 'Mark as Reviewed' no longer changes the status)
+            
             self._run_db_write_single_query(
                 "UPDATE reconciliation_sessions SET status = 'approved' WHERE session_id = ?",
                 (session_id,)
             )
+            # Remove from marked set since we've finalized the session
+            self.marked_sessions_set.discard(session_id)
             messagebox.showinfo("Success", f"Session {session_id} approved.")
-            # dialog.destroy()  # Removed to keep dialog open for other actions
+            
+            # Disable approve and reject buttons after approval
+            try:
+                if hasattr(dialog, 'approve_button'):
+                    dialog.approve_button.config(state="disabled")
+                if hasattr(dialog, 'reject_button'):
+                    dialog.reject_button.config(state="disabled")
+                if hasattr(dialog, 'mark_button'):
+                    dialog.mark_button.config(state="disabled")
+                try:
+                    dialog.lift()
+                    dialog.focus_force()
+                except Exception:
+                    pass
+            except Exception as ui_err:
+                logger.warning(f"Failed to update dialog UI after approve: {ui_err}")
+            
             self._load_sessions_list()
         except sqlite3.IntegrityError as e:
             if 'CHECK constraint failed' in str(e) and 'status' in str(e):
@@ -946,8 +1110,21 @@ class ComprehensiveReconciliationUI(ttk.Frame):
                                 "UPDATE reconciliation_sessions SET status = 'approved' WHERE session_id = ?",
                                 (session_id,)
                             )
+                            # Remove from marked set since we've finalized the session
+                            self.marked_sessions_set.discard(session_id)
                             messagebox.showinfo("Success", f"Session {session_id} approved.")
-                            # dialog.destroy()  # Removed to keep dialog open
+                            
+                            # Disable approve and reject buttons after approval
+                            try:
+                                if hasattr(dialog, 'approve_button'):
+                                    dialog.approve_button.config(state="disabled")
+                                if hasattr(dialog, 'reject_button'):
+                                    dialog.reject_button.config(state="disabled")
+                                if hasattr(dialog, 'mark_button'):
+                                    dialog.mark_button.config(state="disabled")
+                            except Exception as ui_err:
+                                logger.warning(f"Failed to update dialog UI after approve (retry): {ui_err}")
+                            
                             self._load_sessions_list()
                             return
                         else:
@@ -967,10 +1144,28 @@ class ComprehensiveReconciliationUI(ttk.Frame):
     def _reject_session_from_dialog(self, session_id: int, dialog: tk.Toplevel) -> None:
         """Reject session from the dialog."""
         try:
+            # Check current status to prevent duplicate rejection
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("SELECT status FROM reconciliation_sessions WHERE session_id = ?", (session_id,))
+            status_row = cursor.fetchone()
+            current_status = (status_row[0] if status_row else 'draft').lower()
+            conn.close()
+            
+            # Prevent rejection if already approved or rejected
+            if current_status in ('approved', 'rejected'):
+                messagebox.showwarning("Not Allowed", f"Session already has status '{current_status.title()}'. Cannot reject again.")
+                return
+            
+            # Status should be 'completed' or 'draft' for rejection to work
+            # (We allow 'completed' because 'Mark as Reviewed' no longer changes the status)
+            
             self._run_db_write_single_query(
                 "UPDATE reconciliation_sessions SET status = 'rejected' WHERE session_id = ?",
                 (session_id,)
             )
+            # Remove from marked set since we've finalized the session
+            self.marked_sessions_set.discard(session_id)
             messagebox.showinfo("Success", f"Session {session_id} rejected.")
             # Update dialog UI: keep Reviewed as Yes but mark status as Rejected, and disable approve/reject
             try:
@@ -1008,6 +1203,8 @@ class ComprehensiveReconciliationUI(ttk.Frame):
                                 "UPDATE reconciliation_sessions SET status = 'rejected' WHERE session_id = ?",
                                 (session_id,)
                             )
+                            # Remove from marked set since we've finalized the session
+                            self.marked_sessions_set.discard(session_id)
                             messagebox.showinfo("Success", f"Session {session_id} rejected.")
                             # Update dialog UI: keep Reviewed as Yes but mark status as Rejected, and disable approve/reject
                             try:
@@ -1052,37 +1249,44 @@ class ComprehensiveReconciliationUI(ttk.Frame):
             return
 
         try:
-            # Delete the session
-            try:
-                queries = [
-                    ("DELETE FROM reconciliation_sessions WHERE session_id = ?", (session_id,)),
-                    ("DELETE FROM reconciliation_entries WHERE session_id = ?", (session_id,)),
-                    ("DELETE FROM reconciliation_explanations WHERE session_id = ?", (session_id,)),
-                ]
-                self._run_db_transaction(queries)
-
-                messagebox.showinfo("Success", f"Session {session_id} deleted successfully.")
-                dialog.destroy()
-                self._load_sessions_list()  # Refresh the list
-            except sqlite3.OperationalError as e:
-                messagebox.showerror("Database Error", f"Database busy; please try again.\n\n{e}")
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to delete session: {str(e)}")
-
+            # Delete the session using the service layer
+            delete_reconciliation_session(session_id)
+            
+            messagebox.showinfo("Success", f"Session {session_id} deleted successfully.")
+            dialog.destroy()
+            self._load_sessions_list()  # Refresh the list
+            
         except Exception as e:
+            logger.error(f"Error deleting session {session_id}: {e}")
             messagebox.showerror("Error", f"Failed to delete session: {str(e)}")
 
     def _edit_session_from_dialog(self, session_id: int, dialog: tk.Toplevel) -> None:
         """Edit session from the dialog - load it for editing."""
-        # Check permission to edit reconciliation
-        current_username = get_username()
-        if not permissions.has_permission(current_username, 'edit_reconciliation'):
-            messagebox.showerror("Permission Denied", "You do not have permission to edit reconciliation sessions")
-            return
+        try:
+            # Check current status to prevent editing approved/rejected sessions
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("SELECT status FROM reconciliation_sessions WHERE session_id = ?", (session_id,))
+            status_row = cursor.fetchone()
+            current_status = (status_row[0] if status_row else 'draft').lower()
+            conn.close()
+            
+            # Prevent editing if already approved or rejected
+            if current_status in ('approved', 'rejected'):
+                messagebox.showwarning("Not Allowed", f"Cannot edit session with status '{current_status.title()}'. Only draft and completed sessions can be edited.")
+                return
         
-        dialog.destroy()
-        # Load the session for editing
-        self._load_selected_session_by_id(session_id)
+            # Check permission to edit reconciliation
+            current_username = get_username()
+            if not permissions.has_permission(current_username, 'edit_reconciliation'):
+                messagebox.showerror("Permission Denied", "You do not have permission to edit reconciliation sessions")
+                return
+            
+            dialog.destroy()
+            # Load the session for editing
+            self._load_selected_session_by_id(session_id)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to edit session: {str(e)}")
 
     def _load_selected_session_by_id(self, session_id: int) -> None:
         """Load a session by ID for editing."""
@@ -1109,8 +1313,17 @@ class ComprehensiveReconciliationUI(ttk.Frame):
                 explanations_loaded=True  # Will load explanations below
             )
 
+            # Auto-populate cash_out from recorded expenses for the period (refresh from current data)
+            from modules.expenses import get_expenses_total_by_payment_method
+            expenses_by_method = get_expenses_total_by_payment_method(session.start_date, session.end_date)
+
+            # Track which payment methods exist
+            loaded_methods = set()
+
             # Convert entries to items
             for entry in session.entries:
+                loaded_methods.add(entry.payment_method)
+                
                 # For existing sessions, use the saved opening balance, or recalculate if saved is 0
                 saved_opening_balance = getattr(entry, 'opening_balance', 0.0)
                 if saved_opening_balance == 0.0:
@@ -1120,6 +1333,9 @@ class ComprehensiveReconciliationUI(ttk.Frame):
                 else:
                     opening_balance = saved_opening_balance
                 
+                # Refresh cash_out from current expenses (not from saved value)
+                cash_out = expenses_by_method.get(entry.payment_method, 0.0)
+                
                 item = ReconciliationItem(
                     payment_method=entry.payment_method,
                     system_amount=entry.system_amount,
@@ -1128,11 +1344,31 @@ class ComprehensiveReconciliationUI(ttk.Frame):
                     is_reviewed=getattr(entry, 'is_reviewed', False),
                     notes=entry.explanation if hasattr(entry, 'explanation') else '',
                     opening_balance=opening_balance,  # Use saved or recalculated
-                    cash_out=getattr(entry, 'cash_out', 0.0),
+                    cash_out=cash_out,  # Use current expenses, not saved value
                 )
                 # Update variance with the opening balance
                 item.update_variance()
                 self.current_session.items.append(item)
+            
+            # Ensure Cash is included even if not in the saved entries
+            # (in case there are expenses with no sales data)
+            if "Cash" not in loaded_methods and ("Cash" in expenses_by_method or len(session.entries) == 0):
+                # Add Cash entry with current expense data
+                cash_out = expenses_by_method.get("Cash", 0.0)
+                item = ReconciliationItem(
+                    payment_method="Cash",
+                    system_amount=0.0,
+                    actual_amount=0.0,
+                    variance=0.0,
+                    is_reviewed=False,
+                    notes='',
+                    opening_balance=self._get_previous_closing_balances(session.start_date).get("Cash", 0.0),
+                    cash_out=cash_out,
+                )
+                item.update_variance()
+                self.current_session.items.append(item)
+                # Sort items alphabetically by payment method
+                self.current_session.items.sort(key=lambda x: x.payment_method)
 
             # Load explanations into memory
             self.current_session.explanations = get_variance_explanations(self.current_session)
@@ -1242,7 +1478,7 @@ class ComprehensiveReconciliationUI(ttk.Frame):
             cursor = conn.cursor()
 
             cursor.execute("""
-                SELECT session_id, reconciliation_date, period_type, status, total_system_sales, total_variance, reviewed
+                SELECT session_id, reconciliation_date, period_type, status, total_system_sales, total_variance
                 FROM reconciliation_sessions
                 ORDER BY reconciliation_date DESC, session_id DESC
                 LIMIT 50
@@ -1252,20 +1488,24 @@ class ComprehensiveReconciliationUI(ttk.Frame):
             conn.close()
 
             for row in rows:
-                session_id, reconciliation_date, period_type, status, total_system_sales, total_variance, reviewed = row
+                session_id, reconciliation_date, period_type, status, total_system_sales, total_variance = row
+                reviewed = status.lower() in ('completed', 'approved')
 
                 # Format status with reviewed indicator
                 display_status = status.title()
                 if reviewed:
                     display_status += " ✓"
 
+                # Generate descriptive session name
+                session_name = generate_session_list_name(session_id, reconciliation_date, period_type, status)
+
                 # Format amounts
                 system_amt = f"{total_system_sales:.2f}" if total_system_sales else "0.00"
                 variance_amt = f"{total_variance:.2f}" if total_variance else "0.00"
 
                 self.advanced_sessions_tree.insert("", tk.END, values=(
-                    session_id, format_date(reconciliation_date), period_type, display_status, system_amt, variance_amt
-                ))
+                    session_name, format_date(reconciliation_date), period_type, display_status, system_amt, variance_amt
+                ), tags=(str(session_id),))
 
         except Exception as e:
             logger.error(f"Error loading advanced sessions list: {e}")
@@ -1290,17 +1530,16 @@ class ComprehensiveReconciliationUI(ttk.Frame):
         info_frame = ttk.LabelFrame(frame, text="Session Information", padding=10)
         info_frame.pack(fill=tk.X, pady=(0, 20))
 
-        # Format session name with status prefix
-        if self.current_session.session_id is None:
-            # Unsaved session
-            session_name = f"Draft-Unsaved"
-        else:
-            status_prefix = "Draft" if self.current_session.status.lower() == "draft" else "Completed" if self.current_session.status.lower() == "completed" else self.current_session.status.title()
-            session_name = f"{status_prefix}-{self.current_session.session_id}"
+        # Format session name with enhanced descriptive naming
+        session_name = generate_session_display_name(self.current_session, for_list=False)
         
         ttk.Label(info_frame, text=f"Session: {session_name}").grid(row=0, column=0, sticky=tk.W, padx=(0, 20))
         ttk.Label(info_frame, text=f"Period: {self.current_session.period_type.title()}").grid(row=0, column=1, sticky=tk.W, padx=(0, 20))
-        ttk.Label(info_frame, text=f"Date Range: {self.current_session.start_date} to {self.current_session.end_date}").grid(row=0, column=2, sticky=tk.W)
+        
+        # Format dates according to system date format - store label reference for dynamic updates
+        self.recon_date_range_label = ttk.Label(info_frame, text="")
+        self.recon_date_range_label.grid(row=0, column=2, sticky=tk.W)
+        self._update_recon_date_range_label()
 
         # Reconciliation table
         table_frame = ttk.LabelFrame(frame, text="Payment Method Reconciliation", padding=10)
@@ -1405,6 +1644,18 @@ class ComprehensiveReconciliationUI(ttk.Frame):
                  font=("Segoe UI", 10, "bold")).grid(row=0, column=2, sticky=tk.W)
 
         self._update_totals()
+
+        return frame
+
+    def _update_recon_date_range_label(self) -> None:
+        """Update the date range label with current system date format."""
+        if not hasattr(self, 'recon_date_range_label') or not self.current_session:
+            return
+        
+        # Format dates according to system date format (respects real-time changes)
+        start_formatted = format_date(parse_date_flexible(self.current_session.start_date))
+        end_formatted = format_date(parse_date_flexible(self.current_session.end_date))
+        self.recon_date_range_label.config(text=f"Date Range: {start_formatted} to {end_formatted}")
 
     def _on_period_type_change(self, event=None) -> None:
         """Handle period type change."""
@@ -1601,6 +1852,9 @@ class ComprehensiveReconciliationUI(ttk.Frame):
         System amount = POS sales for the period.
         Opening balance = previous session's closing balance (actual_amount).
         """
+        # Debug: Log the dates being used
+        logger.info(f"Creating session: period_type={period_type}, start={start_date}, end={end_date}")
+        
         # Get POS sales for the period (this is the system amount)
         sales_data = get_sales_by_payment_method_for_period(start_date, end_date)
         # Build lookup: payment_method → total_sales
@@ -1612,6 +1866,14 @@ class ComprehensiveReconciliationUI(ttk.Frame):
         from modules.external_accounts import account_manager
         account_balances = account_manager.get_balances_by_payment_method()
         all_methods = set(sales_lookup.keys()) | set(account_balances.keys())
+        
+        # Always include Cash as a default payment method
+        all_methods.add("Cash")
+        
+        # Also check if there are any expenses for methods not in sales/accounts
+        from modules.expenses import get_expenses_total_by_payment_method
+        expenses_by_method = get_expenses_total_by_payment_method(start_date, end_date)
+        all_methods.update(expenses_by_method.keys())
 
         # Fetch previous session's closing balances for opening
         previous_closing = self._get_previous_closing_balances(start_date)
@@ -1622,9 +1884,12 @@ class ComprehensiveReconciliationUI(ttk.Frame):
             system_amount = sales_lookup.get(pm, 0.0)
             opening = previous_closing.get(pm, 0.0)
 
-            # Auto-populate cash_out from recorded expenses for this period
-            from modules.expenses import get_expenses_total_for_period
-            cash_out = get_expenses_total_for_period(start_date, end_date, payment_method=pm)
+            # Auto-populate cash_out from expenses (already fetched above)
+            cash_out = expenses_by_method.get(pm, 0.0)
+            
+            # Debug: Log expenses found
+            if cash_out > 0:
+                logger.info(f"Found expense for {pm}: {cash_out}")
 
             item = ReconciliationItem(
                 payment_method=pm,
@@ -1684,90 +1949,142 @@ class ComprehensiveReconciliationUI(ttk.Frame):
             return {}
 
     def _load_sessions_list(self) -> None:
-        """Load the list of reconciliation sessions with search, filter, and sort options."""
+        """Load the list of reconciliation sessions using service layer."""
         try:
             # Clear existing items
             for item in self.sessions_tree.get_children():
                 self.sessions_tree.delete(item)
 
-            # Build query with filters
-            query = """
-                SELECT session_id, reconciliation_date, period_type, status, total_system_sales, total_variance, reviewed
-                FROM reconciliation_sessions
-                WHERE 1=1
-            """
-            params = []
-
-            # Search filter
-            search_term = self.search_var.get().strip()
-            if search_term:
-                query += " AND (session_id LIKE ? OR reconciliation_date LIKE ? OR period_type LIKE ? OR status LIKE ?)"
-                search_pattern = f"%{search_term}%"
-                params.extend([search_pattern, search_pattern, search_pattern, search_pattern])
-
-            # Status filter
+            # Get status filter to determine what status to query
             status_filter = self.status_filter_var.get()
-            if status_filter != "All":
+            if status_filter == "All":
+                query_status = None
+            elif status_filter == "Reviewed":
+                # For reviewed, get both 'completed' and 'approved'
+                # We'll handle this with in-memory filtering
+                query_status = None
+            else:
+                query_status = status_filter.lower()
+
+            # Get sessions from service layer
+            sessions = get_reconciliation_sessions(
+                start_date=None,  # Will filter in-memory 
+                end_date=None,
+                status=query_status,
+                limit=500,  # Get more to account for filtering
+                offset=0
+            )
+
+            # Apply filters
+            filtered_rows = []
+            
+            for session in sessions:
+                # Status filter (for Reviewed)
                 if status_filter == "Reviewed":
-                    query += " AND reviewed = 1"
-                else:
-                    query += " AND status = ?"
-                    params.append(status_filter.lower())
-
-            # Period filter
-            period_filter = self.period_filter_var.get()
-            if period_filter != "All":
-                query += " AND period_type = ?"
-                params.append(period_filter.lower())
-
-            # Date range filter
-            from_date = self.from_date_var.get().strip()
-            to_date = self.to_date_var.get().strip()
-            if from_date:
-                query += " AND reconciliation_date >= ?"
-                params.append(from_date)
-            if to_date:
-                query += " AND reconciliation_date <= ?"
-                params.append(to_date)
-
-            # Sort options
+                    if session['status'].lower() not in ('completed', 'approved'):
+                        continue
+                
+                # Search filter
+                search_term = self.search_var.get().strip()
+                if search_term:
+                    search_lower = search_term.lower()
+                    if not (
+                        search_lower in str(session.get('session_id', '')).lower() or
+                        search_lower in session.get('reconciliation_date', '').lower() or
+                        search_lower in session.get('period_type', '').lower() or
+                        search_lower in session.get('status', '').lower()
+                    ):
+                        continue
+                
+                # Period filter
+                period_filter = self.period_filter_var.get()
+                if period_filter != "All":
+                    if session.get('period_type', '').lower() != period_filter.lower():
+                        continue
+                
+                # Date range filter
+                from_date = self.from_date_var.get().strip()
+                to_date = self.to_date_var.get().strip()
+                session_date = session.get('reconciliation_date', '').strip()
+                
+                if from_date or to_date:
+                    # Only apply date filter if session has a valid date
+                    if session_date:
+                        try:
+                            # Parse session date
+                            from datetime import datetime as dt
+                            session_dt = None
+                            
+                            # Try YYYY-MM-DD first
+                            if len(session_date) == 10 and session_date[4] == '-':
+                                session_dt = dt.strptime(session_date, '%Y-%m-%d')
+                            # Try DD.MM.YYYY
+                            elif len(session_date) == 10 and session_date[2] == '.':
+                                session_dt = dt.strptime(session_date, '%d.%m.%Y')
+                            
+                            # If we successfully parsed the date, apply the filter
+                            if session_dt:
+                                if from_date:
+                                    try:
+                                        from_dt = dt.strptime(from_date, '%Y-%m-%d')
+                                        if session_dt.date() < from_dt.date():
+                                            continue
+                                    except ValueError:
+                                        logger.warning(f"Invalid from_date format: {from_date}")
+                                
+                                if to_date:
+                                    try:
+                                        to_dt = dt.strptime(to_date, '%Y-%m-%d')
+                                        if session_dt.date() > to_dt.date():
+                                            continue
+                                    except ValueError:
+                                        logger.warning(f"Invalid to_date format: {to_date}")
+                            # If we couldn't parse the session date, include it anyway
+                            # (better to show more than hide data due to parsing errors)
+                        except Exception as e:
+                            # If parsing fails unexpectedly, log it but include the session
+                            logger.debug(f"Could not parse session date '{session_date}': {e}")
+                            # Include this session anyway - don't skip it
+                    else:
+                        # Session has no date - skip it if date filter is active
+                        if from_date or to_date:
+                            continue
+                
+                filtered_rows.append(session)
+            
+            # Update session count
+            total_sessions = len(filtered_rows)
+            self.session_count_var.set(f"Total: {total_sessions} sessions")
+            
+            # Apply sorting
             sort_option = self.sort_var.get()
             if sort_option == "Date":
-                query += " ORDER BY reconciliation_date DESC, session_id DESC"
+                filtered_rows.sort(key=lambda x: (x.get('reconciliation_date', ''), -x.get('session_id', 0)), reverse=True)
             elif sort_option == "Session ID":
-                query += " ORDER BY session_id DESC"
+                filtered_rows.sort(key=lambda x: x.get('session_id', 0), reverse=True)
             elif sort_option == "Status":
-                query += " ORDER BY status ASC, reconciliation_date DESC"
+                filtered_rows.sort(key=lambda x: (x.get('status', ''), x.get('reconciliation_date', '')))
             elif sort_option == "Total Variance":
-                query += " ORDER BY ABS(total_variance) DESC, reconciliation_date DESC"
+                filtered_rows.sort(key=lambda x: abs(x.get('total_variance', 0)), reverse=True)
+            
+            # Process rows (limit display for performance)
+            display_limit = 200
+            displayed_rows = filtered_rows[:display_limit]
 
-            # Execute query
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            cursor.execute(query, params)
-            rows = cursor.fetchall()
-
-            # Update session count
-            total_sessions = len(rows)
-            self.session_count_var.set(f"Total: {total_sessions} sessions")
-
-            # Process rows (limit display for performance, but show all in count)
-            display_limit = 200  # Show up to 200 rows for performance
-            displayed_rows = rows[:display_limit]
-
-            for row in displayed_rows:
-                session_id, reconciliation_date, period_type, status, total_system_sales, total_variance, reviewed = row
+            for session in displayed_rows:
+                session_id = session.get('session_id')
+                reconciliation_date = session.get('reconciliation_date')
+                period_type = session.get('period_type')
+                status = session.get('status')
+                total_system_sales = session.get('total_system_sales')
+                total_variance = session.get('total_variance')
+                reviewed = status.lower() in ('completed', 'approved')
 
                 # Calculate total explained variance for this session
                 explained_total = 0.0
                 try:
-                    cursor2 = conn.cursor()
-                    cursor2.execute("SELECT DISTINCT payment_method FROM reconciliation_entries WHERE session_id = ?", (session_id,))
-                    payment_methods = [row[0] for row in cursor2.fetchall()]
-
-                    # Calculate explained variance for each payment method
-                    for pm in payment_methods:
-                        explained_total += get_explained_variance_total(session_id, pm)
+                    explained_total = 0.0  # Will be calculated from entries if needed
+                    # TODO: Get entries for this session and sum explained variance
                 except Exception as e:
                     logger.warning(f"Error calculating explained variance for session {session_id}: {e}")
                     explained_total = 0.0
@@ -1777,6 +2094,9 @@ class ComprehensiveReconciliationUI(ttk.Frame):
                 if reviewed:
                     display_status += " ✓"
 
+                # Generate descriptive session name
+                session_name = generate_session_list_name(session_id, reconciliation_date, period_type, status)
+
                 # Format amounts
                 system_amt = f"{total_system_sales:.2f}" if total_system_sales else "0.00"
                 variance_amt = f"{total_variance:.2f}" if total_variance else "0.00"
@@ -1785,20 +2105,18 @@ class ComprehensiveReconciliationUI(ttk.Frame):
                 reviewed_text = "Yes" if reviewed else "No"
 
                 self.sessions_tree.insert("", tk.END, values=(
-                    session_id, format_date(reconciliation_date), period_type.title(), display_status,
+                    session_name, format_date(reconciliation_date), period_type.title(), display_status,
                     system_amt, variance_amt, explained_amt, reviewed_text
-                ))
-
-            conn.close()
+                ), tags=(str(session_id),))
 
             # Calculate summary counts from the filtered results
-            reviewed_count = sum(1 for row in rows if row[6] == 1)
-            draft_count = sum(1 for row in rows if row[3].lower() == 'draft')
-            completed_count = sum(1 for row in rows if row[3].lower() == 'completed')
-            approved_count = sum(1 for row in rows if row[3].lower() == 'approved')
-            rejected_count = sum(1 for row in rows if row[3].lower() == 'rejected')
-            total_system = sum(row[4] for row in rows if row[4])
-            total_variance = sum(row[5] for row in rows if row[5])
+            reviewed_count = sum(1 for row in filtered_rows if row.get('status', '').lower() in ('completed', 'approved'))
+            draft_count = sum(1 for row in filtered_rows if row.get('status', '').lower() == 'draft')
+            completed_count = sum(1 for row in filtered_rows if row.get('status', '').lower() == 'completed')
+            approved_count = sum(1 for row in filtered_rows if row.get('status', '').lower() == 'approved')
+            rejected_count = sum(1 for row in filtered_rows if row.get('status', '').lower() == 'rejected')
+            total_system = sum(row.get('total_system_sales', 0) for row in filtered_rows if row.get('total_system_sales'))
+            total_variance = sum(row.get('total_variance', 0) for row in filtered_rows if row.get('total_variance'))
 
             # Update summary variables
             self.total_sessions_var.set(str(total_sessions))
@@ -1940,8 +2258,9 @@ class ComprehensiveReconciliationUI(ttk.Frame):
         today = datetime.now().date()
         start_date = today - timedelta(days=days)
 
-        self.from_date_var.set(format_date(start_date))
-        self.to_date_var.set(format_date(today))
+        # Use ISO format (YYYY-MM-DD) for database queries, not locale format
+        self.from_date_var.set(start_date.isoformat())  # e.g., 2026-02-11
+        self.to_date_var.set(today.isoformat())  # e.g., 2026-03-13
         self._load_sessions_list()
 
     def _show_custom_date_dialog(self) -> None:
@@ -2021,9 +2340,10 @@ class ComprehensiveReconciliationUI(ttk.Frame):
                 return
 
             # Mark quick range as Custom and apply the selected custom dates
+            # Use ISO format (YYYY-MM-DD) for database queries
             self.quick_date_var.set("Custom")
-            self.from_date_var.set(from_date)
-            self.to_date_var.set(to_date)
+            self.from_date_var.set(from_dt.isoformat())  # Convert to YYYY-MM-DD
+            self.to_date_var.set(to_dt.isoformat())  # Convert to YYYY-MM-DD
             dialog.destroy()
             self._load_sessions_list()
 
@@ -2080,7 +2400,7 @@ class ComprehensiveReconciliationUI(ttk.Frame):
             messagebox.showinfo("No Selection", "Please select a session to load.")
             return
 
-        session_id = self.sessions_tree.item(selection[0])['values'][0]
+        session_id = int(self.sessions_tree.item(selection[0])['tags'][0])
         
         # Use the proper conversion method
         self._load_selected_session_by_id(session_id)
@@ -2092,7 +2412,7 @@ class ComprehensiveReconciliationUI(ttk.Frame):
             messagebox.showinfo("No Selection", "Please select a session to delete.")
             return
 
-        session_id = self.sessions_tree.item(selection[0])['values'][0]
+        session_id = int(self.sessions_tree.item(selection[0])['tags'][0])
 
         if not messagebox.askyesno("Confirm Delete",
                                   f"Are you sure you want to delete session {session_id}?\n\nThis action cannot be undone."):
@@ -2395,6 +2715,18 @@ class ComprehensiveReconciliationUI(ttk.Frame):
             return
 
         try:
+            # Refresh cash_out from current expenses before saving
+            from modules.expenses import get_expenses_total_by_payment_method
+            expenses_by_method = get_expenses_total_by_payment_method(
+                self.current_session.start_date,
+                self.current_session.end_date
+            )
+            
+            # Update items with current expense values
+            for item in self.current_session.items:
+                item.cash_out = expenses_by_method.get(item.payment_method, 0.0)
+                item.update_variance()
+            
             # Update only the manually entered data in the reconciliation_entries table
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
@@ -3002,11 +3334,24 @@ class ComprehensiveReconciliationUI(ttk.Frame):
             return
 
         try:
+            # Refresh cash_out from current expenses before saving
+            from modules.expenses import get_expenses_total_by_payment_method
+            expenses_by_method = get_expenses_total_by_payment_method(
+                self.current_session.start_date,
+                self.current_session.end_date
+            )
+            
+            # Update items with current expense values
+            for item in self.current_session.items:
+                item.cash_out = expenses_by_method.get(item.payment_method, 0.0)
+                item.update_variance()
+            
             if self.current_session.session_id is None:
                 # New session - save to database for the first time
                 session_id = self._save_new_session_to_database()
                 self.current_session.session_id = session_id
-                messagebox.showinfo("Success", f"Session {session_id} saved as draft successfully!")
+                session_name = generate_session_display_name(self.current_session, for_list=True)
+                messagebox.showinfo("Success", f"Session saved as draft successfully!\n\n{session_name}")
             else:
                 # Existing session - update only manually entered data and session metadata
                 with sqlite3.connect(self.db_path) as conn:
@@ -3099,6 +3444,18 @@ class ComprehensiveReconciliationUI(ttk.Frame):
                 return
 
         try:
+            # Refresh cash_out from current expenses before completing
+            from modules.expenses import get_expenses_total_by_payment_method
+            expenses_by_method = get_expenses_total_by_payment_method(
+                self.current_session.start_date,
+                self.current_session.end_date
+            )
+            
+            # Update items with current expense values
+            for item in self.current_session.items:
+                item.cash_out = expenses_by_method.get(item.payment_method, 0.0)
+                item.update_variance()
+            
             if self.current_session.session_id is None:
                 # New session - save to database first, then complete
                 session_id = self._save_new_session_to_database()
@@ -3122,7 +3479,8 @@ class ComprehensiveReconciliationUI(ttk.Frame):
 
             # Complete the session
             complete_reconciliation_session(self.current_session.session_id, self.user_id)
-            messagebox.showinfo("Success", "Reconciliation completed successfully!")
+            session_name = generate_session_display_name(self.current_session, for_list=True)
+            messagebox.showinfo("Success", f"Reconciliation completed successfully!\n\n{session_name}")
 
             # Clear current session and return to manage view
             self.current_session = None
@@ -3151,7 +3509,7 @@ class ComprehensiveReconciliationUI(ttk.Frame):
             messagebox.showwarning("Warning", "Please select a session to edit.")
             return
 
-        session_id = self.sessions_tree.item(selection[0])['values'][0]
+        session_id = int(self.sessions_tree.item(selection[0])['tags'][0])
         
         # Use the proper conversion method
         self._load_selected_session_by_id(session_id)
@@ -3164,7 +3522,7 @@ class ComprehensiveReconciliationUI(ttk.Frame):
             messagebox.showwarning("Warning", "Please select a session to export.")
             return
 
-        session_id = treeview.item(selection[0])['values'][0]
+        session_id = int(treeview.item(selection[0])['tags'][0])
 
         try:
             # Load the session
@@ -3173,13 +3531,13 @@ class ComprehensiveReconciliationUI(ttk.Frame):
                 messagebox.showerror("Error", "Session not found.")
                 return
 
-            # Ask for save location
-            from tkinter import filedialog
+            # Generate descriptive filename
+            session_name = generate_session_display_name(session, for_list=True).replace(' ', '_').replace('-', '_').replace('(', '').replace(')', '').replace(',', '')
             filename = filedialog.asksaveasfilename(
                 defaultextension=".csv",
                 filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
                 title=f"Export Session {session_id}",
-                initialfile=f"reconciliation_session_{session_id}.csv"
+                initialfile=f"reconciliation_{session_name}.csv"
             )
 
             if not filename:
@@ -3230,7 +3588,7 @@ class ComprehensiveReconciliationUI(ttk.Frame):
 
         session_count = len(selection)
         if session_count == 1:
-            session_id = treeview.item(selection[0])['values'][0]
+            session_id = int(treeview.item(selection[0])['tags'][0])
             if not messagebox.askyesno("Confirm Delete",
                                      f"Are you sure you want to delete session {session_id}?\n\nThis action cannot be undone."):
                 return
@@ -3243,7 +3601,7 @@ class ComprehensiveReconciliationUI(ttk.Frame):
         errors = []
 
         for item in selection:
-            session_id = treeview.item(item)['values'][0]
+            session_id = int(treeview.item(item)['tags'][0])
             try:
                 delete_reconciliation_session(session_id)
                 deleted_count += 1
@@ -3270,7 +3628,7 @@ class ComprehensiveReconciliationUI(ttk.Frame):
             messagebox.showwarning("Warning", "Please select a session to mark as reviewed.")
             return
 
-        session_id = treeview.item(selection[0])['values'][0]
+        session_id = int(treeview.item(selection[0])['tags'][0])
 
         try:
             # Update the session status to reviewed
@@ -3376,8 +3734,7 @@ class ComprehensiveReconciliationUI(ttk.Frame):
                 else:
                     # Fallback to all
                     cursor.execute("""
-                        SELECT session_id, reconciliation_date, period_type, status, total_system_sales, total_variance, reviewed
-                        FROM reconciliation_sessions
+                SELECT session_id, reconciliation_date, period_type, status, total_system_sales, total_variance
                         ORDER BY reconciliation_date DESC, session_id DESC
                         LIMIT 50
                     """)
